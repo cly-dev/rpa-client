@@ -1,8 +1,23 @@
-import type { Node } from '@xyflow/react'
+import type { Node, NodeChange } from '@xyflow/react'
 import type { NodeRunStatus, ValidationIssue, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import type { FlowNodeData } from './FlowNode.tsx'
 
 export type NodeSize = { readonly width?: number; readonly height?: number }
+
+export function recordNodeMeasurements(changes: readonly NodeChange[], measured: Map<string, NodeSize>): boolean {
+  let changed = false
+  for (const change of changes) {
+    if (change.type === 'dimensions' && change.dimensions !== undefined) {
+      const previous = measured.get(change.id)
+      if (previous?.width !== change.dimensions.width || previous?.height !== change.dimensions.height) {
+        measured.set(change.id, change.dimensions)
+        changed = true
+      }
+    }
+    if (change.type === 'remove' && measured.delete(change.id)) changed = true
+  }
+  return changed
+}
 
 export function toFlowNodes(
   graph: WorkflowGraph,

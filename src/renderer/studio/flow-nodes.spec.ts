@@ -5,10 +5,22 @@ import { ReactFlowProvider, type NodeProps } from '@xyflow/react'
 import { createDefaultTemplate } from '@graph/template.ts'
 import { createNode, createEdge } from '@graph/mutate.ts'
 import { validateGraph } from '@graph/validate.ts'
-import { toFlowNodes } from './flow-nodes.ts'
+import { recordNodeMeasurements, toFlowNodes } from './flow-nodes.ts'
 import { FlowNode, type StudioFlowNode } from './FlowNode.tsx'
 
 describe('toFlowNodes', () => {
+  it('updates controlled node measurements after the first canvas layout', () => {
+    const graph = createDefaultTemplate()
+    const measured = new Map()
+    const first = toFlowNodes(graph, {}, undefined, () => {}, measured)
+    expect(first[0]?.measured).toBeUndefined()
+
+    expect(recordNodeMeasurements([{ id: graph.nodes[0]!.id, type: 'dimensions', dimensions: { width: 180, height: 90 } }], measured)).toBe(true)
+    const next = toFlowNodes(graph, {}, undefined, () => {}, measured)
+    expect(next[0]?.measured).toEqual({ width: 180, height: 90 })
+    expect(recordNodeMeasurements([{ id: graph.nodes[0]!.id, type: 'dimensions', dimensions: { width: 180, height: 90 } }], measured)).toBe(false)
+  })
+
   it('keeps measured node dimensions while positions change during dragging', () => {
     const graph = createDefaultTemplate()
     const source = graph.nodes[1]!

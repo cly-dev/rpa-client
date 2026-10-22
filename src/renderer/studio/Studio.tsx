@@ -38,7 +38,7 @@ import { NODE_CATALOG, PALETTE_TYPES } from '@graph/catalog.ts'
 import { runDry, type DryRunState } from '@runner/dry-run.ts'
 import { workflowNeedsBrowser } from '@runner/page-requirement.ts'
 import { FlowNode } from './FlowNode.tsx'
-import { toFlowNodes, type NodeSize } from './flow-nodes.ts'
+import { recordNodeMeasurements, toFlowNodes, type NodeSize } from './flow-nodes.ts'
 import { Palette, readPaletteType } from './Palette.tsx'
 import { Properties } from './Properties.tsx'
 import { RunPanel } from './RunPanel.tsx'
@@ -211,6 +211,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const toolbarMenuRef = useRef<HTMLDivElement | null>(null)
   const toolbarMenuButtonRef = useRef<HTMLButtonElement | null>(null)
   const nodeSizes = useRef(new Map<string, NodeSize>())
+  const [nodeMeasurementRevision, setNodeMeasurementRevision] = useState(0)
   const runToken = useRef(0)
   const activeEditorRunId = useRef<string>()
   const editorDryRunAbort = useRef<AbortController>()
@@ -288,7 +289,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
     : [...run.logs].reverse().find(line => line.nodeId === run.currentNodeId)?.nodeName
       ?? graph.nodes.find(node => node.id === run.currentNodeId)?.name
   const issues = useMemo(() => [...validateGraph(graph, editorSubflows), ...validatePublishConnections(graph)], [graph, editorSubflows])
-  const nodes = useMemo(() => toFlowNodes(graph, statuses, selectedId, deleteNode, nodeSizes.current, issues), [graph, statuses, selectedId, deleteNode, issues])
+  const nodes = useMemo(() => toFlowNodes(graph, statuses, selectedId, deleteNode, nodeSizes.current, issues), [graph, statuses, selectedId, deleteNode, issues, nodeMeasurementRevision])
   const insertNodeOnEdge = useCallback((edgeId: string, type: NodeType) => {
     const edge = graph.edges.find(item => item.id === edgeId)
     const source = edge === undefined ? undefined : graph.nodes.find(item => item.id === edge.sourceNodeId)
@@ -344,10 +345,11 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   }
 
   const onNodesChange = (changes: NodeChange[]): void => {
-    for (const change of changes) {
-      if (change.type === 'dimensions' && change.dimensions !== undefined) nodeSizes.current.set(change.id, change.dimensions)
-      if (change.type === 'remove') nodeSizes.current.delete(change.id)
-    }
+    const measurementsChanged = recordNodeMeasurements(changes, nodeSizes.current)
+    // Keep the controlled nodes' measured dimensions in sync with React Flow.
+    // Otherwise an unrelated async render can clear its cached handle bounds,
+    // leaving persisted edges temporarily invisible until a resize occurs.
+    if (measurementsChanged) setNodeMeasurementRevision(current => current + 1)
     const positions = new Map(changes.flatMap(change => change.type === 'position' && change.position !== undefined
       ? [[change.id, change.position] as const]
       : []))
