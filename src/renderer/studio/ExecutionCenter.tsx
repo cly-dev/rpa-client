@@ -11,6 +11,7 @@ import { workflowNeedsBrowser } from "@runner/page-requirement.ts";
 import { failedRunReason, readableRunError } from "./execution-message.ts";
 import { safeEventMessage } from './execution-log.ts';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
+import { ApprovalRichText } from './ApprovalRichText.tsx';
 import {
   RPA_SERVICE_URL,
   appendExecutionEvents,
@@ -1188,19 +1189,13 @@ export function ExecutionCenter({
               </button>
             </header>
             <div className="execution-dialog-body">
-              <p className="approval-description">
-                {activeApproval.description || "请确认是否允许流程继续执行。"}
-              </p>
+              <ApprovalRichText className="approval-description" value={activeApproval.description || "请确认是否允许流程继续执行。"} />
               {activeApproval.fields.length > 0 ? (
                 <dl className="approval-detail-list">
                   {activeApproval.fields.map((field, index) => (
                     <div key={`${field.label}-${index}`}>
                       <dt>{field.label || `字段 ${index + 1}`}</dt>
-                      <dd>
-                        {typeof field.value === "object" && field.value !== null
-                          ? JSON.stringify(field.value, null, 2)
-                          : String(field.value ?? "")}
-                      </dd>
+                      <dd>{typeof field.value === "string" ? <ApprovalRichText value={field.value} /> : typeof field.value === "object" && field.value !== null ? JSON.stringify(field.value, null, 2) : String(field.value ?? "")}</dd>
                     </div>
                   ))}
                 </dl>

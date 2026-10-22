@@ -543,6 +543,7 @@ function ApprovalEditor({ graph, node, config, onChange }: { graph: WorkflowGrap
   return <div className="approval-config">
     <label>审批标题<input value={config.title} onChange={event => { onChange({ ...config, title: event.target.value }) }} placeholder="例如：确认提交订单" /></label>
     <label>审批说明<textarea rows={4} value={config.description} onChange={event => { onChange({ ...config, description: event.target.value }) }} placeholder="例如：订单 {{orderId}} 已超过 {{overdueDays}} 天，请确认是否继续" /></label>
+    <p className="properties-hint">展示时支持安全的 HTML 富文本，如 <code>{'<strong>重点</strong>'}</code>、段落、列表和表格；普通文字仍按原样显示。</p>
     <div className="approval-variable-helper"><div><strong>引用变量辅助说明</strong><small>执行到此节点时会替换为变量的实际值</small></div><div><select value={selectedVariable} onChange={event => { setSelectedVariable(event.target.value) }}><option value="">选择变量…</option>{variableNames.map(name => <option key={name} value={name}>{name}</option>)}</select><button type="button" disabled={selectedVariable === ''} onClick={insertVariable}>插入说明</button></div></div>
     <p className="properties-hint">也可手动输入 <code>{'{{变量名}}'}</code>，支持流程输入、循环变量及前置节点产出。</p>
     <div className="ai-field-editor-title"><strong>审批展示字段</strong><button type="button" onClick={() => { onChange({ ...config, fields: [...config.fields, { label: '', value: { kind: 'literal', value: '' }, path: '' }] }) }}>＋添加字段</button></div>

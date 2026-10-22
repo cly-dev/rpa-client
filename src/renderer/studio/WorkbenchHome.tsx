@@ -5,6 +5,7 @@ import { firstPublishIssue } from "@graph/validate.ts";
 import { ExecutionCenter } from "./ExecutionCenter.tsx";
 import type { DryRunState } from "@runner/dry-run.ts";
 import { applyParentVersionUpdate, executeCascadingParentVersionUpdates, executeParentVersionUpdates, hasRedactedSecrets, planParentVersionUpdates, type ParentVersionUpdate } from "./dependency-bulk-update.ts";
+import { bulkArchiveWorkflows } from "./bulk-archive.ts";
 import {
   RPA_SERVICE_URL,
   archiveWorkflow,
@@ -49,6 +50,7 @@ type Module = "workflows" | "executions" | "approvals" | "ai";
 export interface WorkflowListViewState {
   readonly page: number;
   readonly query: string;
+  readonly scope: 'active' | 'archived';
 }
 const EMPTY_LLM: WorkflowLlmConfig = {
   id: "",
@@ -120,7 +122,7 @@ export function WorkbenchHome({
   const [newWorkspaceDescription, setNewWorkspaceDescription] = useState("");
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [workflowTotal, setWorkflowTotal] = useState(0);
-  const { page: workflowPage, query } = workflowListView;
+  const { page: workflowPage, query, scope: workflowScope } = workflowListView;
   const workflowRequestId = useRef(0);
   const searchTimer = useRef<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
@@ -157,6 +159,10 @@ export function WorkbenchHome({
   const [notice, setNotice] = useState("");
   const [noticeTone, setNoticeTone] = useState<"success" | "error">("success");
   const [selectedExportIds, setSelectedExportIds] = useState<readonly string[]>([]);
+  const [archiveSelectionMode, setArchiveSelectionMode] = useState(false);
+  const [selectedArchiveIds, setSelectedArchiveIds] = useState<readonly string[]>([]);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [archivingBatch, setArchivingBatch] = useState(false);
   const [packageBusy, setPackageBusy] = useState(false);
   const [importBundle, setImportBundle] = useState<WorkflowPackage>();
   const [importFileName, setImportFileName] = useState("");
@@ -171,7 +177,13 @@ export function WorkbenchHome({
     (keyDraft !== "" ||
       JSON.stringify(draft) !== JSON.stringify(editableLlm(selectedLlm)));
 
-  useEffect(() => { setSelectedExportIds([]); }, [selectedWorkspaceId]);
+  useEffect(() => {
+    setSelectedExportIds([]);
+    setSelectedArchiveIds([]);
+    setArchiveSelectionMode(false);
+    setArchiveConfirmOpen(false);
+  }, [selectedWorkspaceId, workflowScope]);
+  useEffect(() => { setSelectedArchiveIds([]); }, [workflowPage, query]);
 
   useEffect(() => {
     if (actionMenuWorkflowId === undefined) return;
@@ -199,6 +211,7 @@ export function WorkbenchHome({
   const loadWorkflows = async (
     page = workflowPage,
     search = query,
+    scope = workflowScope,
   ): Promise<void> => {
     const requestId = ++workflowRequestId.current;
     onWorkflowListViewChange((current) => current.page === page ? current : { ...current, page });
@@ -210,9 +223,11 @@ export function WorkbenchHome({
         pageSize,
         search,
         selectedWorkspaceId,
+        scope === 'archived' ? 'archived' : undefined,
       );
       if (requestId !== workflowRequestId.current) return;
       setWorkflows(result.items);
+      setSelectedArchiveIds(current => current.filter(id => result.items.some(item => item.id === id)));
       setWorkflowTotal(result.total);
       onWorkflowListViewChange((current) => ({ ...current, page: result.page }));
       showNotice("");
@@ -355,10 +370,7 @@ export function WorkbenchHome({
     if (!window.confirm(`确定归档流程「${item.name}」吗？`)) return;
     try {
       await archiveWorkflow(RPA_SERVICE_URL, item.id);
-      setWorkflows((current) =>
-        current.filter((workflow) => workflow.id !== item.id),
-      );
-      setWorkflowTotal((current) => Math.max(0, current - 1));
+      await loadWorkflows(workflowPage > 1 && workflows.length === 1 ? workflowPage - 1 : workflowPage, query);
       showNotice(`已归档「${item.name}」`);
     } catch (error) {
       showNotice(
@@ -366,6 +378,21 @@ export function WorkbenchHome({
         "error",
       );
     }
+  };
+
+  const archiveSelected = async (): Promise<void> => {
+    if (archivingBatch || selectedArchiveIds.length === 0 || workflowScope !== 'active') return;
+    const selected = workflows.filter(item => selectedArchiveIds.includes(item.id));
+    if (selected.length === 0) return;
+    setArchivingBatch(true);
+    const result = await bulkArchiveWorkflows(selected.map(item => item.id), id => archiveWorkflow(RPA_SERVICE_URL, id));
+    setArchiveConfirmOpen(false);
+    setSelectedArchiveIds(result.failures.map(item => item.id));
+    const nextPage = workflowPage > 1 && workflows.length === result.archivedIds.length ? workflowPage - 1 : workflowPage;
+    await loadWorkflows(nextPage, query);
+    const failedNames = result.failures.map(item => `${selected.find(flow => flow.id === item.id)?.name ?? item.id}：${item.message}`);
+    showNotice(`已归档 ${result.archivedIds.length}/${selected.length} 个流程，执行记录和日志已保留。${failedNames.length ? `失败：${failedNames.join('；')}` : ''}`, failedNames.length ? 'error' : 'success');
+    setArchivingBatch(false);
   };
 
   const deleteFlowPermanently = async (): Promise<void> => {
@@ -412,7 +439,7 @@ export function WorkbenchHome({
     setCopyingWorkflowId(item.id);
     try {
       const copied = await copyWorkflow(RPA_SERVICE_URL, item.id);
-      onWorkflowListViewChange({ page: 1, query: "" });
+      onWorkflowListViewChange({ page: 1, query: "", scope: workflowScope });
       await loadWorkflows(1, "");
       showNotice(
         `已复制「${item.name}」为「${copied.name}」，副本已保存为草稿。`,
@@ -593,7 +620,7 @@ export function WorkbenchHome({
       if (searchTimer.current !== undefined) window.clearTimeout(searchTimer.current);
       searchTimer.current = undefined;
     }
-  }, [active, selectedWorkspaceId]);
+  }, [active, selectedWorkspaceId, workflowScope]);
   useEffect(() => {
     return () => {
       workflowRequestId.current += 1;
@@ -848,7 +875,7 @@ export function WorkbenchHome({
               <div>
                 <span className="eyebrow">AUTOMATIONS</span>
                 <h1>流程管理</h1>
-                <p>当前空间：{workspaces.find(item => item.id === selectedWorkspaceId)?.name ?? '默认空间'}。新建流程会归属于此空间。</p>
+                <p>当前空间：{workspaces.find(item => item.id === selectedWorkspaceId)?.name ?? '默认空间'}。{workflowScope === 'archived' ? '这里显示已归档流程，执行历史仍然保留。' : '新建流程会归属于此空间。'}</p>
               </div>
               <button className="workbench-primary" onClick={onCreateWorkflow}>
                 ＋ 新建流程
@@ -862,7 +889,7 @@ export function WorkbenchHome({
                   onChange={(event) => {
                     const nextQuery = event.target.value;
                     workflowRequestId.current += 1;
-                    onWorkflowListViewChange({ page: 1, query: nextQuery });
+                    onWorkflowListViewChange({ page: 1, query: nextQuery, scope: workflowScope });
                     if (searchTimer.current !== undefined) window.clearTimeout(searchTimer.current);
                     searchTimer.current = window.setTimeout(() => {
                       searchTimer.current = undefined;
@@ -872,10 +899,15 @@ export function WorkbenchHome({
                   placeholder="搜索流程名称…"
                 />
               </label>
+              <div className="workbench-flow-scope" role="group" aria-label="流程状态筛选">
+                <button type="button" className={workflowScope === 'active' ? 'is-active' : ''} disabled={archivingBatch} onClick={() => { onWorkflowListViewChange({ page: 1, query, scope: 'active' }); }}>进行中</button>
+                <button type="button" className={workflowScope === 'archived' ? 'is-active' : ''} disabled={archivingBatch} onClick={() => { onWorkflowListViewChange({ page: 1, query, scope: 'archived' }); }}>已归档</button>
+              </div>
               <span>{workflowTotal} 个流程</span>
               <input ref={importFileRef} type="file" accept=".json,application/json" hidden onChange={event => { void readImportFile(event.target.files?.[0]); }} />
               <button type="button" disabled={packageBusy} onClick={() => { importFileRef.current?.click(); }}>导入流程包</button>
               <button type="button" disabled={packageBusy || selectedExportIds.length === 0} onClick={() => { void exportSelected(); }}>导出已选 {selectedExportIds.length > 0 ? `(${selectedExportIds.length})` : ''}</button>
+              {workflowScope === 'active' ? <button type="button" className={archiveSelectionMode ? 'is-active' : ''} disabled={archivingBatch} onClick={() => { setArchiveSelectionMode(current => !current); setSelectedArchiveIds([]); setSelectedExportIds([]); }}>批量归档</button> : null}
               <button
                 onClick={() => {
                   void loadWorkflows(workflowPage, query);
@@ -884,6 +916,12 @@ export function WorkbenchHome({
                 刷新
               </button>
             </div>
+            {archiveSelectionMode && workflowScope === 'active' ? <div className="workbench-bulk-toolbar">
+              <span>已选择 {selectedArchiveIds.length} 个流程 · 归档后保留执行记录和日志</span>
+              <button type="button" disabled={archivingBatch || workflows.length === 0} onClick={() => { setSelectedArchiveIds(workflows.map(item => item.id)); }}>全选本页</button>
+              <button type="button" disabled={archivingBatch || selectedArchiveIds.length === 0} onClick={() => { setSelectedArchiveIds([]); }}>清空选择</button>
+              <button type="button" className="is-danger" disabled={archivingBatch || selectedArchiveIds.length === 0} onClick={() => { setArchiveConfirmOpen(true); }}>归档已选（{selectedArchiveIds.length}）</button>
+            </div> : null}
             {loading ? (
               <div className="workbench-empty">
                 <span className="workbench-spinner" />
@@ -892,13 +930,13 @@ export function WorkbenchHome({
             ) : workflows.length === 0 ? (
               <div className="workbench-empty">
                 <div className="workbench-empty-icon">◇</div>
-                <strong>{query ? "没有匹配的流程" : "还没有流程"}</strong>
+                <strong>{query ? "没有匹配的流程" : workflowScope === 'archived' ? '暂无已归档流程' : "还没有流程"}</strong>
                 <p>
-                  {query
-                    ? "换个关键词试试。"
+                  {query ? "换个关键词试试。" : workflowScope === 'archived'
+                    ? '归档后的流程会显示在这里，原有执行记录仍可在执行中心查看。'
                     : "创建你的第一个流程，开始自动化重复工作。"}
                 </p>
-                {!query ? (
+                {!query && workflowScope === 'active' ? (
                   <button
                     className="workbench-primary"
                     onClick={onCreateWorkflow}
@@ -910,13 +948,15 @@ export function WorkbenchHome({
             ) : (
               <div className="workbench-flow-grid">
                 {workflows.map((item) => (
-                  <article className={`workbench-flow-card${selectedExportIds.includes(item.id) ? ' is-selected-for-export' : ''}`} key={item.id}>
-                    <label className="workbench-flow-select" title={item.publishedVersion === null ? '未发布流程不能导出' : '选中导出'}>
-                      <input type="checkbox" checked={selectedExportIds.includes(item.id)} disabled={item.publishedVersion === null} onChange={event => { setSelectedExportIds(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id)); }} />
-                      <span>导出</span>
+                  <article className={`workbench-flow-card${archiveSelectionMode && workflowScope === 'active' && selectedArchiveIds.includes(item.id) ? ' is-selected-for-archive' : selectedExportIds.includes(item.id) ? ' is-selected-for-export' : ''}${item.status === 'archived' ? ' is-archived' : ''}`} key={item.id}>
+                    <label className="workbench-flow-select" title={archiveSelectionMode && workflowScope === 'active' ? '选中归档' : item.publishedVersion === null ? '未发布流程不能导出' : '选中导出'}>
+                      <input type="checkbox" checked={archiveSelectionMode && workflowScope === 'active' ? selectedArchiveIds.includes(item.id) : selectedExportIds.includes(item.id)} disabled={archivingBatch || (!archiveSelectionMode && item.publishedVersion === null)} onChange={event => { if (archiveSelectionMode && workflowScope === 'active') setSelectedArchiveIds(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id)); else setSelectedExportIds(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id)); }} />
+                      <span>{archiveSelectionMode && workflowScope === 'active' ? '归档' : '导出'}</span>
                     </label>
                     <button
                       className="workbench-flow-open"
+                      disabled={item.status === 'archived'}
+                      title={item.status === 'archived' ? '已归档流程不可编辑' : undefined}
                       onClick={() => {
                         onOpenWorkflow(item.id);
                       }}
@@ -924,7 +964,9 @@ export function WorkbenchHome({
                       <span className="workbench-flow-icon">⌘</span>
                       <strong>{item.name}</strong>
                       <small>
-                        {item.status === "published"
+                        {item.status === 'archived'
+                          ? `已归档${item.publishedVersion === null ? ' · 未发布' : ` · 原发布 v${item.publishedVersion}`}`
+                          : item.status === "published"
                           ? `运行：已发布 v${item.publishedVersion} · 草稿无更新`
                           : item.publishedVersion === null
                             ? "草稿编辑中 · 运行：未发布"
@@ -949,12 +991,12 @@ export function WorkbenchHome({
                       </button>
                       {actionMenuWorkflowId === item.id ? <div className="workbench-flow-menu" role="menu">
                         <button type="button" role="menuitem" onClick={() => { setActionMenuWorkflowId(undefined); void openDependencies(item); }}><WorkflowMenuIcon kind="dependencies" /><span>查看依赖</span></button>
-                        <button type="button" role="menuitem" disabled={copyingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); void copyFlow(item); }}><WorkflowMenuIcon kind="copy" /><span>{copyingWorkflowId === item.id ? "复制中…" : "复制流程"}</span></button>
-                        <button type="button" role="menuitem" disabled={workspaces.every(space => space.id === item.workspaceId) || movingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); setMoveTargetWorkspaceId(workspaces.find(space => space.id !== item.workspaceId)?.id ?? ''); setMoveCandidate(item); }}><WorkflowMenuIcon kind="move" /><span>移动到空间</span></button>
-                        {item.status !== "published" ? <button type="button" role="menuitem" disabled={publishingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); void publishFlow(item); }}><WorkflowMenuIcon kind="publish" /><span>{publishingWorkflowId === item.id ? "发布中…" : item.publishedVersion === null ? "发布流程" : "发布更新"}</span></button> : <button type="button" role="menuitem" disabled><WorkflowMenuIcon kind="published" /><span>已发布 v{item.publishedVersion}</span></button>}
+                        {item.status !== 'archived' ? <button type="button" role="menuitem" disabled={copyingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); void copyFlow(item); }}><WorkflowMenuIcon kind="copy" /><span>{copyingWorkflowId === item.id ? "复制中…" : "复制流程"}</span></button> : null}
+                        {item.status !== 'archived' ? <button type="button" role="menuitem" disabled={workspaces.every(space => space.id === item.workspaceId) || movingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); setMoveTargetWorkspaceId(workspaces.find(space => space.id !== item.workspaceId)?.id ?? ''); setMoveCandidate(item); }}><WorkflowMenuIcon kind="move" /><span>移动到空间</span></button> : null}
+                        {item.status !== 'archived' ? item.status !== "published" ? <button type="button" role="menuitem" disabled={publishingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); void publishFlow(item); }}><WorkflowMenuIcon kind="publish" /><span>{publishingWorkflowId === item.id ? "发布中…" : item.publishedVersion === null ? "发布流程" : "发布更新"}</span></button> : <button type="button" role="menuitem" disabled><WorkflowMenuIcon kind="published" /><span>已发布 v{item.publishedVersion}</span></button> : null}
                         <hr />
-                        <button type="button" role="menuitem" onClick={() => { setActionMenuWorkflowId(undefined); void archiveFlow(item); }}><WorkflowMenuIcon kind="archive" /><span>归档</span></button>
-                        <button type="button" role="menuitem" className="is-danger" disabled={deletingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); setDeleteConfirmation(""); setDeleteCandidate(item); }}><WorkflowMenuIcon kind="delete" /><span>{deletingWorkflowId === item.id ? "删除中…" : "永久删除"}</span></button>
+                        {item.status !== 'archived' ? <button type="button" role="menuitem" onClick={() => { setActionMenuWorkflowId(undefined); void archiveFlow(item); }}><WorkflowMenuIcon kind="archive" /><span>归档</span></button> : null}
+                        <button type="button" role="menuitem" className="is-danger" disabled={deletingWorkflowId !== undefined} onClick={() => { setActionMenuWorkflowId(undefined); setDeleteConfirmation(""); setDeleteCandidate(item); }}><WorkflowMenuIcon kind="delete" /><span>{deletingWorkflowId === item.id ? "删除中…" : "永久删除（含记录）"}</span></button>
                       </div> : null}
                     </div>
                   </article>
@@ -1287,6 +1329,16 @@ export function WorkbenchHome({
             </section>
           </div>
         ) : null}
+        {archiveConfirmOpen ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { if (!archivingBatch) setArchiveConfirmOpen(false); }}>
+          <section className="execution-dialog workflow-delete-dialog" role="dialog" aria-modal="true" aria-label="批量归档流程" onClick={event => { event.stopPropagation(); }}>
+            <header><div><h2>批量归档流程</h2><p>确认后将逐个归档，执行记录与日志不会删除。</p></div><button type="button" aria-label="关闭" disabled={archivingBatch} onClick={() => { setArchiveConfirmOpen(false); }}>×</button></header>
+            <div className="execution-dialog-body">
+              <div className="workflow-delete-warning"><strong>将归档 {selectedArchiveIds.length} 个流程</strong><p>归档后流程会从“进行中”移至“已归档”，不再提供编辑和发布。若部分流程归档失败，已成功的不会自动撤销。</p></div>
+              <div className="workbench-archive-preview">{workflows.filter(item => selectedArchiveIds.includes(item.id)).map(item => <span key={item.id}>{item.name}</span>)}</div>
+            </div>
+            <footer><button type="button" disabled={archivingBatch} onClick={() => { setArchiveConfirmOpen(false); }}>取消</button><button type="button" className="workflow-delete-confirm" disabled={archivingBatch || selectedArchiveIds.length === 0} onClick={() => { void archiveSelected(); }}>{archivingBatch ? '归档中…' : `确认归档 ${selectedArchiveIds.length} 个`}</button></footer>
+          </section>
+        </div> : null}
         {deleteCandidate ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { if (deletingWorkflowId === undefined) { setDeleteCandidate(undefined); setDeleteConfirmation(""); } }}>
           <section className="execution-dialog workflow-delete-dialog" role="dialog" aria-modal="true" aria-label="永久删除流程" onClick={(event) => { event.stopPropagation(); }}>
             <header><div><h2>永久删除流程</h2><p>此操作无法撤销，请确认删除范围。</p></div><button type="button" aria-label="关闭" disabled={deletingWorkflowId !== undefined} onClick={() => { setDeleteCandidate(undefined); setDeleteConfirmation(""); }}>×</button></header>

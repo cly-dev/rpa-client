@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { linkScheduleExecution, listScheduleOccurrences, listSchedules, loadServiceLlmConfigs, listWorkflowRevisions, moveWorkflow } from './workflow-api.ts'
+import { archiveWorkflow, linkScheduleExecution, listScheduleOccurrences, listSchedules, listWorkflows, loadServiceLlmConfigs, listWorkflowRevisions, moveWorkflow } from './workflow-api.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
 beforeEach(() => {
@@ -30,6 +30,18 @@ it('sends a workspace-only patch when moving a workflow', async () => {
 
   expect(await moveWorkflow('http://service.test', 'wf-1', 'ws-service')).toEqual(moved)
   expect(fetcher).toHaveBeenCalledWith('http://service.test/workflows/wf-1/workspace', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ workspaceId: 'ws-service' }) }))
+})
+
+it('loads archived workflows separately and archives without a permanent-delete request', async () => {
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ code: 0, data: { items: [], total: 0, page: 1, pageSize: 12 } }) })
+  vi.stubGlobal('fetch', fetcher)
+
+  await listWorkflows('http://service.test', 1, 12, '', 'space-1', 'archived')
+  await archiveWorkflow('http://service.test', 'wf-1')
+
+  expect(fetcher.mock.calls[0]?.[0]).toContain('workspaceId=space-1&status=archived')
+  expect(fetcher.mock.calls[1]?.[0]).toBe('http://service.test/workflows/wf-1')
+  expect(fetcher.mock.calls[1]?.[1]).toMatchObject({ method: 'DELETE' })
 })
 
 it('loads every AI configuration page with the service JWT', async () => {

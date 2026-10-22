@@ -214,10 +214,11 @@ export function deleteWorkspace(baseUrl: string, id: string): Promise<{ id: stri
   return request(baseUrl, 'workspaces', `/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export function listWorkflows(baseUrl: string, page = 1, pageSize = 20, q = '', workspaceId?: string): Promise<{ items: WorkflowListItem[]; total: number; page: number; pageSize: number }> {
+export function listWorkflows(baseUrl: string, page = 1, pageSize = 20, q = '', workspaceId?: string, status?: 'archived'): Promise<{ items: WorkflowListItem[]; total: number; page: number; pageSize: number }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), sort: 'updatedAt', order: 'desc' })
   if (q.trim()) params.set('q', q.trim())
   if (workspaceId) params.set('workspaceId', workspaceId)
+  if (status) params.set('status', status)
   return request(baseUrl, 'workflows', `?${params}`)
 }
 

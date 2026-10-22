@@ -52,6 +52,7 @@ import { downloadJson, importWorkflowJson, safeJsonFilename } from './json-trans
 import { planBulkSubflowVersionUpdate } from './subflow-version.ts'
 import { WebhookSettings } from './WebhookSettings.tsx'
 import { WorkflowRunningBubble } from './WorkflowRunningBubble.tsx'
+import { ApprovalRichText } from './ApprovalRichText.tsx'
 import type { AuthUser } from '../auth.ts'
 
 const nodeTypes = { studio: FlowNode }
@@ -164,7 +165,7 @@ function InsertableEdge(props: EdgeProps): ReactNode {
 export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLogout: () => void }): ReactNode {
   const [graph, setGraph] = useState<WorkflowGraph>(() => ({ ...createDefaultTemplate(), context: { inputs: [], variables: [] } }))
   const [view, setView] = useState<'home' | 'editor'>('home')
-  const [workflowListView, setWorkflowListView] = useState<WorkflowListViewState>({ page: 1, query: '' })
+  const [workflowListView, setWorkflowListView] = useState<WorkflowListViewState>({ page: 1, query: '', scope: 'active' })
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => localStorage.getItem('rpa.workspaceId') || 'default')
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [serviceWorkflowId, setServiceWorkflowId] = useState<string>()
@@ -989,7 +990,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
     } : undefined}
   /> : null
 
-  if (view === 'home') return <><WorkbenchHome currentUser={currentUser} onLogout={onLogout} onOpenWorkflow={id => { void openServiceWorkflow(id) }} onCreateWorkflow={createServiceWorkflow} selectedWorkspaceId={selectedWorkspaceId} onWorkspaceChange={id => { setSelectedWorkspaceId(id); localStorage.setItem('rpa.workspaceId', id); setWorkflowListView({ page: 1, query: '' }) }} workflowListView={workflowListView} onWorkflowListViewChange={setWorkflowListView} onRunActivityChange={activity => { setGlobalRunActivity(activity); if (activity === undefined) setStoppingRunId(undefined) }} />{runningBubble}</>
+  if (view === 'home') return <><WorkbenchHome currentUser={currentUser} onLogout={onLogout} onOpenWorkflow={id => { void openServiceWorkflow(id) }} onCreateWorkflow={createServiceWorkflow} selectedWorkspaceId={selectedWorkspaceId} onWorkspaceChange={id => { setSelectedWorkspaceId(id); localStorage.setItem('rpa.workspaceId', id); setWorkflowListView({ page: 1, query: '', scope: 'active' }) }} workflowListView={workflowListView} onWorkflowListViewChange={setWorkflowListView} onRunActivityChange={activity => { setGlobalRunActivity(activity); if (activity === undefined) setStoppingRunId(undefined) }} />{runningBubble}</>
 
   return (
     <div className="studio">
@@ -1087,8 +1088,8 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         <section className="execution-dialog approval-dialog" role="dialog" aria-modal="true" aria-label="审批任务" onClick={event => { event.stopPropagation() }}>
           <header><div><h2>{editorApproval.title}</h2><p>{editorApproval.nodeName} · 编辑器试运行审批</p></div></header>
           <div className="execution-dialog-body">
-            <p className="approval-description">{editorApproval.description || '请确认是否允许流程继续执行。'}</p>
-            {editorApproval.fields.length > 0 ? <dl className="approval-detail-list">{editorApproval.fields.map((field, index) => <div key={`${field.label}-${index}`}><dt>{field.label || `字段 ${index + 1}`}</dt><dd>{typeof field.value === 'object' && field.value !== null ? JSON.stringify(field.value, null, 2) : String(field.value ?? '')}</dd></div>)}</dl> : null}
+            <ApprovalRichText className="approval-description" value={editorApproval.description || '请确认是否允许流程继续执行。'} />
+            {editorApproval.fields.length > 0 ? <dl className="approval-detail-list">{editorApproval.fields.map((field, index) => <div key={`${field.label}-${index}`}><dt>{field.label || `字段 ${index + 1}`}</dt><dd>{typeof field.value === 'string' ? <ApprovalRichText value={field.value} /> : typeof field.value === 'object' && field.value !== null ? JSON.stringify(field.value, null, 2) : String(field.value ?? '')}</dd></div>)}</dl> : null}
             <label className="execution-input-field"><span>审批意见{editorApproval.requireCommentOnReject ? <em>拒绝时必填</em> : null}</span><textarea rows={4} value={editorApprovalComment} onChange={event => { setEditorApprovalComment(event.target.value) }} placeholder="填写审批意见（可选）" /></label>
             {editorApproval.timeoutAt ? <p className="properties-hint">审批截止时间：{new Date(editorApproval.timeoutAt).toLocaleString()}</p> : null}
             <p className="properties-hint">选择通过或拒绝后，流程会从对应出口继续执行。</p>
