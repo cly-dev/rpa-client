@@ -1,0 +1,2 @@
+# 生产环境服务；打包前填写其他电脑可访问的真实地址
+VITE_RPA_SERVICE_URL=https://rpa-service.a-premium.com/api/v1

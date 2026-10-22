@@ -1,0 +1,55 @@
+{
+  "name": "cs-rpa-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Dify-style RPA studio for generic browser and agent workflows",
+  "type": "module",
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "dev": "electron-vite dev --mode development",
+    "dev:local": "electron-vite dev --mode development",
+    "dev:test": "electron-vite dev --mode test",
+    "dev:production": "electron-vite dev --mode production",
+    "build": "electron-vite build --mode development",
+    "build:local": "electron-vite build --mode development",
+    "build:test": "electron-vite build --mode test",
+    "build:production": "electron-vite build --mode production",
+    "icons:generate": "node scripts/generate-app-icons.mjs",
+    "test": "vitest run",
+    "dist:mac": "pnpm dist:mac:production",
+    "dist:mac:test": "pnpm build:test && node scripts/stage-playwright-browser.mjs darwin && electron-builder --mac --config.appId=com.csworkspace.rpa-studio.test --config.productName=RPA工作室-测试",
+    "dist:mac:production": "pnpm build:production && node scripts/stage-playwright-browser.mjs darwin && electron-builder --mac",
+    "dist:win": "pnpm dist:win:production",
+    "dist:win:test": "pnpm build:test && node scripts/stage-playwright-browser.mjs win32 && electron-builder --win --config.appId=com.csworkspace.rpa-studio.test --config.productName=RPA工作室-测试",
+    "dist:win:production": "pnpm build:production && node scripts/stage-playwright-browser.mjs win32 && electron-builder --win"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@langchain/core": "^1.2.17",
+    "@langchain/openai": "^1.6.2",
+    "@xyflow/react": "^12.8.2",
+    "elkjs": "^0.12.0",
+    "playwright": "^1.63.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.1.0",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.4",
+    "vitest": "^3.1.1"
+  }
+}
