@@ -340,6 +340,10 @@ describe('runBrowser', () => {
     expect(state.variables?.username).toBe('Alice')
     expect(state.inputs?.orderId).toBe('ORDER-7')
     expect(state.variables?.heading).toBe('Example Domain')
+
+    const fallbackState = await runBrowser(graph, fakeDriver([]), { onUpdate() {}, wait: async () => {} }, { inputs: { orderId: null } })
+    expect(fallbackState.status).toBe('succeeded')
+    expect(fallbackState.inputs?.orderId).toBe('default-order')
   })
 
   it('executes page-action steps in their reordered sequence', async () => {
@@ -414,18 +418,19 @@ describe('runBrowser', () => {
       llm: { id: 'test-ai', name: '测试 AI', enabled: true, model: 'test', baseUrl: 'https://example.com', chatPath: '/v1/chat/completions', apiKey: '', maxTokens: 100 },
       nodes: [
         { ...start, config: { type: 'start', url: 'https://example.com' } },
-        { ...choice, config: { type: 'switch', mode: 'ai', left: { kind: 'literal', value: '我去你的' }, path: '', cases: ['打招呼', '骂人的话'], casePrompts: ['打招呼的话', '骂人的话'] } },
+        { ...choice, config: { type: 'switch', mode: 'ai', left: { kind: 'literal', value: '我去你的' }, path: '', cases: ['打招呼', '骂人的话'], casePrompts: ['打招呼的话', '骂人的话'], aiContext: '{{orderContext}}' } },
         matchedEnd, elseEnd,
       ],
       edges: [createEdge(start.id, 'default', choice.id), createEdge(choice.id, 'case-1', matchedEnd.id), createEdge(choice.id, 'else', elseEnd.id)],
     }
     const driver = fakeDriver([])
-    driver.generateSwitch = async (content, cases) => {
+    driver.generateSwitch = async (content, cases, _systemPrompt, _llm, supplementalContext) => {
       expect(content).toBe('我去你的')
       expect(cases.map(item => item.id)).toEqual(['case-0', 'case-1'])
+      expect(supplementalContext).toBe('{\n  "customerLevel": "VIP",\n  "orderStatus": "paid"\n}')
       return { branch: 'case-1', reason: '带有辱骂语气' }
     }
-    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} })
+    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} }, { variables: { orderContext: { customerLevel: 'VIP', orderStatus: 'paid' } } })
     expect(state.status).toBe('succeeded')
     expect(state.nodes[matchedEnd.id]).toBe('succeeded')
     expect(state.nodes[elseEnd.id]).toBe('pending')

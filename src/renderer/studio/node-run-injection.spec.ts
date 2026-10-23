@@ -17,4 +17,5 @@ describe('node run injections', () => {
       { key: 'c', name: 'api-1.data', type: 'json', value: '{"ok":true}', source: 'output', nodeId: 'api-1', port: 'data' },
     ])).toEqual({ variables: { order: { id: 42 }, approved: false }, outputs: { 'api-1': { data: { ok: true } } } })
   })
+
 })

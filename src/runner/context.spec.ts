@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, type WorkflowContext } from './context.ts'
+import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, runtimeInputValues, type WorkflowContext } from './context.ts'
 
 const context = (): WorkflowContext => ({
   inputs: { orderId: 'A-1001' }, variables: { retry: 2 }, failures: {}, successes: {}, outputs: { extract: { data: { items: [{ name: 'Alpha' }] } } },
@@ -50,5 +50,29 @@ describe('workflow context', () => {
       { name: 'username', type: 'string', defaultValue: 'demo' },
       { name: 'optional', type: 'string' },
     ])).toEqual({ username: 'demo', optional: null })
+  })
+
+  it('uses runtime-input defaults when supplied values are null', () => {
+    const definitions = [
+      { name: 'username', type: 'string' as const, defaultValue: 'demo' },
+      { name: 'count', type: 'number' as const, defaultValue: 3 },
+      { name: 'enabled', type: 'boolean' as const, defaultValue: true },
+      { name: 'optional', type: 'string' as const },
+    ]
+    expect(runtimeInputValues(definitions, {
+      username: null,
+      count: 0,
+      enabled: false,
+      optional: null,
+      undeclared: null,
+    })).toEqual({ username: 'demo', count: 0, enabled: false, optional: null, undeclared: null })
+  })
+
+  it('keeps intentionally supplied empty strings, arrays, and objects', () => {
+    expect(runtimeInputValues([
+      { name: 'text', type: 'string', defaultValue: 'default' },
+      { name: 'items', type: 'array', defaultValue: [1] },
+      { name: 'payload', type: 'object', defaultValue: { ok: true } },
+    ], { text: '', items: [], payload: {} })).toEqual({ text: '', items: [], payload: {} })
   })
 })

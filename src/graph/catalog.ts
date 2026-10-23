@@ -248,7 +248,7 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'condition':
       return { type: 'condition', left: literalBinding(''), path: '', equals: '', mode: 'value', selector: '', operator: 'equals', clauses: [{ binding: literalBinding(''), operator: 'equals', value: '' }], logic: 'and', waitForCondition: false, waitTimeoutMs: 10000, pollIntervalMs: 500, aiPrompt: '', llmId: undefined }
     case 'switch':
-      return { type: 'switch', left: literalBinding(''), path: '', cases: [''], caseTypes: ['string'], caseIds: [newId('case')] }
+      return { type: 'switch', left: literalBinding(''), path: '', cases: [''], caseTypes: ['string'], caseIds: [newId('case')], aiContext: '' }
     case 'image-recognition':
       return { type: 'image-recognition', image: literalBinding(''), path: '', instruction: '', cases: [{ id: newId('case'), name: '', prompt: '' }], outputName: 'imageResult' }
     case 'call-subflow':

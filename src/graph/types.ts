@@ -208,6 +208,8 @@ export interface SwitchConfig {
   readonly casePrompts?: readonly string[]
   readonly llmId?: string
   readonly aiSystemPrompt?: string
+  /** Supplemental business data and context supplied to the AI classifier. */
+  readonly aiContext?: string
 }
 
 export interface ImageRecognitionCase {

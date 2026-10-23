@@ -224,6 +224,7 @@ async function generateSwitch(
   cases: readonly { id: string; name: string; prompt: string }[],
   systemPrompt: string,
   llm: WorkflowLlmConfig,
+  supplementalContext = '',
 ): Promise<{ branch: string; reason: string }> {
   if (!llm.enabled) throw new Error(`AI 配置「${llm.name}」未启用`)
   if (!llm.model.trim()) throw new Error(`AI 配置「${llm.name}」未填写模型`)
@@ -242,9 +243,10 @@ async function generateSwitch(
     configuration: { baseURL: langChainBaseUrl(llm) },
   })
   const branches = cases.map(item => `${item.id}：${item.name}\n判断要求：${item.prompt}`).join('\n\n')
+  const contextSection = supplementalContext.trim() ? `\n\n补充数据与上下文：\n${supplementalContext.trim()}` : ''
   const messages = [
-    new SystemMessage(`你是严格的业务场景分类器。只根据输入和候选分支的判断要求，按顺序选择第一个符合的分支；都不符合才选择 else。必须只返回 JSON 对象，包含 branch（分支 ID）和 reason（简短依据）两个字段；不要输出 Markdown、额外文字或思考过程。${systemPrompt.trim() ? `\n补充规则：${systemPrompt.trim()}` : ''}`),
-    new HumanMessage(`输入内容：\n${content}\n\n候选分支（按优先级排序）：\n${branches}\n\nbranch 只能选择上述分支 ID 或 else，并以 JSON 格式返回。`),
+    new SystemMessage(`你是严格的业务场景分类器。只根据输入内容、补充数据与上下文以及候选分支的判断要求，按顺序选择第一个符合的分支；都不符合才选择 else。必须只返回 JSON 对象，包含 branch（分支 ID）和 reason（简短依据）两个字段；不要输出 Markdown、额外文字或思考过程。${systemPrompt.trim() ? `\n补充规则：${systemPrompt.trim()}` : ''}`),
+    new HumanMessage(`输入内容：\n${content}${contextSection}\n\n候选分支（按优先级排序）：\n${branches}\n\nbranch 只能选择上述分支 ID 或 else，并以 JSON 格式返回。`),
   ]
   try {
     return await model.withStructuredOutput(schema, { name: 'switch_decision', method: 'jsonMode' }).invoke(messages)
@@ -570,7 +572,36 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       const unique = (candidate: string): string | undefined => {
         try { return document.querySelectorAll(candidate).length === 1 ? candidate : undefined } catch { return undefined }
       }
-      if (html.id) return `#${CSS.escape(html.id)}`
+      const normalizedText = (candidate: Element): string => ((candidate as HTMLElement).innerText || '').trim().replace(/\s+/g, ' ')
+      const uniqueExactText = (text: string): boolean => {
+        if (text === '') return false
+        const matches = Array.from(document.querySelectorAll('body *')).filter(candidate => !panel.contains(candidate) && normalizedText(candidate) === text)
+        return matches.length === 1 && matches[0] === element
+      }
+      const structuralSelector = (): string => {
+        if (element === document.documentElement) return 'html'
+        const parts: string[] = []
+        let current: Element | null = element
+        while (current !== null && current !== document.documentElement) {
+          const tag = current.tagName.toLowerCase()
+          let part = tag
+          if (current.id !== '') part = `#${CSS.escape(current.id)}`
+          else if (current.parentElement !== null) {
+            const siblings = Array.from(current.parentElement.children).filter(sibling => sibling.tagName === current?.tagName)
+            if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`
+          }
+          parts.unshift(part)
+          const candidate = unique(parts.join(' > '))
+          if (candidate !== undefined) return candidate
+          if (current.id !== '') break
+          current = current.parentElement
+        }
+        return parts.join(' > ')
+      }
+      if (html.id) {
+        const candidate = unique(`#${CSS.escape(html.id)}`)
+        if (candidate !== undefined) return candidate
+      }
       for (const [attribute, value] of [['data-testid', html.getAttribute('data-testid')], ['name', html.getAttribute('name')], ['aria-label', html.getAttribute('aria-label')], ['placeholder', html.getAttribute('placeholder')], ['autocomplete', html.getAttribute('autocomplete')], ['title', html.getAttribute('title')]]) {
         if (value !== null && value !== '') {
           const candidate = unique(`[${attribute}="${CSS.escape(value)}"]`)
@@ -587,10 +618,10 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
         const candidate = unique(`[role="${CSS.escape(role)}"]`)
         if (candidate !== undefined) return candidate
       }
-      const text = (html.innerText || '').trim().replace(/\s+/g, ' ')
+      const text = normalizedText(html)
       // Buttons and links are usually safest to replay by their visible
-      // label. This avoids framework-generated class names entirely.
-      if (text !== '' && text.length <= 80 && ['button', 'a', 'label', '[role="button"]'].some(kind => kind === html.tagName.toLowerCase() || html.matches(kind))) {
+      // label, but only when that label identifies the picked DOM uniquely.
+      if (text.length <= 80 && uniqueExactText(text) && ['button', 'a', 'label', '[role="button"]'].some(kind => kind === html.tagName.toLowerCase() || html.matches(kind))) {
         return `text-exact:${text}`
       }
       // Containers often have no id/ARIA metadata. Prefer a unique class
@@ -606,14 +637,13 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
         const candidate = unique(`${html.tagName.toLowerCase()}${classes.map(item => `.${CSS.escape(item)}`).join('')}`)
         if (candidate !== undefined) return candidate
       }
-      if (text !== '' && text.length <= 80 && !['input', 'textarea', 'select'].includes(html.tagName.toLowerCase())) return `text-exact:${text}`
-      return html.tagName.toLowerCase()
+      if (text.length <= 80 && uniqueExactText(text) && !['input', 'textarea', 'select'].includes(html.tagName.toLowerCase())) return `text-exact:${text}`
+      return structuralSelector()
     }
     const optionLocator = (element: Element): string => {
       const value = element.getAttribute('data-value')
       if (value !== null && value !== '') return `[data-value="${CSS.escape(value)}"]`
-      const text = (element.textContent || '').trim().replace(/\s+/g, ' ')
-      return text === '' ? selector(element) : `text-exact:${text}`
+      return selector(element)
     }
     const interactiveTarget = (element: Element): HTMLElement => {
       if (element.tagName.toLowerCase() === 'option' && element.parentElement !== null) return element.parentElement as HTMLElement

@@ -3,7 +3,7 @@ import type { ElementLocator, JsonValue, LoopConditionClause, NodeOutputs, Workf
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
 import { dryAgentJson } from './dry-run.ts'
 import { walkGraph, type RunHandlers, type RunState, type StepResult } from './walk.ts'
-import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, resolveRequestBodyPreview, type WorkflowContext } from './context.ts'
+import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, resolveRequestBodyPreview, runtimeInputValues, type WorkflowContext } from './context.ts'
 import { expandSubflows } from '@graph/expand-subflows.ts'
 import { notificationContentReferences } from '@graph/webhook-body-template.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from './page-requirement.ts'
@@ -25,7 +25,7 @@ export interface BrowserDriver {
   extractListAi?(containerSelector: string, fields: readonly string[], prompt: string, llm: WorkflowLlmConfig): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
   generateText?(prompt: string, llm: WorkflowLlmConfig, systemPrompt?: string): Promise<string>
   generateCondition?(content: string, requirement: string, llm: WorkflowLlmConfig): Promise<{ matched: boolean; reason: string }>
-  generateSwitch?(content: string, cases: readonly { id: string; name: string; prompt: string }[], systemPrompt: string, llm: WorkflowLlmConfig): Promise<{ branch: string; reason: string }>
+  generateSwitch?(content: string, cases: readonly { id: string; name: string; prompt: string }[], systemPrompt: string, llm: WorkflowLlmConfig, supplementalContext?: string): Promise<{ branch: string; reason: string }>
   recognizeImage?(imageDataUrl: string, instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig): Promise<{ branch: string; reason: string }>
   waitFor(ms: number, selector: string, state?: 'visible' | 'hidden'): Promise<void>
   waitForUrl?(pattern: string, timeoutMs: number): Promise<void>
@@ -494,7 +494,11 @@ async function liveStep(
       const cases = config.cases.map((name, index) => ({ id: `case-${index}`, name, prompt: String(resolveExpression(config.casePrompts?.[index] ?? '', context)) }))
       if (cases.length === 0 || cases.some(item => item.prompt.trim() === '')) throw new Error('AI 多路判断的每个分支都需要填写场景提示词')
       const data = typeof value === 'string' ? value : JSON.stringify(value)
-      const decision = await driver.generateSwitch(data, cases, String(resolveExpression(config.aiSystemPrompt ?? '', context)), llm)
+      const resolvedSupplementalContext = resolveExpression(config.aiContext ?? '', context)
+      const supplementalContext = typeof resolvedSupplementalContext === 'string'
+        ? resolvedSupplementalContext
+        : JSON.stringify(resolvedSupplementalContext, null, 2)
+      const decision = await driver.generateSwitch(data, cases, String(resolveExpression(config.aiSystemPrompt ?? '', context)), llm, supplementalContext)
       const chosen = cases.find(item => item.id === decision.branch)
       if (chosen === undefined && decision.branch !== 'else') throw new Error(`AI 多路判断返回了未知分支「${decision.branch}」`)
       const reason = decision.reason.trim().slice(0, 500)
@@ -718,7 +722,7 @@ export async function runBrowser(
     throw new Error('流程和子流程都没有配置开始 URL，且没有可沿用的浏览器页面；请先打开目标页面，或在开始节点填写初始 URL。')
   }
   const context: WorkflowContext = {
-    inputs: { ...initialContextValues(runnableGraph.context?.inputs), ...options.inputs },
+    inputs: runtimeInputValues(runnableGraph.context?.inputs, options.inputs),
     variables: { ...initialContextValues(runnableGraph.context?.variables), ...options.variables },
     failures: {},
     successes: {},

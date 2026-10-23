@@ -19,6 +19,21 @@ export function initialContextValues(definitions: readonly WorkflowContextVariab
   return Object.fromEntries((definitions ?? []).map(definition => [definition.name, definition.defaultValue ?? null]))
 }
 
+/** Merge values supplied for this run without letting null erase a declared default. */
+export function runtimeInputValues(
+  definitions: readonly WorkflowContextVariable[] | undefined,
+  supplied: Readonly<Record<string, JsonValue>> | undefined,
+): Record<string, JsonValue> {
+  const values = initialContextValues(definitions)
+  const definitionByName = new Map((definitions ?? []).map(definition => [definition.name, definition]))
+  for (const [name, value] of Object.entries(supplied ?? {})) {
+    const definition = definitionByName.get(name)
+    if (value === null && definition?.defaultValue !== undefined) continue
+    values[name] = value
+  }
+  return values
+}
+
 function getPath(root: unknown, path: string): JsonValue {
   let current: unknown = root
   for (const part of path.split('.')) {

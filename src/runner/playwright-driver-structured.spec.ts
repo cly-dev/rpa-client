@@ -76,9 +76,11 @@ describe('AI switch structured output', () => {
     ], '', {
       id: 'test', name: '测试', enabled: true, model: 'thinking-model',
       baseUrl: 'http://127.0.0.1:3333/v1', chatPath: '/chat/completions', apiKey: '', maxTokens: 100,
-    })
+    }, '客户等级：VIP\n订单状态：已付款')
     expect(result).toEqual({ branch: 'case-1', reason: '带有辱骂语气' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    const request = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as { messages: readonly { content: string }[] }
+    expect(request.messages.some(message => message.content.includes('补充数据与上下文：\n客户等级：VIP\n订单状态：已付款'))).toBe(true)
   })
 
   it('falls back to function calling when JSON mode is unavailable', async () => {

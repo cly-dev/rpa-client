@@ -264,6 +264,8 @@ function ConfigFields({
           <label>字段路径<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="例如 intent" /></label>
           {config.mode === 'ai' ? <>
             <label>使用的 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>补充数据与上下文<textarea rows={5} value={config.aiContext ?? ''} onChange={event => { onChange({ ...config, aiContext: event.target.value }) }} placeholder={'例如：\n客户等级：{{customer.level}}\n店铺：{{shop.name}}\n订单详情：{{order}}\n判断时优先参考客户等级和订单状态。'} /></label>
+            <p className="properties-hint">支持 <code>{'{{变量名}}'}</code> 引用流程变量、循环变量和前置节点产出；对象和数组会作为 JSON 提供给 AI。请只填写与本次判断有关的数据。</p>
             <div className="switch-ai-branches">
               <div className="ai-field-editor-title"><strong>判断场景 · {config.cases.length} 路</strong><button type="button" onClick={() => { onChange({ ...config, cases: [...config.cases, ''], caseIds: [...config.cases.map((_, index) => switchCaseId(config, index)), newId('case')], casePrompts: [...config.cases.map((_, index) => config.casePrompts?.[index] ?? ''), ''] }) }}>＋添加场景</button></div>
               {config.cases.map((name, index) => <div className="switch-ai-branch" key={switchCaseId(config, index)}>
