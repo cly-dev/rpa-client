@@ -3,6 +3,7 @@ import type { WorkflowLlmConfig } from "@graph/types.ts";
 import type { AuthUser } from "../auth.ts";
 import { firstPublishIssue } from "@graph/validate.ts";
 import { ExecutionCenter } from "./ExecutionCenter.tsx";
+import { Pagination } from "./Pagination.tsx";
 import type { DryRunState } from "@runner/dry-run.ts";
 import { applyParentVersionUpdate, planParentVersionUpdates, type ParentVersionUpdate } from "./dependency-bulk-update.ts";
 import { bulkArchiveWorkflows } from "./bulk-archive.ts";
@@ -170,7 +171,7 @@ export function WorkbenchHome({
   const [importPreview, setImportPreview] = useState<WorkflowPackagePreview>();
   const importFileRef = useRef<HTMLInputElement>(null);
   const [approvalTotal, setApprovalTotal] = useState(0);
-  const pageSize = 12;
+  const pageSize = 15;
   const selectedLlm = llms.find((item) => item.id === selectedLlmId);
   const llmTestFingerprint = JSON.stringify([draft, keyDraft]);
   const llmHasUnsavedChanges =
@@ -855,7 +856,7 @@ export function WorkbenchHome({
           </div>
         ) : null}
         {active === "workflows" ? (
-          <section className="workbench-content">
+          <section className="workbench-content workbench-flow-content">
             <div className="workbench-page-heading">
               <div>
                 <span className="eyebrow">AUTOMATIONS</span>
@@ -931,7 +932,7 @@ export function WorkbenchHome({
                 ) : null}
               </div>
             ) : (
-              <div className="workbench-flow-grid">
+              <div className={`workbench-flow-grid${workflows.length === pageSize ? ' is-full-page' : ''}`}>
                 {workflows.map((item) => (
                   <article className={`workbench-flow-card${archiveSelectionMode && workflowScope === 'active' && selectedArchiveIds.includes(item.id) ? ' is-selected-for-archive' : selectedExportIds.includes(item.id) ? ' is-selected-for-export' : ''}${item.status === 'archived' ? ' is-archived' : ''}`} key={item.id}>
                     <label className="workbench-flow-select" title={archiveSelectionMode && workflowScope === 'active' ? '选中归档' : item.publishedVersion === null ? '未发布流程不能导出' : '选中导出'}>
@@ -989,30 +990,12 @@ export function WorkbenchHome({
               </div>
             )}
             {workflowTotal > pageSize ? (
-              <div className="workbench-pagination">
-                <button
-                  disabled={workflowPage <= 1 || loading}
-                  onClick={() => {
-                    void loadWorkflows(workflowPage - 1, query);
-                  }}
-                >
-                  上一页
-                </button>
-                <span>
-                  {workflowPage} / {Math.ceil(workflowTotal / pageSize)}
-                </span>
-                <button
-                  disabled={
-                    workflowPage >= Math.ceil(workflowTotal / pageSize) ||
-                    loading
-                  }
-                  onClick={() => {
-                    void loadWorkflows(workflowPage + 1, query);
-                  }}
-                >
-                  下一页
-                </button>
-              </div>
+              <Pagination
+                page={workflowPage}
+                totalPages={Math.ceil(workflowTotal / pageSize)}
+                disabled={loading}
+                onPageChange={target => { void loadWorkflows(target, query); }}
+              />
             ) : null}
           </section>
         ) : null}

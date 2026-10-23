@@ -33,6 +33,14 @@ export interface PickedElement {
 }
 
 type ApiRequestOptions = Parameters<NonNullable<BrowserDriver['requestApi']>>[0]
+type ApiResponseWaitOptions = Parameters<NonNullable<BrowserDriver['waitForResponse']>>[0]
+
+export interface BufferedPageResponse {
+  readonly url: string
+  readonly method: string
+  readonly status: number
+  readonly response: import('playwright').Response
+}
 
 type ExactTextPage = Pick<Page, 'getByText'> & Partial<Pick<Page, 'url' | 'title' | 'frames'>>
 
@@ -72,6 +80,25 @@ export async function clickExactVisibleText(page: ExactTextPage, text: string, t
     }
     throw error
   }
+}
+
+type PickedSelectorPage = Pick<Page, 'getByText' | 'locator'>
+
+/** Resolve selectors produced by the element picker before waiting on them. */
+export async function waitForPickedSelector(
+  page: PickedSelectorPage,
+  selector: string,
+  state: 'visible' | 'hidden',
+  timeoutMs: number,
+): Promise<void> {
+  const timeout = Math.max(1, timeoutMs)
+  if (selector.startsWith('text-exact:')) {
+    const text = selector.slice('text-exact:'.length)
+    if (text.trim() === '') throw new Error('精确文本选择器不能为空')
+    await page.getByText(text, { exact: true }).visible().first().waitFor({ state, timeout })
+    return
+  }
+  await page.locator(selector).first().waitFor({ state, timeout })
 }
 
 async function requestApiDirect(config: ApiRequestOptions, baseUrl = ''): Promise<{ data: JsonValue; url: string; status: number }> {
@@ -289,8 +316,71 @@ export function createHttpOnlyDriver(): BrowserDriver {
   }
 }
 
+/**
+ * Wait for a buffered page response. A URL can first receive a CORS preflight,
+ * redirect, or transient gateway response, so an invalid JSON candidate must
+ * not prevent a later matching application response from being captured.
+ */
+export async function waitForBufferedPageResponse(
+  responseBuffer: readonly BufferedPageResponse[],
+  config: ApiResponseWaitOptions,
+): Promise<{ data: JsonValue; url: string; method: string; status: number }> {
+  const deadline = Date.now() + Math.max(100, config.timeoutMs)
+  const matches = (item: BufferedPageResponse): boolean => {
+    if (config.method !== 'ANY' && item.method !== config.method.toUpperCase()) return false
+    const urlMatched = config.matchMode === 'equals'
+      ? item.url === config.urlPattern
+      : config.matchMode === 'regex'
+        ? (() => { try { return new RegExp(config.urlPattern).test(item.url) } catch { return false } })()
+        : item.url.includes(config.urlPattern)
+    if (!urlMatched) return false
+    for (const param of config.requestParams ?? []) {
+      let actual: string | undefined
+      try { actual = new URL(item.url).searchParams.get(param.name) ?? undefined } catch { /* ignore malformed URL */ }
+      if (actual === undefined) {
+        const body = item.response.request().postData() ?? ''
+        try {
+          const parsed = JSON.parse(body) as Record<string, unknown>
+          actual = parsed[param.name] === undefined ? undefined : String(parsed[param.name])
+        } catch {
+          const form = new URLSearchParams(body)
+          actual = form.get(param.name) ?? undefined
+        }
+      }
+      if (actual !== param.value) return false
+    }
+    return true
+  }
+  const seen = new Set<import('playwright').Response>()
+  let invalidJsonCount = 0
+  let lastInvalid: BufferedPageResponse | undefined
+  while (Date.now() < deadline) {
+    const item = responseBuffer.find(candidate => !seen.has(candidate.response) && matches(candidate))
+    if (item !== undefined) {
+      seen.add(item.response)
+      if (config.responseType === 'text') return { data: await item.response.text(), url: item.url, method: item.method, status: item.status }
+      try {
+        // Strip an optional UTF-8 BOM. JSON payloads with a BOM are common
+        // enough in legacy services but JSON.parse does not accept it.
+        const raw = (await item.response.text()).replace(/^\uFEFF/, '')
+        return { data: JSON.parse(raw) as JsonValue, url: item.url, method: item.method, status: item.status }
+      } catch {
+        invalidJsonCount += 1
+        lastInvalid = item
+        continue
+      }
+    }
+    await new Promise(resolve => { setTimeout(resolve, 100) })
+  }
+  if (lastInvalid !== undefined) {
+    const contentType = lastInvalid.response.headers()['content-type'] ?? '未提供'
+    throw new Error(`匹配到 ${invalidJsonCount} 个接口响应，但均不是有效 JSON；最后一次：${lastInvalid.method} ${lastInvalid.url}，HTTP ${lastInvalid.status}，Content-Type ${contentType}`)
+  }
+  throw new Error(`等待接口响应超时：${config.urlPattern}`)
+}
+
 function createDriver(page: Page): BrowserDriver {
-  const responseBuffer: { url: string; method: string; status: number; response: import('playwright').Response }[] = []
+  const responseBuffer: BufferedPageResponse[] = []
   page.on('response', response => {
     responseBuffer.push({ url: response.url(), method: response.request().method().toUpperCase(), status: response.status(), response })
     if (responseBuffer.length > 200) responseBuffer.shift()
@@ -300,40 +390,8 @@ function createDriver(page: Page): BrowserDriver {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
       await page.bringToFront()
     },
-    async waitForResponse(config): Promise<JsonValue> {
-      const deadline = Date.now() + Math.max(100, config.timeoutMs)
-      const matches = (item: typeof responseBuffer[number]): boolean => {
-        if (config.method !== 'ANY' && item.method !== config.method.toUpperCase()) return false
-        const urlMatched = config.matchMode === 'equals' ? item.url === config.urlPattern : config.matchMode === 'regex' ? (() => { try { return new RegExp(config.urlPattern).test(item.url) } catch { return false } })() : item.url.includes(config.urlPattern)
-        if (!urlMatched) return false
-        for (const param of config.requestParams ?? []) {
-          let actual: string | undefined
-          try { actual = new URL(item.url).searchParams.get(param.name) ?? undefined } catch { /* ignore malformed URL */ }
-          if (actual === undefined) {
-            const body = item.response.request().postData() ?? ''
-            try {
-              const parsed = JSON.parse(body) as Record<string, unknown>
-              actual = parsed[param.name] === undefined ? undefined : String(parsed[param.name])
-            } catch {
-              const form = new URLSearchParams(body)
-              actual = form.get(param.name) ?? undefined
-            }
-          }
-          if (actual !== param.value) return false
-        }
-        return true
-      }
-      const seen = new Set<import('playwright').Response>()
-      while (Date.now() < deadline) {
-        const item = responseBuffer.find(candidate => !seen.has(candidate.response) && matches(candidate))
-        if (item !== undefined) {
-          seen.add(item.response)
-          if (config.responseType === 'text') return { data: await item.response.text(), url: item.url, method: item.method, status: item.status }
-          try { return { data: await item.response.json() as JsonValue, url: item.url, method: item.method, status: item.status } } catch { throw new Error(`接口响应不是有效 JSON：${item.url}`) }
-        }
-        await new Promise(resolve => { setTimeout(resolve, 100) })
-      }
-      throw new Error(`等待接口响应超时：${config.urlPattern}`)
+    async waitForResponse(config): Promise<{ data: JsonValue; url: string; method: string; status: number }> {
+      return waitForBufferedPageResponse(responseBuffer, config)
     },
     requestApi: config => requestApiDirect(config, page.url()),
     generateText,
@@ -455,7 +513,7 @@ function createDriver(page: Page): BrowserDriver {
         await page.waitForTimeout(Math.max(0, ms))
         return
       }
-      await page.locator(selector).first().waitFor({ state, timeout: Math.max(1, ms) })
+      await waitForPickedSelector(page, selector, state, ms)
     },
     async waitForUrl(pattern: string, timeoutMs: number): Promise<void> {
       await page.waitForURL(url => url.toString().includes(pattern), { timeout: Math.max(1, timeoutMs) })

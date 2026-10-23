@@ -206,6 +206,7 @@ textarea { resize: vertical; }
 .workbench-service-status { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 10px; }
 .workbench-service-status i { width: 7px; height: 7px; border-radius: 50%; background: #12b76a; }
 .workbench-content { width: 100%; min-height: 0; margin: 0 auto; padding: 24px clamp(12px, 1.6vw, 20px); overflow: auto; }
+.workbench-flow-content { display: flex; flex: 1; flex-direction: column; }
 .workbench-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .workbench-page-heading .eyebrow { color: #8b83ee; font-size: 9px; font-weight: 750; letter-spacing: .13em; }
 .workbench-page-heading h1 { margin: 5px 0 4px; color: #202638; font-size: 23px; letter-spacing: -.03em; }
@@ -263,10 +264,12 @@ textarea { resize: vertical; }
 .workflow-package-items strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workflow-package-items span { flex: 0 0 auto; color: #8792a5; }
 .workbench-flow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 10px; }
+.workbench-flow-grid.is-full-page { flex: 1; grid-auto-rows: minmax(140px, 1fr); }
 .workbench-flow-card { position: relative; min-width: 0; border: 1px solid #e9ebf1; border-radius: 11px; background: #fff; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .workbench-flow-card:hover { transform: translateY(-1px); border-color: #d4d1ff; box-shadow: 0 8px 22px #3440540d; }
 .workbench-flow-card:has(.workbench-flow-more[aria-expanded='true']) { z-index: 10; }
 .workbench-flow-open { display: flex; width: 100%; min-height: 140px; flex-direction: column; align-items: flex-start; padding: 13px; border: 0; border-radius: inherit; background: transparent; text-align: left; }
+.workbench-flow-grid.is-full-page .workbench-flow-card, .workbench-flow-grid.is-full-page .workbench-flow-open { height: 100%; }
 .workbench-flow-icon { display: grid; width: 28px; height: 28px; place-items: center; margin-bottom: 11px; border-radius: 8px; background: #f0efff; color: #5b50df; font-size: 14px; }
 .workbench-flow-open strong { max-width: 100%; overflow: hidden; color: #344054; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .workbench-flow-open small { max-width: 100%; overflow: hidden; margin-top: 6px; color: #8792a5; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
@@ -342,6 +345,10 @@ textarea { resize: vertical; }
 .workbench-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 18px; color: #7b8798; font-size: 10px; }
 .workbench-pagination button { padding: 6px 9px; border: 1px solid #e4e7ee; border-radius: 6px; background: #fff; font-size: 10px; }
 .workbench-pagination button:disabled { opacity: .45; cursor: default; }
+.workbench-pagination-page { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.workbench-pagination-page input { width: 48px; padding: 6px 5px; border: 1px solid #d8dce5; border-radius: 6px; background: #fff; color: #344054; font-size: 10px; text-align: center; outline: none; }
+.workbench-pagination-page input:focus { border-color: #8b83ef; box-shadow: 0 0 0 2px #ebe9ff; }
+.workbench-pagination-page input:disabled { background: #f5f6f8; opacity: .65; }
 .workbench-notice { margin: 9px 24px 0; padding: 8px 11px; border: 1px solid #abefc6; border-radius: 8px; background: #f6fef9; color: #067647; font-size: 10px; }
 .workbench-notice.is-error { border-color: #fecdca; background: #fffbfa; color: #b42318; }
 .workbench-ai-layout { display: grid; grid-template-columns: 232px minmax(0,1fr); gap: 12px; align-items: start; }
@@ -531,6 +538,10 @@ textarea { resize: vertical; }
 .approval-detail-list dt { background: #f8f9fb; color: #667085; font-weight: 650; }
 .approval-detail-list dd { color: #344054; white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-reject { border-color: #fecdca !important; color: #b42318 !important; }
+
+@media (min-width: 1200px) {
+  .workbench-flow-content .workbench-flow-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 
 @media (max-width: 900px) {
   .workbench-home { grid-template-columns: 188px minmax(0, 1fr); }

@@ -12,6 +12,7 @@ import { failedRunReason, readableRunError } from "./execution-message.ts";
 import { safeEventMessage } from './execution-log.ts';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
 import { ApprovalRichText } from './ApprovalRichText.tsx';
+import { Pagination } from './Pagination.tsx';
 import {
   RPA_SERVICE_URL,
   appendExecutionEvents,
@@ -191,7 +192,7 @@ export function ExecutionCenter({
   const [activeApproval, setActiveApproval] = useState<ApprovalRecord>();
   const [approvalComment, setApprovalComment] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
-  const pageSize = 20;
+  const pageSize = 15;
   const definitions = launchGraph?.context?.inputs ?? [];
   const secretDefinitions =
     launchGraph?.context?.variables.filter((item) => item.secret) ?? [];
@@ -666,7 +667,7 @@ export function ExecutionCenter({
     setOccurrenceLoading(true);
     setOccurrenceError('');
     try {
-      const result = await listScheduleOccurrences(RPA_SERVICE_URL, schedule.id, targetPage);
+      const result = await listScheduleOccurrences(RPA_SERVICE_URL, schedule.id, targetPage, pageSize);
       setOccurrences(result.items);
       setOccurrencePage(result.page);
       setOccurrenceTotal(result.total);
@@ -922,27 +923,12 @@ export function ExecutionCenter({
             </div>
           )}
           {total > pageSize ? (
-            <div className="workbench-pagination">
-              <button
-                disabled={page <= 1 || loading}
-                onClick={() => {
-                  setPage((current) => current - 1);
-                }}
-              >
-                上一页
-              </button>
-              <span>
-                {page} / {Math.ceil(total / pageSize)}
-              </span>
-              <button
-                disabled={page >= Math.ceil(total / pageSize) || loading}
-                onClick={() => {
-                  setPage((current) => current + 1);
-                }}
-              >
-                下一页
-              </button>
-            </div>
+            <Pagination
+              page={page}
+              totalPages={Math.ceil(total / pageSize)}
+              disabled={loading}
+              onPageChange={setPage}
+            />
           ) : null}
         </>
       )}
@@ -1260,7 +1246,7 @@ export function ExecutionCenter({
                 {item.executionId ? <button type="button" className="execution-schedule-toggle" onClick={() => { void openDetail({ id: item.executionId as string }); }}>查看日志</button> : null}
               </div>)}
             </div>}
-            {occurrenceTotal > 20 ? <div className="workbench-pagination"><button type="button" disabled={occurrencePage <= 1 || occurrenceLoading} onClick={() => { void loadScheduleHistory(scheduleHistory, occurrencePage - 1); }}>上一页</button><span>{occurrencePage} / {Math.ceil(occurrenceTotal / 20)}</span><button type="button" disabled={occurrencePage >= Math.ceil(occurrenceTotal / 20) || occurrenceLoading} onClick={() => { void loadScheduleHistory(scheduleHistory, occurrencePage + 1); }}>下一页</button></div> : null}
+            {occurrenceTotal > pageSize ? <Pagination page={occurrencePage} totalPages={Math.ceil(occurrenceTotal / pageSize)} disabled={occurrenceLoading} onPageChange={target => { void loadScheduleHistory(scheduleHistory, target); }} /> : null}
           </div>
           <footer><button type="button" onClick={() => { void loadScheduleHistory(scheduleHistory, occurrencePage); }}>刷新</button><button type="button" onClick={() => setScheduleHistory(undefined)}>关闭</button></footer>
         </section>

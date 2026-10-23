@@ -1,6 +1,6 @@
 import type { Page } from 'playwright'
 import { describe, expect, it, vi } from 'vitest'
-import { clickExactVisibleText } from './playwright-driver.ts'
+import { clickExactVisibleText, waitForPickedSelector } from './playwright-driver.ts'
 
 describe('exact-text clicks', () => {
   it('uses a retryable visible locator instead of checking the page immediately', async () => {
@@ -51,5 +51,36 @@ describe('exact-text clicks', () => {
     expect(message).toContain('主页面精确匹配：2 项，可见：0 项')
     expect(message).toContain('iframe：1 个')
     expect(message).not.toContain('private-token')
+  })
+})
+
+describe('picked selector waits', () => {
+  it('translates exact-text picker selectors before waiting for visibility', async () => {
+    const waitFor = vi.fn(async () => undefined)
+    const first = vi.fn(() => ({ waitFor }))
+    const visible = vi.fn(() => ({ first }))
+    const getByText = vi.fn(() => ({ visible }))
+    const locator = vi.fn()
+    const page = { getByText, locator } as unknown as Pick<Page, 'getByText' | 'locator'>
+
+    await waitForPickedSelector(page, 'text-exact:确定', 'visible', 12_000)
+
+    expect(getByText).toHaveBeenCalledWith('确定', { exact: true })
+    expect(visible).toHaveBeenCalledOnce()
+    expect(first).toHaveBeenCalledOnce()
+    expect(waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 12_000 })
+    expect(locator).not.toHaveBeenCalled()
+  })
+
+  it('keeps ordinary CSS selectors unchanged', async () => {
+    const waitFor = vi.fn(async () => undefined)
+    const first = vi.fn(() => ({ waitFor }))
+    const locator = vi.fn(() => ({ first }))
+    const page = { getByText: vi.fn(), locator } as unknown as Pick<Page, 'getByText' | 'locator'>
+
+    await waitForPickedSelector(page, '#confirm', 'hidden', 0)
+
+    expect(locator).toHaveBeenCalledWith('#confirm')
+    expect(waitFor).toHaveBeenCalledWith({ state: 'hidden', timeout: 1 })
   })
 })
