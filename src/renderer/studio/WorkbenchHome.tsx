@@ -4,10 +4,11 @@ import type { AuthUser } from "../auth.ts";
 import { firstPublishIssue } from "@graph/validate.ts";
 import { ExecutionCenter } from "./ExecutionCenter.tsx";
 import type { DryRunState } from "@runner/dry-run.ts";
-import { applyParentVersionUpdate, executeCascadingParentVersionUpdates, executeParentVersionUpdates, hasRedactedSecrets, planParentVersionUpdates, type ParentVersionUpdate } from "./dependency-bulk-update.ts";
+import { applyParentVersionUpdate, planParentVersionUpdates, type ParentVersionUpdate } from "./dependency-bulk-update.ts";
 import { bulkArchiveWorkflows } from "./bulk-archive.ts";
 import {
   RPA_SERVICE_URL,
+  applyParentVersions,
   archiveWorkflow,
   copyWorkflow,
   createWorkspace,
@@ -534,7 +535,6 @@ export function WorkbenchHome({
         const parent = parents.find(item => item.id === plan.parent.id);
         let publishIssue: string | undefined;
         if (parent?.status === "archived") publishIssue = "父流程已归档";
-        else if (plan.mode === "update-and-publish" && hasRedactedSecrets(plan.parent.graph)) publishIssue = "父流程包含服务端遮蔽的密钥，无法安全地批量保存";
         else if (plan.plan.nodesMissingRequired > 0) publishIssue = `缺少必填输入：${plan.plan.missingRequiredNames.join("、")}`;
         else {
           try {
@@ -571,44 +571,29 @@ export function WorkbenchHome({
     if (!window.confirm(`确认处理 ${selected.length} 个直接父流程：更新 ${calls} 个调用节点${publishOnly > 0 ? `，另有 ${publishOnly} 个父流程草稿已是目标版本、仅需重新发布` : ""}。\n目标子流程：「${child.name}」v${preview.version}。\n发布后会继续向上递归更新祖先流程，直到整条调用链都引用新版本。\n父流程当前草稿中的其他未发布修改也会一并发布。${warning}\n\n若执行过程中某个流程失败，已成功发布的版本不会自动回滚。`)) return;
     setDependencyBulkBusy(true);
     setDependencyBulkResult("");
-    const baseApi = {
-      getParent: (id: string) => getWorkflow(RPA_SERVICE_URL, id),
-      saveDraft: (graph: import("@graph/types.ts").WorkflowGraph) => updateWorkflow(RPA_SERVICE_URL, graph),
-      publish: (id: string) => publishWorkflow(RPA_SERVICE_URL, id),
-    };
-    const outcomes = await executeParentVersionUpdates(selected, baseApi, (index, total, name) => { setDependencyBulkProgress(`正在更新并发布直接父流程 ${index}/${total}：${name}`); });
-    const seeds = await Promise.all(outcomes.flatMap((outcome, index) => outcome.status === "published" && outcome.version !== undefined
-      ? [{ workflowId: selected[index].parent.id, version: outcome.version }]
-      : []).map(async seed => ({ ...seed, graph: (await getWorkflowRevision(RPA_SERVICE_URL, seed.workflowId, seed.version)).graph })));
-    const cascaded = await executeCascadingParentVersionUpdates(seeds, {
-      ...baseApi,
-      listParentIds: async childWorkflowId => [...new Set((await getWorkflowDependencies(RPA_SERVICE_URL, childWorkflowId)).parents.map(item => item.workflow.id))],
-      getRevision: async (id, version) => (await getWorkflowRevision(RPA_SERVICE_URL, id, version)).graph,
-      validate: async graph => {
-        try {
-          const subflows = await loadSubflowBundle(RPA_SERVICE_URL, graph);
-          return firstPublishIssue(graph, subflows)?.message;
-        } catch (error) {
-          return error instanceof Error ? error.message : "无法校验级联父流程";
-        }
-      },
-    }, message => { setDependencyBulkProgress(message); });
-    const allOutcomes = [...outcomes, ...cascaded];
-    const published = allOutcomes.filter(item => item.status === "published").length;
-    setDependencyBulkPreview(undefined);
-    setDependencySelectedParents([]);
-    setDependencyBulkResult(`已发布 ${published}/${allOutcomes.length} 个直接或祖先流程。${allOutcomes.map(item => item.status === "published"
-      ? `${item.name}：已发布 v${item.version}`
-      : item.status === "draft-only"
-        ? `${item.name}：草稿已更新，但发布失败（${item.error}）`
-        : `${item.name}：未更新（${item.error}）`).join("；")}`);
-    setDependencyBulkBusy(false);
-    setDependencyBulkProgress("");
     try {
-      setDependencies(await getWorkflowDependencies(RPA_SERVICE_URL, child.id));
-      await loadWorkflows(workflowPage, query);
+      setDependencyBulkProgress("服务端正在批量更新并发布父流程及祖先流程…");
+      const result = await applyParentVersions(RPA_SERVICE_URL, child.id, preview.version, selected.map(row => ({ id: row.parent.id, updatedAt: row.parent.updatedAt })));
+      setDependencyBulkPreview(undefined);
+      setDependencySelectedParents([]);
+      setDependencyBulkResult(`已发布 ${result.publishedCount}/${result.outcomes.length} 个直接或祖先流程。${result.outcomes.map(item => item.status === "published"
+        ? `${item.name}：已发布 v${item.version}`
+        : item.status === "skipped"
+          ? `${item.name}：${item.error ?? "版本已是最新，无需发布"}`
+          : item.status === "draft-only"
+            ? `${item.name}：草稿已更新，但发布失败（${item.error}）`
+            : `${item.name}：未更新（${item.error}）`).join("；")}`);
+      try {
+        setDependencies(await getWorkflowDependencies(RPA_SERVICE_URL, child.id));
+        await loadWorkflows(workflowPage, query);
+      } catch (error) {
+        showNotice(error instanceof Error ? `父流程已处理，但刷新列表失败：${error.message}` : "父流程已处理，但刷新列表失败", "error");
+      }
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "批量更新后刷新列表失败", "error");
+      setDependencyBulkResult(`${error instanceof Error ? error.message : "服务端批量更新失败"}。如请求中途断开，部分流程可能已发布，请先核对版本再重试。`);
+    } finally {
+      setDependencyBulkBusy(false);
+      setDependencyBulkProgress("");
     }
   };
 

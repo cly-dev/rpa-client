@@ -42,6 +42,17 @@ export interface WorkflowDependencies {
   readonly parents: readonly WorkflowDependencyItem[]
 }
 
+export interface ParentVersionApplyResult {
+  readonly publishedCount: number
+  readonly outcomes: readonly {
+    readonly id: string
+    readonly name: string
+    readonly status: 'published' | 'draft-only' | 'not-updated' | 'skipped'
+    readonly version?: number
+    readonly error?: string
+  }[]
+}
+
 export interface WorkflowPackage {
   readonly format: 'rpa-workflow-package'
   readonly formatVersion: 1
@@ -285,6 +296,13 @@ export function listWorkflowRevisions(baseUrl: string, id: string): Promise<{ it
 
 export function getWorkflowDependencies(baseUrl: string, id: string): Promise<WorkflowDependencies> {
   return request(baseUrl, 'workflows', `/${encodeURIComponent(id)}/dependencies`)
+}
+
+export function applyParentVersions(baseUrl: string, id: string, targetVersion: number, parents: readonly { readonly id: string; readonly updatedAt: string }[]): Promise<ParentVersionApplyResult> {
+  return request(baseUrl, 'workflows', `/${encodeURIComponent(id)}/parent-versions/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ targetVersion, parents }),
+  })
 }
 
 export function getWorkflowRevision(baseUrl: string, id: string, version: number): Promise<{ version: number; stage: string; graph: WorkflowGraph }> {
