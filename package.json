@@ -23,8 +23,8 @@
     "dist:mac:test": "pnpm build:test && node scripts/stage-playwright-browser.mjs darwin && node scripts/prepare-package-output.mjs darwin && electron-builder --mac --config.appId=com.csworkspace.rpa-studio.test --config.productName=RPA工作室-测试",
     "dist:mac:production": "pnpm build:production && node scripts/stage-playwright-browser.mjs darwin && node scripts/prepare-package-output.mjs darwin && electron-builder --mac",
     "dist:win": "pnpm dist:win:production",
-    "dist:win:test": "pnpm build:test && node scripts/stage-playwright-browser.mjs win32 && node scripts/prepare-package-output.mjs win32 && electron-builder --win --config.appId=com.csworkspace.rpa-studio.test --config.productName=RPA工作室-测试",
-    "dist:win:production": "pnpm build:production && node scripts/stage-playwright-browser.mjs win32 && node scripts/prepare-package-output.mjs win32 && electron-builder --win"
+    "dist:win:test": "pnpm build:test && node scripts/stage-playwright-browser.mjs win32 && node scripts/prepare-package-output.mjs win32 && node scripts/patch-electron-builder-rename.mjs && electron-builder --win --config.appId=com.csworkspace.rpa-studio.test --config.productName=RPA工作室-测试",
+    "dist:win:production": "pnpm build:production && node scripts/stage-playwright-browser.mjs win32 && node scripts/prepare-package-output.mjs win32 && node scripts/patch-electron-builder-rename.mjs && electron-builder --win"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
