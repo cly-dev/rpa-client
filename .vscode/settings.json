@@ -1,0 +1,10 @@
+{
+  "files.watcherExclude": {
+    "**/release/**": true,
+    "**/.bundled-browsers/**": true
+  },
+  "search.exclude": {
+    "**/release": true,
+    "**/.bundled-browsers": true
+  }
+}
