@@ -5,7 +5,7 @@ interface BrowserSession { readonly driver: BrowserDriver }
 const PAGE_METHODS = new Set([
   'openPage', 'hover', 'click', 'selectOption', 'type', 'extract',
   'extractList', 'extractListAuto', 'extractListAi', 'waitForResponse',
-  'waitForUrl', 'elementState',
+  'waitForUrl', 'elementState', 'waitForPageSettled',
 ])
 
 /** Start Chromium only when an executed step actually needs a page. */

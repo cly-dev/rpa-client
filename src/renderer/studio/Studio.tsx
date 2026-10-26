@@ -54,6 +54,7 @@ import { WebhookSettings } from './WebhookSettings.tsx'
 import { WorkflowRunningBubble } from './WorkflowRunningBubble.tsx'
 import { ApprovalRichText } from './ApprovalRichText.tsx'
 import type { AuthUser } from '../auth.ts'
+import { shouldInsertPickedDropdownSteps } from '@graph/picked-selector.ts'
 
 const nodeTypes = { studio: FlowNode }
 const edgeTypes = { insertable: InsertableEdge }
@@ -899,7 +900,22 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
 
   const performElementPick = async (nodeId: string, field: 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField', stepIndex: number | undefined, inputs: Readonly<Record<string, JsonValue>>): Promise<void> => {
     if (window.studio?.pickElement === undefined) { setNotice('当前窗口不支持元素拾取'); return }
-    setNotice('已打开元素拾取器，请在 Chromium 页面中点击元素')
+    const pickerRunId = `picker:${crypto.randomUUID()}`
+    const stopRunUpdates = window.studio.onRunUpdate(({ runId, state }) => {
+      if (runId !== pickerRunId) return
+      setRun(state)
+      if (state.logs.at(-1)?.message.includes('已进入元素拾取模式') === true) setNotice('已打开元素拾取器，请在 Chromium 页面中点击元素')
+    })
+    setRun({
+      status: 'running',
+      nodes: {},
+      outputs: {},
+      inputs,
+      logs: [{ at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message: '正在准备并执行拾取前置流程…' }],
+    })
+    setRunPanelExpandRequest(value => value + 1)
+    requestAnimationFrame(() => { document.getElementById('workflow-run-panel')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) })
+    setNotice('正在执行拾取前置流程…')
     try {
       const prefix = prefixToNode(graph, nodeId)
       const targetNode = graph.nodes.find(item => item.id === nodeId)
@@ -923,7 +939,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         : undefined
       const subflows = prep === undefined ? [] : await loadSubflowBundle(RPA_SERVICE_URL, prep)
       const picked = window.studio.prepareAndPickElement !== undefined
-        ? await window.studio.prepareAndPickElement(prep, prep === undefined ? (stepUrl || startUrl) : undefined, field === 'rowSelector' ? 'list' : 'element', subflows, inputs, shouldPrepareInsideAction ? { workflowId: graph.workflowId, nodeId, stepIndex } : undefined)
+        ? await window.studio.prepareAndPickElement(prep, prep === undefined ? (stepUrl || startUrl) : undefined, field === 'rowSelector' ? 'list' : 'element', subflows, inputs, shouldPrepareInsideAction ? { workflowId: graph.workflowId, nodeId, stepIndex } : undefined, pickerRunId)
         : await window.studio.pickElement(prep === undefined ? (stepUrl || startUrl) : undefined, field === 'rowSelector' ? 'list' : 'element')
       if (picked.selector === '') { setNotice('已取消元素拾取'); return }
       const node = graph.nodes.find(item => item.id === nodeId)
@@ -937,16 +953,33 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       else if (config.type === 'page-action' && stepIndex !== undefined) {
         setGraph(current => patchNode(current, nodeId, { config: { ...config, steps: config.steps.flatMap((step, index) => {
           if (index !== stepIndex || !('selector' in step)) return [step]
-          if (step.type === 'click' && picked.triggerSelector !== undefined && picked.optionSelector !== undefined) return [
-            { type: 'click' as const, selector: picked.triggerSelector, waitAfterMs: 350 },
-            { type: 'click' as const, selector: picked.optionSelector, waitAfterMs: step.waitAfterMs ?? 0 },
-          ]
+          if (step.type === 'click' && picked.triggerSelector !== undefined && picked.optionSelector !== undefined) {
+            const previousClickSelectors = config.steps.slice(0, index).flatMap(previous => previous.type === 'click'
+              ? [typeof previous.selector === 'string' ? previous.selector : previous.selector.value]
+              : [])
+            if (!shouldInsertPickedDropdownSteps(picked.triggerSelector, picked.optionSelector, previousClickSelectors)) {
+              return [{ ...step, selector: value, ...(picked.optionValue !== undefined ? { optionValue: picked.optionValue } : {}) }]
+            }
+            return [
+              { type: 'click' as const, selector: picked.triggerSelector, waitAfterMs: 350 },
+              { type: 'click' as const, selector: picked.optionSelector, waitAfterMs: step.waitAfterMs ?? 0 },
+            ]
+          }
           return [{ ...step, selector: value, ...(step.type === 'click' && picked.optionValue !== undefined ? { optionValue: picked.optionValue } : {}) }]
         }) } }))
       }
       setNotice(`已选中 ${picked.tagName}${picked.text ? `「${picked.text}」` : ''}，已回填选择器`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : '元素拾取失败')
+      const message = error instanceof Error ? error.message : '元素拾取失败'
+      setRun(current => current === undefined || current.status === 'failed' ? current : {
+        ...current,
+        status: 'failed',
+        currentNodeId: undefined,
+        logs: [...current.logs, { at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message }],
+      })
+      setNotice(message)
+    } finally {
+      stopRunUpdates()
     }
   }
 

@@ -1,6 +1,9 @@
 import type { JsonValue } from '@graph/types.ts'
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+export const MAX_IMAGE_COUNT = 8
+export const MAX_IMAGE_TOTAL_BYTES = 24 * 1024 * 1024
+const IMAGE_DOWNLOAD_CONCURRENCY = 3
 type ImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
 export interface ImageAccessProbe { readonly status: number; readonly mime: ImageMime; readonly bytes: number }
 export interface NormalizedImageSource { readonly dataUrl: string; readonly probe?: ImageAccessProbe }
@@ -92,4 +95,61 @@ export async function normalizeImageSourceWithProbe(value: JsonValue, fetcher: t
 
 export async function normalizeImageSource(value: JsonValue, fetcher: typeof fetch = fetch): Promise<string> {
   return (await normalizeImageSourceWithProbe(value, fetcher)).dataUrl
+}
+
+function collectImageValues(value: JsonValue): JsonValue[] {
+  const decoded = decodeImageCollectionValue(value)
+  if (decoded !== value) return collectImageValues(decoded)
+  if (Array.isArray(value)) return value.flatMap(collectImageValues)
+  if (value !== null && typeof value === 'object') {
+    const record = value as { readonly [key: string]: JsonValue }
+    for (const key of ['images', 'imageUrls', 'image_urls', 'urls']) {
+      const nested = record[key]
+      if (Array.isArray(nested)) return nested.flatMap(collectImageValues)
+    }
+  }
+  return [value]
+}
+
+/** Accept JSON text produced by runtime text inputs, such as `["https://..."]`. */
+export function decodeImageCollectionValue(value: JsonValue): JsonValue {
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  if (!(text.startsWith('[') || text.startsWith('{'))) return value
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (parsed === null || typeof parsed === 'string' || typeof parsed === 'number' || typeof parsed === 'boolean') return parsed
+    if (Array.isArray(parsed)) return parsed as JsonValue
+    if (typeof parsed === 'object') return parsed as JsonValue
+  } catch { /* Let the normal image validation report malformed input below. */ }
+  return value
+}
+
+function dataUrlBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',')
+  return comma === -1 ? 0 : Buffer.from(dataUrl.slice(comma + 1), 'base64').byteLength
+}
+
+/** Converts one image or a nested image array into an ordered, bounded collection. */
+export async function normalizeImageSourcesWithProbe(value: JsonValue, fetcher: typeof fetch = fetch): Promise<readonly NormalizedImageSource[]> {
+  const values = collectImageValues(value)
+  if (values.length === 0) throw new Error('图片数组为空；请至少提供一张图片')
+  if (values.length > MAX_IMAGE_COUNT) throw new Error(`一次最多识别 ${MAX_IMAGE_COUNT} 张图片，当前共 ${values.length} 张`)
+  const sources: NormalizedImageSource[] = new Array(values.length)
+  for (let offset = 0; offset < values.length; offset += IMAGE_DOWNLOAD_CONCURRENCY) {
+    const batch = values.slice(offset, offset + IMAGE_DOWNLOAD_CONCURRENCY)
+    const normalized = await Promise.all(batch.map(async (item, index) => {
+      const imageIndex = offset + index
+      try { return await normalizeImageSourceWithProbe(item, fetcher) }
+      catch (error) {
+        const message = `第 ${imageIndex + 1} 张图片处理失败：${error instanceof Error ? error.message : String(error)}`
+        if (error instanceof ImageAccessProbeError) throw new ImageAccessProbeError(message, error.url)
+        throw new Error(message)
+      }
+    }))
+    normalized.forEach((source, index) => { sources[offset + index] = source })
+  }
+  const totalBytes = sources.reduce((total, source) => total + (source.probe?.bytes ?? dataUrlBytes(source.dataUrl)), 0)
+  if (totalBytes > MAX_IMAGE_TOTAL_BYTES) throw new Error(`全部图片合计超过 ${MAX_IMAGE_TOTAL_BYTES / 1024 / 1024} MB，请减少图片数量或大小`)
+  return sources
 }

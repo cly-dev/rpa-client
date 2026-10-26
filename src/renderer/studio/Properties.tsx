@@ -16,9 +16,21 @@ import { availableSubflowVariableNames } from './subflow-variables.ts'
 import { upstreamNodes } from './upstream-nodes.ts'
 import { reconcileSubflowMappings, type MappingReconciliation } from './subflow-version.ts'
 import { importNodeJson } from './json-transfer.ts'
+import { displayPickedSelector } from './selector-display.ts'
 
 const SubflowVariableContext = createContext<readonly string[]>([])
 const CurrentNodeIdContext = createContext('')
+const MAX_COMPARISON_IMAGE_BYTES = 2 * 1024 * 1024
+const COMPARISON_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+
+function readImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => { typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('无法读取图片内容')) }
+    reader.onerror = () => { reject(new Error('无法读取图片文件')) }
+    reader.readAsDataURL(file)
+  })
+}
 
 interface NodePatch {
   readonly name?: string
@@ -279,25 +291,49 @@ function ConfigFields({
           </> : <SwitchExactCasesEditor config={config} onChange={onChange} />}
         </div>
       )
-    case 'image-recognition':
+    case 'image-recognition': {
+      const comparisonImages = config.comparisonImages?.length
+        ? config.comparisonImages
+        : config.comparisonImage?.trim() ? [{ dataUrl: config.comparisonImage, name: config.comparisonImageName ?? '' }] : []
       return <div className="switch-config image-recognition-config">
         <BindingField graph={graph} nodeId={node.id} label="图片来源变量" binding={config.image} onChange={image => { onChange({ ...config, image }, { ...node.inputBindings, image }) }} />
         <label>字段路径（可选）<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="例如 data.imageUrl" /></label>
-        <p className="properties-hint">支持图片 URL、data:image/...;base64 或 Base64 字符串；也可从对象中的 url、imageUrl、base64 字段读取。URL 会先进行访问探针，确认 HTTP 状态和图片内容有效；日志只记录探针结果，不记录图片内容。</p>
+        <p className="properties-hint">支持单张图片或图片数组，单次最多 8 张；每项可为图片 URL、data:image/...;base64、Base64 字符串，或包含 url、imageUrl、base64 字段的对象。全部图片会在一次 AI 调用中综合判断，最终只进入一条支路。</p>
         <label>使用的视觉 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>统一判断要求（可选）<textarea rows={3} value={config.instruction} onChange={event => { onChange({ ...config, instruction: event.target.value }) }} placeholder="例如只依据图片可见内容判断，不推测图片之外的信息" /></label>
+        <section className="image-comparison-panel">
+          <label className="image-comparison-toggle"><input type="checkbox" checked={config.comparisonEnabled === true} onChange={event => { onChange({ ...config, comparisonEnabled: event.target.checked }) }} /><span><strong>启用图片对比</strong><small>将待识别图片与一组参考图进行综合比较</small></span></label>
+          {config.comparisonEnabled === true ? <div className="image-comparison-fields">
+            <div className="image-comparison-source-tabs" role="group" aria-label="对比图片来源"><button type="button" className={(config.comparisonSourceMode ?? 'upload') === 'upload' ? 'active' : ''} onClick={() => { onChange({ ...config, comparisonSourceMode: 'upload' }) }}>上传图片</button><button type="button" className={config.comparisonSourceMode === 'variable' ? 'active' : ''} onClick={() => { onChange({ ...config, comparisonSourceMode: 'variable' }) }}>来源变量</button></div>
+            {(config.comparisonSourceMode ?? 'upload') === 'upload' ? <div className="image-comparison-upload-list">
+              {comparisonImages.map((item, index) => <div className="image-comparison-preview" key={`${item.name}-${index}`}><img src={item.dataUrl} alt={`对比参考图 ${index + 1}`} /><div><strong>{item.name.trim() || `对比参考图 ${index + 1}`}</strong><span>参考图 {index + 1} · 随流程配置保存</span></div><button type="button" onClick={() => { onChange({ ...config, comparisonImages: comparisonImages.filter((_, itemIndex) => itemIndex !== index), comparisonImage: '', comparisonImageName: '' }) }}>移除</button></div>)}
+              {comparisonImages.length < 8 ? <label className="image-comparison-upload">{comparisonImages.length === 0 ? '上传对比图片（可多选）' : `继续添加对比图片（${comparisonImages.length}/8）`}<input type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif" onChange={event => {
+              const files = Array.from(event.currentTarget.files ?? [])
+              event.currentTarget.value = ''
+              if (files.length === 0) return
+              if (comparisonImages.length + files.length > 8) { window.alert('对比图片最多上传 8 张'); return }
+              if (files.some(file => !COMPARISON_IMAGE_TYPES.has(file.type))) { window.alert('仅支持 PNG、JPEG、WebP 或 GIF 图片'); return }
+              if (files.some(file => file.size > MAX_COMPARISON_IMAGE_BYTES)) { window.alert('每张对比图片不能超过 2 MB'); return }
+              void Promise.all(files.map(async file => ({ dataUrl: await readImageFile(file), name: file.name }))).then(items => { onChange({ ...config, comparisonImages: [...comparisonImages, ...items], comparisonImage: '', comparisonImageName: '' }) }).catch(error => { window.alert(error instanceof Error ? error.message : '无法读取图片文件') })
+            }} /></label> : null}
+            </div> : <div className="image-comparison-variable"><BindingField graph={graph} nodeId={node.id} label="对比图片来源变量" binding={config.comparisonImageSource ?? { kind: 'literal', value: '' }} onChange={comparisonImageSource => { onChange({ ...config, comparisonImageSource }, { ...node.inputBindings, comparisonImageSource }) }} /><label>字段路径（可选）<input value={config.comparisonImagePath ?? ''} onChange={event => { onChange({ ...config, comparisonImagePath: event.target.value }) }} placeholder="例如 data.referenceImages" /></label><p className="properties-hint">变量内容支持单张图片或图片数组，每项可为图片 URL、Base64、data URL 或图片对象，最多读取 8 张。</p></div>}
+            <label>图片对比要求（可选）<textarea rows={4} value={config.comparisonPrompt ?? ''} onChange={event => { onChange({ ...config, comparisonPrompt: event.target.value }) }} placeholder={'例如：重点比较版式、文字内容和金额是否与参考图一致；忽略截图尺寸差异。\n支持引用 {{变量名}}。'} /></label>
+            <p className="properties-hint">参考图仅用于对比，不计入待识别图片数量；所有参考图和待识别图片会共同参与一次分支判断。</p>
+          </div> : null}
+        </section>
         <div className="switch-ai-branches"><div className="ai-field-editor-title"><strong>图片场景 · {config.cases.length} 路</strong><button type="button" onClick={() => { onChange({ ...config, cases: [...config.cases, { id: newId('case'), name: '', prompt: '' }] }) }}>＋添加场景</button></div>
           {config.cases.map((item, index) => <div className="switch-ai-branch" key={item.id}>
             <div className="switch-ai-branch-heading"><strong>优先级 {String(index + 1).padStart(2, '0')}</strong><div className="switch-ai-branch-order"><button type="button" title="上移场景" aria-label={`上移图片场景 ${index + 1}`} disabled={index === 0} onClick={() => { onChange(reorderImageRecognitionCase(config, index, index - 1)) }}>↑</button><button type="button" title="下移场景" aria-label={`下移图片场景 ${index + 1}`} disabled={index === config.cases.length - 1} onClick={() => { onChange(reorderImageRecognitionCase(config, index, index + 1)) }}>↓</button></div><button type="button" disabled={config.cases.length <= 1} onClick={() => { onChange({ ...config, cases: config.cases.filter(candidate => candidate.id !== item.id) }) }}>删除</button></div>
             <label>场景名称<input aria-label={`图片场景 ${index + 1} 名称`} value={item.name} onChange={event => { onChange({ ...config, cases: config.cases.map(candidate => candidate.id === item.id ? { ...candidate, name: event.target.value } : candidate) }) }} placeholder="例如：付款截图" /></label>
-            <label>判断要求<textarea aria-label={`${item.name.trim() || `图片场景 ${index + 1}`} 的判断要求`} rows={3} value={item.prompt} onChange={event => { onChange({ ...config, cases: config.cases.map(candidate => candidate.id === item.id ? { ...candidate, prompt: event.target.value } : candidate) }) }} placeholder="例如图片中能看到支付成功字样和订单金额" /></label>
+            <label>判断要求<textarea aria-label={`${item.name.trim() || `图片场景 ${index + 1}`} 的判断要求`} rows={5} value={item.prompt} onChange={event => { onChange({ ...config, cases: config.cases.map(candidate => candidate.id === item.id ? { ...candidate, prompt: event.target.value } : candidate) }) }} placeholder={'命中条件：描述什么情况下属于该场景。\n排除条件：描述容易混淆但不应命中的情况。\n必要证据：说明图片中必须能看到什么。'} /></label>
           </div>)}
           <div className="switch-ai-else"><strong>否则出口</strong> · 所有图片场景均不符合时进入</div>
         </div>
-        <p className="properties-hint">AI 按上方优先级选择第一个符合的图片场景。名称显示在画布出口，判断要求用于模型识别；调整顺序不会丢失原有连线。</p>
+        <p className="properties-hint">AI 会先按图片对比要求提取相关差异，再独立判断上面的每个场景；程序按优先级选择第一个命中的支路。名称显示在画布出口，调整顺序不会丢失原有连线。</p>
         <label>识别结果变量名<input value={config.outputName} onChange={event => { onChange({ ...config, outputName: event.target.value }) }} placeholder="例如 imageResult" /></label>
         <OutputVariableMode graph={graph} mode={config.outputMode} target={config.updateVariable} onChange={(outputMode, updateVariable) => { onChange({ ...config, outputMode, updateVariable }) }} />
       </div>
+    }
     case 'call-subflow':
       return <CallSubflowEditor graph={graph} node={node} config={config} onChange={onChange} onBatchSubflowVersion={onBatchSubflowVersion} batchSubflowBusy={batchSubflowBusy} />
     case 'approval':
@@ -498,7 +534,8 @@ function PageActionEditor({ graph, steps, onChange, onPick }: { graph: WorkflowG
 }
 
 function selectorText(selector: string | { readonly strategy: string; readonly value: string }): string {
-  return typeof selector === 'string' ? selector : selector.value
+  const value = typeof selector === 'string' ? selector : selector.value
+  return displayPickedSelector(value)
 }
 
 function pageActionVariableNames(graph: WorkflowGraph, nodeId: string, subflowNames: readonly string[] = []): string[] {

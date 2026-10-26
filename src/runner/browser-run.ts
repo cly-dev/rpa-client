@@ -8,10 +8,51 @@ import { expandSubflows } from '@graph/expand-subflows.ts'
 import { notificationContentReferences } from '@graph/webhook-body-template.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from './page-requirement.ts'
 import { runWorkflowCode } from './code-runtime.ts'
-import { ImageAccessProbeError, normalizeImageSourceWithProbe } from './image-source.ts'
+import { decodeImageCollectionValue, ImageAccessProbeError, normalizeImageSourcesWithProbe } from './image-source.ts'
 import { findSwitchCaseIndex } from '@graph/switch-cases.ts'
 import { loopIterationTotal } from './loop.ts'
 import { ApiResponseError } from './api-response-error.ts'
+import { isPickedDropdownOption, pickedSelectorsTargetSameElement } from '@graph/picked-selector.ts'
+
+export interface VisionImageInput {
+  readonly dataUrl: string
+  readonly label: string
+  readonly role: 'input' | 'reference'
+}
+
+export interface VisionDifference {
+  readonly location: string
+  readonly description: string
+  readonly evidence: string
+}
+
+export interface VisionComparison {
+  readonly inputImageIndex: number
+  readonly referenceImageIndex: number | null
+  readonly comparable: boolean
+  readonly reason: string
+  readonly differences: readonly VisionDifference[]
+}
+
+export interface VisionCaseEvaluation {
+  readonly branch: string
+  readonly matched: boolean
+  readonly confidence: number
+  readonly evidence: string
+}
+
+export interface VisionImageCaseEvaluation extends VisionCaseEvaluation {
+  readonly inputImageIndex: number
+  readonly contradicts: boolean
+}
+
+export interface VisionRecognitionDecision {
+  readonly comparisonStatus: 'completed' | 'partially_comparable' | 'not_comparable'
+  readonly comparisonSummary: string
+  readonly comparisons: readonly VisionComparison[]
+  readonly imageCaseEvaluations: readonly VisionImageCaseEvaluation[]
+  readonly caseEvaluations: readonly VisionCaseEvaluation[]
+}
 
 export interface BrowserDriver {
   openPage(url: string, timeoutMs?: number): Promise<void>
@@ -26,10 +67,11 @@ export interface BrowserDriver {
   generateText?(prompt: string, llm: WorkflowLlmConfig, systemPrompt?: string): Promise<string>
   generateCondition?(content: string, requirement: string, llm: WorkflowLlmConfig): Promise<{ matched: boolean; reason: string }>
   generateSwitch?(content: string, cases: readonly { id: string; name: string; prompt: string }[], systemPrompt: string, llm: WorkflowLlmConfig, supplementalContext?: string): Promise<{ branch: string; reason: string }>
-  recognizeImage?(imageDataUrl: string, instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig): Promise<{ branch: string; reason: string }>
+  recognizeImage?(images: readonly VisionImageInput[], instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig, comparisonPrompt?: string): Promise<VisionRecognitionDecision>
   waitFor(ms: number, selector: string, state?: 'visible' | 'hidden'): Promise<void>
   waitForUrl?(pattern: string, timeoutMs: number): Promise<void>
   elementState?(selector: string): Promise<{ exists: boolean; visible: boolean; text: string }>
+  waitForPageSettled?(timeoutMs?: number): Promise<boolean>
   currentUrl?(): string
   onUrlChange?(listener: (url: string) => void): () => void
   currentTitle?(): Promise<string>
@@ -85,6 +127,31 @@ function redactLogUrl(url: string): string {
 
 function selectorText(selector: string | ElementLocator): string {
   return typeof selector === 'string' ? selector : selector.value
+}
+
+function displaySelector(selector: string): string {
+  const scopedTextPrefix = 'text-exact:rpa-context:'
+  const encoded = selector.startsWith(scopedTextPrefix)
+    ? selector.slice(scopedTextPrefix.length)
+    : selector.startsWith('rpa-fingerprint:')
+      ? selector.slice('rpa-fingerprint:'.length)
+      : undefined
+  if (encoded === undefined) return selector
+  try {
+    const fingerprint = JSON.parse(decodeURIComponent(encoded)) as { css?: unknown; text?: unknown }
+    if (selector.startsWith(scopedTextPrefix) && typeof fingerprint.text === 'string') return `text-exact:${fingerprint.text}`
+    return typeof fingerprint.css === 'string' ? fingerprint.css : '已拾取元素'
+  } catch { return '已拾取元素' }
+}
+
+function resolveImageBindingValue(binding: import('@graph/types.ts').ValueBinding, path: string, context: WorkflowContext, label: string): JsonValue {
+  const bound = resolveBindingInContext(binding, context)
+  const resolved = typeof bound === 'string' ? resolveExpression(bound, context) : bound
+  const decoded = decodeImageCollectionValue(resolved)
+  if (decoded === null || (typeof decoded === 'string' && decoded.trim() === '')) throw new Error(`${label}为空；请确认运行时输入或来源变量已经传值`)
+  const value = walkJsonPath(decoded, path)
+  if (value === null && path.trim() !== '') throw new Error(`${label}字段路径「${path}」未读取到值；数组本身不需要填写字段路径`)
+  return value
 }
 
 export function isEmptyValue(value: import('@graph/types.ts').JsonValue | undefined): boolean {
@@ -398,24 +465,88 @@ async function liveStep(
     if (llm === undefined) throw new Error('图片识别节点未找到可用的视觉 AI 配置')
     if (driver.recognizeImage === undefined) throw new Error('当前运行器不支持图片识别')
     if (config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim())) throw new Error('图片识别的每个分支都需要名称和判断要求')
-    const bound = resolveBindingInContext(config.image, context)
-    const value = walkJsonPath(typeof bound === 'string' ? resolveExpression(bound, context) : bound, config.path)
-    let imageSource: Awaited<ReturnType<typeof normalizeImageSourceWithProbe>>
-    try { imageSource = await normalizeImageSourceWithProbe(value) }
+    const value = resolveImageBindingValue(config.image, config.path, context, '待识别图片来源')
+    let imageSources: Awaited<ReturnType<typeof normalizeImageSourcesWithProbe>>
+    try { imageSources = await normalizeImageSourcesWithProbe(value) }
     catch (error) {
       if (error instanceof ImageAccessProbeError) throw new Error(`${error.message}；链接地址：${redactLogUrl(error.url)}`)
       throw error
     }
+    let comparisonSources: Awaited<ReturnType<typeof normalizeImageSourcesWithProbe>> = []
+    let comparisonNames: readonly string[] = []
+    if (config.comparisonEnabled === true) {
+      let comparisonValue: JsonValue
+      if (config.comparisonSourceMode === 'variable') {
+        if (config.comparisonImageSource === undefined) throw new Error('已启用图片对比，请先选择对比图片来源变量')
+        comparisonValue = resolveImageBindingValue(config.comparisonImageSource, config.comparisonImagePath ?? '', context, '对比图片来源变量')
+      } else {
+        const uploaded = config.comparisonImages?.filter(item => item.dataUrl.trim()) ?? []
+        const legacy = config.comparisonImage?.trim() ? [{ dataUrl: config.comparisonImage, name: config.comparisonImageName ?? '' }] : []
+        const selected = uploaded.length > 0 ? uploaded : legacy
+        if (selected.length === 0) throw new Error('已启用图片对比，请先上传至少一张对比图片')
+        comparisonValue = selected.map(item => item.dataUrl)
+        comparisonNames = selected.map(item => item.name)
+      }
+      try { comparisonSources = await normalizeImageSourcesWithProbe(comparisonValue) }
+      catch (error) {
+        if (error instanceof ImageAccessProbeError) throw new Error(`对比图片处理失败：${error.message}；链接地址：${redactLogUrl(error.url)}`)
+        throw new Error(`对比图片处理失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
     const cases = config.cases.map(item => ({ ...item, prompt: String(resolveExpression(item.prompt, context)) }))
-    const decision = await driver.recognizeImage(imageSource.dataUrl, String(resolveExpression(config.instruction, context)), cases, llm)
-    const chosen = cases.find(item => `case-${item.id}` === decision.branch)
-    if (chosen === undefined && decision.branch !== 'else') throw new Error('视觉模型返回了未知分支，请检查模型的结构化输出能力')
+    const images: VisionImageInput[] = [
+      ...comparisonSources.map((source, index) => ({ dataUrl: source.dataUrl, label: config.comparisonSourceMode === 'variable' ? `变量参考图 ${index + 1}` : comparisonNames[index]?.trim() || `对比参考图 ${index + 1}`, role: 'reference' as const })),
+      ...imageSources.map((source, index) => ({ dataUrl: source.dataUrl, label: `待识别图片 ${index + 1}`, role: 'input' as const })),
+    ]
+    const comparisonPrompt = config.comparisonEnabled === true
+      ? String(resolveExpression(config.comparisonPrompt ?? '', context))
+      : undefined
+    const decision = await driver.recognizeImage(images, String(resolveExpression(config.instruction, context)), cases, llm, comparisonPrompt)
+    const expectedBranches = cases.map(item => `case-${item.id}`)
+    const expectedBranchSet = new Set(expectedBranches)
+    const evaluationBranches = decision.caseEvaluations.map(item => item.branch)
+    const unknownBranch = evaluationBranches.find(branch => !expectedBranchSet.has(branch))
+    if (unknownBranch !== undefined) throw new Error(`视觉模型返回了未知场景「${unknownBranch}」`)
+    if (new Set(evaluationBranches).size !== evaluationBranches.length) throw new Error('视觉模型重复返回了同一个场景判断')
+    const missingBranch = expectedBranches.find(branch => !evaluationBranches.includes(branch))
+    if (missingBranch !== undefined) throw new Error(`视觉模型没有判断场景「${missingBranch}」`)
+    if (decision.caseEvaluations.length !== cases.length) throw new Error('视觉模型返回的场景判断数量与节点配置不一致')
+    const invalidComparison = decision.comparisons.find(item => item.inputImageIndex > imageSources.length || item.referenceImageIndex !== null && item.referenceImageIndex > comparisonSources.length)
+    if (invalidComparison !== undefined) throw new Error('视觉模型返回了超出图片数量范围的对比序号')
+    if (comparisonSources.length > 0) {
+      const comparedInputIndexes = decision.comparisons.map(item => item.inputImageIndex)
+      if (new Set(comparedInputIndexes).size !== comparedInputIndexes.length) throw new Error('视觉模型重复返回了同一张待识别图片的对比结果')
+      const missingInputIndex = imageSources.findIndex((_source, index) => !comparedInputIndexes.includes(index + 1))
+      if (missingInputIndex >= 0) throw new Error(`视觉模型没有返回待识别图片 ${missingInputIndex + 1} 的对比结果`)
+      if (decision.comparisons.some(item => item.comparable && item.referenceImageIndex === null)) throw new Error('视觉模型将图片标记为可比较，但没有指定参考图片')
+    }
+    const expectedImageEvaluationCount = imageSources.length * cases.length
+    if (decision.imageCaseEvaluations.length !== expectedImageEvaluationCount) throw new Error(`视觉模型返回的逐图场景判断数量不完整，预期 ${expectedImageEvaluationCount} 条，实际 ${decision.imageCaseEvaluations.length} 条`)
+    const imageEvaluationKeys = decision.imageCaseEvaluations.map(item => `${item.inputImageIndex}:${item.branch}`)
+    if (new Set(imageEvaluationKeys).size !== imageEvaluationKeys.length) throw new Error('视觉模型重复返回了同一张图片的场景判断')
+    const invalidImageEvaluation = decision.imageCaseEvaluations.find(item => item.inputImageIndex < 1 || item.inputImageIndex > imageSources.length || !expectedBranchSet.has(item.branch))
+    if (invalidImageEvaluation !== undefined) throw new Error('视觉模型返回了无效的逐图场景判断')
+    const missingImageEvaluation = imageSources.flatMap((_source, index) => expectedBranches.map(branchId => `${index + 1}:${branchId}`)).find(key => !imageEvaluationKeys.includes(key))
+    if (missingImageEvaluation !== undefined) throw new Error(`视觉模型缺少逐图场景判断「${missingImageEvaluation}」`)
+    const inconsistentEvaluation = decision.caseEvaluations.find(item => {
+      const related = decision.imageCaseEvaluations.filter(imageEvaluation => imageEvaluation.branch === item.branch)
+      return item.matched !== (related.some(imageEvaluation => imageEvaluation.matched) && !related.some(imageEvaluation => imageEvaluation.contradicts))
+    })
+    if (inconsistentEvaluation !== undefined) throw new Error(`视觉模型的综合判断与逐图判断不一致：「${inconsistentEvaluation.branch}」`)
+    const chosen = cases.find(item => decision.caseEvaluations.find(evaluation => evaluation.branch === `case-${item.id}`)?.matched === true)
+    const chosenEvaluation = chosen === undefined ? undefined : decision.caseEvaluations.find(item => item.branch === `case-${chosen.id}`)
+    const branch = chosen === undefined ? 'else' : `case-${chosen.id}`
     const label = chosen?.name ?? '否则'
-    const reason = decision.reason.trim().slice(0, 500)
+    const reason = (chosenEvaluation?.evidence || decision.comparisonSummary).trim().slice(0, 500)
     const outputName = config.outputName.trim() || 'imageResult'
-    const result = { branch: decision.branch, label, reason }
-    const probeLog = imageSource.probe === undefined ? [] : [`图片链接访问探针通过（HTTP ${imageSource.probe.status}，${imageSource.probe.mime}，${imageSource.probe.bytes} 字节）`]
-    return { message: `图片识别进入「${label}」${reason ? `：${reason}` : ''}`, branch: decision.branch, outputs: { [outputName]: result }, logs: [...probeLog, `图片识别实际分支：${decision.branch}`] }
+    const result = { branch, label, reason, imageCount: imageSources.length, comparisonEnabled: comparisonSources.length > 0, comparisonImageCount: comparisonSources.length, comparisonStatus: decision.comparisonStatus, comparisonSummary: decision.comparisonSummary, comparisons: decision.comparisons, imageCaseEvaluations: decision.imageCaseEvaluations, caseEvaluations: decision.caseEvaluations, confidence: chosenEvaluation?.confidence ?? 0 }
+    const probeLog = imageSources.flatMap((source, index) => source.probe === undefined ? [] : [`第 ${index + 1} 张图片链接访问探针通过（HTTP ${source.probe.status}，${source.probe.mime}，${source.probe.bytes} 字节）`])
+    const evaluationLogs = cases.map(item => {
+      const evaluation = decision.caseEvaluations.find(candidate => candidate.branch === `case-${item.id}`)
+      const matchedImages = decision.imageCaseEvaluations.filter(candidate => candidate.branch === `case-${item.id}` && candidate.matched).map(candidate => candidate.inputImageIndex)
+      return `场景判断「${item.name}」：${evaluation?.matched === true ? `命中（图片 ${matchedImages.join('、')}）` : '不命中'}（置信度 ${Math.round((evaluation?.confidence ?? 0) * 100)}%）`
+    })
+    return { message: `已综合识别 ${imageSources.length} 张图片，进入「${label}」${reason ? `：${reason}` : ''}`, branch, outputs: { [outputName]: result }, logs: [...probeLog, ...evaluationLogs, `图片识别实际分支：${branch}`] }
   }
   if (node.config.type === 'condition') {
     const check = async (): Promise<{ matched: boolean; message: string }> => {
@@ -515,6 +646,17 @@ async function liveStep(
       for (const [stepIndex, step] of config.steps.entries()) {
         trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 开始：${step.type}`)
         try {
+          const previousStep = config.steps[stepIndex - 1]
+          const nextStep = config.steps[stepIndex + 1]
+          const duplicatedDropdownTrigger = step.type === 'click'
+            && previousStep?.type === 'click'
+            && nextStep?.type === 'click'
+            && pickedSelectorsTargetSameElement(selectorText(previousStep.selector), selectorText(step.selector))
+            && isPickedDropdownOption(selectorText(nextStep.selector))
+          if (duplicatedDropdownTrigger) {
+            trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 跳过：下拉框已由前一步展开`)
+            continue
+          }
           if (step.type === 'open') {
             lastOpenedUrl = String(resolveExpression(step.url, context)).trim()
             if (lastOpenedUrl === '') throw new Error('打开网址为空；请检查 URL 字段和其中引用的变量')
@@ -585,7 +727,7 @@ async function liveStep(
       const waitVisible = String(resolveExpression(selectorText(config.waitForVisible ?? ''), context))
       if (waitVisible.trim() !== '') await driver.waitFor(node.execution.timeoutMs, waitVisible)
       await driver.click(selector)
-      return { message: `已点击 ${selector}` }
+      return { message: `已点击 ${displaySelector(selector)}` }
     }
     if (config.type === 'type') {
       const selector = requireText(String(resolveExpression(selectorText(config.selector), context)), '选择器')
@@ -684,7 +826,7 @@ async function liveStep(
       const selector = requireText(String(resolveExpression(selectorText(config.selector), context)), '选择器')
       const text = await driver.extract(selector)
       const result = config.transform === undefined ? text : transformExtractValue(text, config.transform)
-      return { message: `抽取 ${selector}${config.transform === undefined ? '' : '并完成转换'}`, outputs: { [config.outputName || 'text']: result } satisfies NodeOutputs }
+      return { message: `抽取 ${displaySelector(selector)}${config.transform === undefined ? '' : '并完成转换'}`, outputs: { [config.outputName || 'text']: result } satisfies NodeOutputs }
     }
     if (config.type === 'wait') {
       const selector = String(resolveExpression(selectorText(config.selector), context))
@@ -697,7 +839,7 @@ async function liveStep(
       }
       const elapsed = Date.now() - startedAt
       if (mode === 'duration') return { message: `已等待 ${config.ms}ms` }
-      return { message: `元素已${mode === 'visible' ? '出现' : '消失'}：${selector}（等待 ${elapsed}ms）` }
+      return { message: `元素已${mode === 'visible' ? '出现' : '消失'}：${displaySelector(selector)}（等待 ${elapsed}ms）` }
     }
     return { message: `${NODE_CATALOG[node.type].title}` }
   }, driver, context)

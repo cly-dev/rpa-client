@@ -1,29 +1,32 @@
 import type { Page } from 'playwright'
 import { describe, expect, it, vi } from 'vitest'
-import { clickExactVisibleText, waitForPickedSelector } from './playwright-driver.ts'
+import { clickExactVisibleText, isPickedFingerprintSelector, shouldClickByExactVisibleText, shouldSkipExpandedTrigger, waitForPickedSelector } from './playwright-driver.ts'
 
 describe('exact-text clicks', () => {
   it('uses a retryable visible locator instead of checking the page immediately', async () => {
     let reveal!: () => void
-    const clicked = new Promise<void>(resolve => { reveal = resolve })
-    const click = vi.fn(() => clicked)
-    const last = vi.fn(() => ({ click }))
-    const visible = vi.fn(() => ({ last }))
+    const revealed = new Promise<void>(resolve => { reveal = resolve })
+    const click = vi.fn(async () => undefined)
+    const waitFor = vi.fn(() => revealed)
+    const first = vi.fn(() => ({ click, waitFor }))
+    const count = vi.fn(async () => 1)
+    const visible = vi.fn(() => ({ first, count }))
     const getByText = vi.fn(() => ({ visible }))
     const page = { getByText } as unknown as Pick<Page, 'getByText'>
 
     const result = clickExactVisibleText(page, '登录', 2_000)
     expect(getByText).toHaveBeenCalledWith('登录', { exact: true })
     expect(visible).toHaveBeenCalledOnce()
-    expect(last).toHaveBeenCalledOnce()
-    expect(click).toHaveBeenCalledWith({ timeout: 2_000 })
+    expect(first).toHaveBeenCalledOnce()
+    expect(waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 2_000 })
     reveal()
     await expect(result).resolves.toBeUndefined()
+    expect(click).toHaveBeenCalledWith({ timeout: 2_000 })
   })
 
   it('reports a useful message only after the configured timeout is reached', async () => {
     const timeout = Object.assign(new Error('waiting for locator'), { name: 'TimeoutError' })
-    const page = { getByText: () => ({ visible: () => ({ last: () => ({ click: () => Promise.reject(timeout) }) }) }) } as unknown as Pick<Page, 'getByText'>
+    const page = { getByText: () => ({ visible: () => ({ count: async () => 0, first: () => ({ waitFor: () => Promise.reject(timeout) }) }) }) } as unknown as Pick<Page, 'getByText'>
     await expect(clickExactVisibleText(page, '登录', 1_500)).rejects.toThrow('等待可见文本「登录」超时（1500 毫秒）')
   })
 
@@ -37,7 +40,7 @@ describe('exact-text clicks', () => {
         count: async () => 2,
         visible: () => ({
           count: async () => 0,
-          last: () => ({ click: () => Promise.reject(timeout) }),
+          first: () => ({ waitFor: () => Promise.reject(timeout) }),
         }),
       }),
     } as unknown as Page
@@ -51,6 +54,42 @@ describe('exact-text clicks', () => {
     expect(message).toContain('主页面精确匹配：2 项，可见：0 项')
     expect(message).toContain('iframe：1 个')
     expect(message).not.toContain('private-token')
+  })
+
+  it('refuses to guess when a legacy exact-text selector has multiple visible matches', async () => {
+    const click = vi.fn(async () => undefined)
+    const page = {
+      getByText: () => ({
+        visible: () => ({ count: async () => 2, first: () => ({ waitFor: async () => undefined, click }) }),
+      }),
+    } as unknown as Pick<Page, 'getByText'>
+
+    await expect(clickExactVisibleText(page, '确定', 3_000)).rejects.toThrow('匹配到 2 个可见元素')
+    expect(click).not.toHaveBeenCalled()
+  })
+})
+
+describe('expanded trigger skipping', () => {
+  it('does not skip tree options just because the dropdown is already open', () => {
+    expect(shouldSkipExpandedTrigger('combobox', 'true')).toBe(true)
+    expect(shouldSkipExpandedTrigger('treeitem', 'true')).toBe(false)
+    expect(shouldSkipExpandedTrigger(null, 'true')).toBe(false)
+  })
+})
+
+describe('fingerprint click routing', () => {
+  it('never treats an rpa-context payload as visible page text', () => {
+    const selector = `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({
+      version: 1,
+      tag: 'div',
+      css: 'html > body > div.arco-tree > div.arco-tree-node.arco-tree-node-is-leaf:nth-of-type(13)',
+      parentPath: 'html > body > div.arco-tree:nth-of-type(1)',
+      text: '买错',
+      role: 'treeitem',
+    }))}`
+    expect(isPickedFingerprintSelector(selector)).toBe(true)
+    expect(shouldClickByExactVisibleText(selector)).toBe(false)
+    expect(shouldClickByExactVisibleText('text-exact:买错')).toBe(true)
   })
 })
 
@@ -70,6 +109,13 @@ describe('picked selector waits', () => {
     expect(first).toHaveBeenCalledOnce()
     expect(waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 12_000 })
     expect(locator).not.toHaveBeenCalled()
+  })
+
+  it('does not wait for the encoded fingerprint blob as visible text', async () => {
+    const selector = `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({ version: 1, tag: 'div', css: '.arco-tree-node', text: '买错' }))}`
+    const page = { getByText: vi.fn(), locator: vi.fn() } as unknown as Pick<Page, 'getByText' | 'locator'>
+    await expect(waitForPickedSelector(page, selector, 'visible', 12_000)).rejects.toThrow('拾取指纹无法按可见文本等待')
+    expect(page.getByText).not.toHaveBeenCalled()
   })
 
   it('keeps ordinary CSS selectors unchanged', async () => {

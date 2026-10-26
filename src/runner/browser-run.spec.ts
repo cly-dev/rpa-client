@@ -371,6 +371,35 @@ describe('runBrowser', () => {
     expect(calls).toEqual(['open:https://example.com', 'type:#name=Alice', 'click:#submit'])
   })
 
+  it('skips a duplicated dropdown trigger left by an older picked workflow', async () => {
+    const picked = (css: string, role: string, text: string): string => `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({ version: 1, tag: 'div', css, parentPath: '#form', role, text }))}`
+    const triggerBeforeOpen = picked('#status', 'combobox', '请选择')
+    const triggerAfterOpen = picked('#status', 'combobox', '请选择')
+    const option = picked('#status-option-paid', 'option', '已付款')
+    const calls: string[] = []
+    const start = createNode('start', { x: 0, y: 0 })
+    const action = createNode('page-action', { x: 80, y: 0 })
+    const end = createNode('end', { x: 160, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: newId('wf'), name: 'legacy duplicated dropdown trigger', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: 'https://example.com' } },
+        { ...action, config: { type: 'page-action', steps: [
+          { type: 'click', selector: triggerBeforeOpen },
+          { type: 'click', selector: triggerAfterOpen },
+          { type: 'click', selector: option },
+        ] } },
+        end,
+      ],
+      edges: [createEdge(start.id, 'default', action.id), createEdge(action.id, 'default', end.id)],
+    }
+
+    const state = await runBrowser(graph, fakeDriver(calls), { onUpdate() {}, wait: async () => {} })
+
+    expect(state.status).toBe('succeeded')
+    expect(calls).toEqual(['open:https://example.com', `click:${triggerBeforeOpen}`, `click:${option}`])
+  })
+
   it('uses an AI condition result to choose the matched branch', async () => {
     const calls: string[] = []
     const start = createNode('start', { x: 0, y: 0 })

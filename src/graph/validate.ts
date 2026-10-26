@@ -26,7 +26,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'switch-empty-case': '多路判断至少需要一个分支值',
   'switch-invalid-case': '多路判断的数字或布尔匹配值无效',
   'switch-duplicate-case': '多路判断存在重复的精确匹配值，后续重复分支无法命中',
-  'image-recognition-invalid': '图片识别需要图片来源、结果变量名，以及至少一个填写完整且不重复的分支',
+  'image-recognition-invalid': '图片识别需要图片来源、结果变量名，以及至少一个填写完整且不重复的分支；启用图片对比后还需要上传参考图或选择参考图变量',
   'missing-entry-workflow': '入口流程不存在',
   'subflow-cycle': '子流程调用存在循环',
   'declared-variable-empty': '声明流程变量时必须填写变量名',
@@ -142,7 +142,10 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
     if (node.config.type === 'image-recognition') {
       const config = node.config
       const ids = config.cases.map(item => item.id)
-      if (config.outputName.trim() === '' || config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim()) || new Set(ids).size !== ids.length || (config.image.kind === 'literal' && typeof config.image.value === 'string' && config.image.value.trim() === '')) {
+      const comparisonMissing = config.comparisonEnabled === true && (config.comparisonSourceMode === 'variable'
+        ? config.comparisonImageSource === undefined || (config.comparisonImageSource.kind === 'literal' && (config.comparisonImageSource.value === null || (typeof config.comparisonImageSource.value === 'string' && config.comparisonImageSource.value.trim() === '')))
+        : (config.comparisonImages?.filter(item => item.dataUrl.trim()).length ?? 0) === 0 && !config.comparisonImage?.trim())
+      if (config.outputName.trim() === '' || config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim()) || new Set(ids).size !== ids.length || (config.image.kind === 'literal' && typeof config.image.value === 'string' && config.image.value.trim() === '') || comparisonMissing) {
         issues.push(issue('image-recognition-invalid', { nodeId: node.id }))
       }
     }

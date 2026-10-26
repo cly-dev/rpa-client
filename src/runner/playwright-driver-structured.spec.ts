@@ -107,10 +107,18 @@ describe('AI switch structured output', () => {
 
 describe('image recognition structured output', () => {
   const image = 'data:image/png;base64,iVBORw0KGgo='
+  const images = [{ dataUrl: image, label: '待识别图片 1', role: 'input' as const }]
   const cases = [{ id: 'paid', name: '付款', prompt: '付款成功截图' }]
   const llm = {
     id: 'vision', name: '视觉模型', enabled: true, model: 'thinking-model',
     baseUrl: 'http://127.0.0.1:3333/v1', chatPath: '/chat/completions', apiKey: 'session-token', maxTokens: 500,
+  }
+  const decision = {
+    comparisonStatus: 'completed' as const,
+    comparisonSummary: '显示付款成功',
+    comparisons: [],
+    imageCaseEvaluations: [{ inputImageIndex: 1, branch: 'case-paid', matched: true, contradicts: false, confidence: 0.96, evidence: '显示付款成功' }],
+    caseEvaluations: [{ branch: 'case-paid', matched: true, confidence: 0.96, evidence: '图片 1：显示付款成功' }],
   }
 
   it('uses JSON mode first and sends the image with an explicit JSON instruction', async () => {
@@ -127,15 +135,72 @@ describe('image recognition structured output', () => {
         && message.content.some(part => part.type === 'image_url' && part.image_url?.url === image))).toBe(true)
       return new Response(JSON.stringify({
         id: 'chatcmpl-image-json', object: 'chat.completion', created: 1, model: 'thinking-model',
-        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '{"branch":"case-paid","reason":"显示付款成功"}' } }],
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(decision) } }],
       }), { status: 200, headers: { 'content-type': 'application/json' } })
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await createHttpOnlyDriver().recognizeImage?.(image, '', cases, llm)
+    const result = await createHttpOnlyDriver().recognizeImage?.(images, '', cases, llm)
 
-    expect(result).toEqual({ branch: 'case-paid', reason: '显示付款成功' })
+    expect(result).toEqual(decision)
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the reference and all runtime images in one comparison request', async () => {
+    const secondImage = 'data:image/png;base64,iVBORw0KGgoAAA=='
+    const reference = 'data:image/png;base64,iVBORw0KGgoBBB=='
+    const secondReference = 'data:image/png;base64,iVBORw0KGgoCCC=='
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as { messages?: readonly { content?: string | readonly { type?: string; text?: string; image_url?: { url?: string } }[] }[] }
+      const content = request.messages?.find(message => Array.isArray(message.content))?.content
+      expect(Array.isArray(content)).toBe(true)
+      if (!Array.isArray(content)) throw new Error('缺少多模态消息')
+      expect(content.filter(part => part.type === 'image_url').map(part => part.image_url?.url)).toEqual([reference, secondReference, image, secondImage])
+      expect(content.filter(part => part.type === 'text').map(part => part.text).join('\n')).toContain('共有 2 张参考图片')
+      expect(content.filter(part => part.type === 'text').map(part => part.text).join('\n')).toContain('重点比较文字和金额')
+      const comparisonDecision = {
+        comparisonStatus: 'completed', comparisonSummary: '综合图片后符合',
+        comparisons: [{ inputImageIndex: 1, referenceImageIndex: 1, comparable: true, reason: '视角一致', differences: [{ location: '文字区域', description: '金额不同', evidence: '参考图与待识别图金额不同' }] }],
+        imageCaseEvaluations: [
+          { inputImageIndex: 1, branch: 'case-paid', matched: true, contradicts: false, confidence: 0.9, evidence: '第一张图片符合' },
+          { inputImageIndex: 2, branch: 'case-paid', matched: false, contradicts: false, confidence: 0.8, evidence: '第二张图片不相关' },
+        ],
+      }
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-image-multiple', object: 'chat.completion', created: 1, model: 'thinking-model',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(comparisonDecision) } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createHttpOnlyDriver().recognizeImage?.([
+      { dataUrl: reference, label: '标准图', role: 'reference' },
+      { dataUrl: secondReference, label: '标准图 2', role: 'reference' },
+      ...images,
+      { dataUrl: secondImage, label: '待识别图片 2', role: 'input' },
+    ], '', cases, llm, '重点比较文字和金额')
+
+    expect(result).toMatchObject({ comparisonStatus: 'completed', comparisonSummary: '综合图片后符合', caseEvaluations: [{ branch: 'case-paid', matched: true }] })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not aggregate a scene as matched when another image provides explicit contrary evidence', async () => {
+    const secondImage = 'data:image/png;base64,iVBORw0KGgoDDD=='
+    const rawDecision = {
+      comparisonStatus: 'completed', comparisonSummary: '一张是包装，另一张展示产品本体', comparisons: [],
+      imageCaseEvaluations: [
+        { inputImageIndex: 1, branch: 'case-paid', matched: true, contradicts: false, confidence: 0.9, evidence: '第一张提供支持证据' },
+        { inputImageIndex: 2, branch: 'case-paid', matched: false, contradicts: true, confidence: 0.98, evidence: '第二张提供明确反证' },
+      ],
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      id: 'chatcmpl-image-contradiction', object: 'chat.completion', created: 1, model: 'thinking-model',
+      choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(rawDecision) } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })))
+
+    const result = await createHttpOnlyDriver().recognizeImage?.([...images, { dataUrl: secondImage, label: '待识别图片 2', role: 'input' }], '', cases, llm)
+
+    expect(result?.caseEvaluations).toEqual([{ branch: 'case-paid', matched: false, confidence: 0.9, evidence: '图片 2：第二张提供明确反证' }])
   })
 
   it('falls back to function calling if JSON mode is rejected', async () => {
@@ -143,11 +208,11 @@ describe('image recognition structured output', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'json_object not supported', type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         id: 'chatcmpl-image-tool', object: 'chat.completion', created: 1, model: 'test-model',
-        choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: '', tool_calls: [{ id: 'call-image', type: 'function', function: { name: 'image_decision', arguments: '{"branch":"case-paid","reason":"显示付款成功"}' } }] } }],
+        choices: [{ index: 0, finish_reason: 'tool_calls', message: { role: 'assistant', content: '', tool_calls: [{ id: 'call-image', type: 'function', function: { name: 'image_decision', arguments: JSON.stringify(decision) } }] } }],
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
 
-    expect(await createHttpOnlyDriver().recognizeImage?.(image, '', cases, llm)).toEqual({ branch: 'case-paid', reason: '显示付款成功' })
+    expect(await createHttpOnlyDriver().recognizeImage?.(images, '', cases, llm)).toEqual(decision)
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const fallback = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body)) as { tool_choice?: unknown }
     expect(fallback.tool_choice).toBeDefined()
@@ -160,7 +225,7 @@ describe('image recognition structured output', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     let failure: unknown
-    try { await createHttpOnlyDriver().recognizeImage?.(image, '', cases, llm) } catch (error) { failure = error }
+    try { await createHttpOnlyDriver().recognizeImage?.(images, '', cases, llm) } catch (error) { failure = error }
     expect(failure).toBeInstanceOf(Error)
     const message = (failure as Error).message
     expect(message).toContain('JSON Mode')

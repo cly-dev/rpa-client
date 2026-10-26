@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { normalizeImageSource, normalizeImageSourceWithProbe } from './image-source.ts'
+import { MAX_IMAGE_COUNT, normalizeImageSource, normalizeImageSourcesWithProbe, normalizeImageSourceWithProbe } from './image-source.ts'
 
 const tinyPng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString('base64')
 
@@ -36,5 +36,17 @@ describe('normalizeImageSource', () => {
   it('rejects empty and unsupported image values', async () => {
     await expect(normalizeImageSource(null)).rejects.toThrow('图片变量为空')
     await expect(normalizeImageSource(Buffer.from('hello').toString('base64'))).rejects.toThrow('仅支持 PNG')
+  })
+
+  it('normalizes ordered image arrays and image collection objects', async () => {
+    const expected = `data:image/png;base64,${tinyPng}`
+    await expect(normalizeImageSourcesWithProbe([expected, { imageUrl: expected }])).resolves.toEqual([{ dataUrl: expected }, { dataUrl: expected }])
+    await expect(normalizeImageSourcesWithProbe({ images: [expected, expected] })).resolves.toHaveLength(2)
+    await expect(normalizeImageSourcesWithProbe(JSON.stringify([expected, expected]))).resolves.toHaveLength(2)
+  })
+
+  it('rejects empty or oversized image collections', async () => {
+    await expect(normalizeImageSourcesWithProbe([])).rejects.toThrow('图片数组为空')
+    await expect(normalizeImageSourcesWithProbe(Array.from({ length: MAX_IMAGE_COUNT + 1 }, () => `data:image/png;base64,${tinyPng}`))).rejects.toThrow(`一次最多识别 ${MAX_IMAGE_COUNT} 张图片`)
   })
 })

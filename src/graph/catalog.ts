@@ -250,7 +250,7 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'switch':
       return { type: 'switch', left: literalBinding(''), path: '', cases: [''], caseTypes: ['string'], caseIds: [newId('case')], aiContext: '' }
     case 'image-recognition':
-      return { type: 'image-recognition', image: literalBinding(''), path: '', instruction: '', cases: [{ id: newId('case'), name: '', prompt: '' }], outputName: 'imageResult' }
+      return { type: 'image-recognition', image: literalBinding(''), path: '', comparisonEnabled: false, comparisonSourceMode: 'upload', comparisonImage: '', comparisonImageName: '', comparisonImages: [], comparisonImageSource: literalBinding(''), comparisonImagePath: '', comparisonPrompt: '', instruction: '', cases: [{ id: newId('case'), name: '', prompt: '' }], outputName: 'imageResult' }
     case 'call-subflow':
       return { type: 'call-subflow', workflowId: '', workflowVersion: undefined, inputMappings: [] }
     case 'approval':

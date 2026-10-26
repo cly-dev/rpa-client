@@ -13,6 +13,7 @@ import { runWorkflowCode } from '@runner/code-runtime.ts'
 import { BrowserOperationGate } from './browser-operation.ts'
 import { createLazyBrowserDriver } from './lazy-browser-driver.ts'
 import { failedAtPageAction } from './page-action-debug.ts'
+import { mergePickerRunState, pendingPickerSteps } from './picker-progress.ts'
 import { checkBrowserReadiness } from '@runner/browser-readiness.ts'
 import { ClientScheduleClock, type ClientScheduleRule } from './schedule-clock.ts'
 
@@ -342,7 +343,7 @@ app.whenReady().then(() => {
   ipcMain.handle('browser:prepare-and-pick', async (event, raw: unknown) => {
     const release = browserGate.begin('准备并拾取元素')
     try {
-    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; inputs?: unknown; pickerContext?: unknown } : {}
+    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; inputs?: unknown; pickerContext?: unknown; runId?: unknown } : {}
     const serviceLlms = payload.preparedGraph === undefined ? undefined : await loadMainServiceLlms(event)
     const preparedGraph = payload.preparedGraph === undefined || serviceLlms === undefined
       ? undefined : withServiceLlms(admit(payload.preparedGraph), serviceLlms.configs, serviceLlms.token)
@@ -359,14 +360,27 @@ app.whenReady().then(() => {
     const pickerContext = typeof rawPickerContext?.workflowId === 'string' && typeof rawPickerContext.nodeId === 'string' && Number.isInteger(rawPickerContext.stepIndex) && Number(rawPickerContext.stepIndex) >= 0
       ? { workflowId: rawPickerContext.workflowId, nodeId: rawPickerContext.nodeId, stepIndex: Number(rawPickerContext.stepIndex) }
       : undefined
-    // Keep the browser alive across picks. Preparation below decides whether
-    // to run the full prefix or just the steps added since the last pick.
+    const pickerRunId = typeof payload.runId === 'string' && payload.runId.trim() !== '' ? payload.runId : undefined
+    const sender = event.sender
+    const emitPickerState = (state: RunState): void => {
+      if (!sender.isDestroyed()) sender.send('workflow:run-update', { runId: pickerRunId, state })
+    }
+    const pickerPhase = (state: RunState, status: RunState['status'], message: string): RunState => ({
+      ...state,
+      status,
+      currentNodeId: undefined,
+      logs: [...state.logs, { at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message }],
+    })
+    // Keep the browser alive across picks. A pre-existing window already has
+    // page context, so only page-action steps before the picked step are run.
+    // A newly opened window still needs the complete node prefix.
     await discardClosedSession()
+    const reuseExistingBrowser = session !== undefined
     if (session === undefined) session = await openPlaywrightSession({ packaged: app.isPackaged })
     const picker = session
+    let preservePickerProgressOnError = false
     try {
       if (preparedGraph !== undefined && preparedGraph.nodes.length > 0) {
-        const sender = event.sender
         const targetAction = pickerContext === undefined ? undefined : preparedGraph.nodes.find(node => node.id === pickerContext.nodeId && node.config.type === 'page-action')
         const fingerprintAt = (stepIndex: number): string => JSON.stringify({
           graph: { ...preparedGraph, nodes: preparedGraph.nodes.map(node => node.id === pickerContext?.nodeId && node.config.type === 'page-action' ? { ...node, config: { ...node.config, steps: node.config.steps.slice(0, stepIndex) } } : node) },
@@ -403,59 +417,119 @@ app.whenReady().then(() => {
           ],
         }
         let state: RunState
-        if (canContinue && pickerContext.stepIndex === previous.stepIndex) {
-          state = previous.state
-        } else {
-          let runnable = fullRunnable
-          if (canContinue && targetAction.config.type === 'page-action') {
+        if (reuseExistingBrowser && targetAction === undefined) {
+          state = {
+            status: 'succeeded',
+            nodes: {},
+            outputs: previous?.state.outputs ?? {},
+            inputs,
+            variables: previous?.state.variables,
+            page: { url: picker.driver.currentUrl?.() ?? '' },
+            logs: [{ at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message: '检测到已有浏览器窗口，已跳过目标节点之前的流程节点' }],
+          }
+        } else if (reuseExistingBrowser && targetAction?.config.type === 'page-action' && pickerContext !== undefined) {
+          state = canContinue ? previous.state : {
+            status: 'succeeded',
+            nodes: {},
+            outputs: {},
+            inputs,
+            page: { url: picker.driver.currentUrl?.() ?? '' },
+            logs: [{ at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message: '检测到已有浏览器窗口，已跳过目标节点之前的流程节点' }],
+          }
+          const completedStepCount = canContinue ? previous.stepIndex : 0
+          for (const stepIndex of pendingPickerSteps(targetAction.config.steps.length, completedStepCount)) {
+            const step = targetAction.config.steps[stepIndex]
+            if (step === undefined) continue
             const resumeStart: WorkflowNode = {
               ...terminal, id: '__rpa_picker_resume_start__', type: 'start', name: '沿用当前页面',
               config: { type: 'start', url: '' },
             }
-            const remainingAction: WorkflowNode = {
+            const currentAction: WorkflowNode = {
               ...targetAction,
-              config: { ...targetAction.config, steps: targetAction.config.steps.slice(previous.stepIndex, pickerContext.stepIndex) },
+              name: `${targetAction.name}（拾取前置步骤 ${stepIndex + 1}）`,
+              config: { ...targetAction.config, steps: [step] },
             }
-            runnable = {
+            const runnable: WorkflowGraph = {
               ...preparedGraph,
               entryNodeId: resumeStart.id,
-              nodes: [resumeStart, remainingAction, terminal],
+              nodes: [resumeStart, currentAction, terminal],
               edges: [
-                { id: '__rpa_picker_resume_in__', sourceNodeId: resumeStart.id, sourcePort: 'default', targetNodeId: remainingAction.id },
-                { id: '__rpa_picker_resume_out__', sourceNodeId: remainingAction.id, sourcePort: 'default', targetNodeId: terminal.id },
+                { id: '__rpa_picker_resume_in__', sourceNodeId: resumeStart.id, sourcePort: 'default', targetNodeId: currentAction.id },
+                { id: '__rpa_picker_resume_out__', sourceNodeId: currentAction.id, sourcePort: 'default', targetNodeId: terminal.id },
               ],
             }
+            const beforeStep = state
+            emitPickerState(pickerPhase(state, 'running', `正在执行节点内前置步骤 ${stepIndex + 1}/${pickerContext.stepIndex}`))
+            const next = await runBrowser(runnable, picker.driver, {
+              onUpdate: next => { emitPickerState(mergePickerRunState(beforeStep, next)) },
+              wait: ms => new Promise(resolve => { setTimeout(resolve, ms) }),
+            }, { inputs, variables: state.variables, outputs: state.outputs, allowExistingPage: true })
+            const merged = mergePickerRunState(beforeStep, next)
+            if (merged.status === 'failed') {
+              // Keep the cursor immediately before the failed step. Picking that
+              // step again must not execute its stale selector first.
+              pickerProgress = {
+                session: picker,
+                workflowId: pickerContext.workflowId,
+                nodeId: pickerContext.nodeId,
+                stepIndex,
+                fingerprint: fingerprintAt(stepIndex),
+                pageUrl: picker.driver.currentUrl?.() ?? '',
+                state: beforeStep,
+              }
+              preservePickerProgressOnError = true
+              state = merged
+              break
+            }
+            state = pickerPhase(merged, 'succeeded', `节点内前置步骤 ${stepIndex + 1} 执行完成`)
+            pickerProgress = {
+              session: picker,
+              workflowId: pickerContext.workflowId,
+              nodeId: pickerContext.nodeId,
+              stepIndex: stepIndex + 1,
+              fingerprint: fingerprintAt(stepIndex + 1),
+              pageUrl: picker.driver.currentUrl?.() ?? '',
+              state,
+            }
           }
-          const next = await runBrowser(runnable, picker.driver, {
+          if (targetAction.config.steps.length === 0) state = pickerPhase(state, 'succeeded', '目标步骤之前没有节点内步骤，直接进入拾取')
+        } else {
+          const next = await runBrowser(fullRunnable, picker.driver, {
             onUpdate: next => {
-              if (!sender.isDestroyed()) sender.send('workflow:run-update', { state: next })
+              emitPickerState(next)
             },
             wait: ms => new Promise(resolve => { setTimeout(resolve, ms) }),
-          }, canContinue ? { inputs, variables: previous.state.variables, outputs: previous.state.outputs, allowExistingPage: true } : { subflows, inputs })
-          state = canContinue ? {
-            ...next,
-            outputs: {
-              ...previous.state.outputs,
-              ...next.outputs,
-              [pickerContext.nodeId]: { ...previous.state.outputs[pickerContext.nodeId], ...next.outputs[pickerContext.nodeId] },
-            },
-          } : next
+          }, { subflows, inputs })
+          state = next
         }
         if (state.status === 'failed') {
-          pickerProgress = undefined
+          if (!preservePickerProgressOnError) pickerProgress = undefined
           const detail = state.logs.at(-1)?.message ?? '未知错误'
           throw new Error(`执行前置流程失败，无法拾取元素：${detail}`)
         }
-        pickerProgress = pickerContext !== undefined && targetAction?.config.type === 'page-action'
+        emitPickerState(pickerPhase(state, 'running', reuseExistingBrowser
+          ? '已复用现有浏览器，仅执行节点内前置步骤；正在等待页面稳定…'
+          : '前置流程执行完成，正在等待页面稳定…'))
+        const pageSettled = await picker.driver.waitForPageSettled?.(8_000) ?? true
+        state = pickerPhase(state, 'succeeded', pageSettled ? '页面已稳定，已进入元素拾取模式' : '页面稳定等待达到上限，已进入元素拾取模式')
+        emitPickerState(state)
+        pickerProgress = pageSettled && pickerContext !== undefined && targetAction?.config.type === 'page-action'
           ? { session: picker, workflowId: pickerContext.workflowId, nodeId: pickerContext.nodeId, stepIndex: pickerContext.stepIndex, fingerprint: fingerprintAt(pickerContext.stepIndex), pageUrl: picker.driver.currentUrl?.() ?? '', state }
           : undefined
       } else {
         pickerProgress = undefined
+        emitPickerState({
+          status: 'succeeded',
+          nodes: {},
+          outputs: {},
+          inputs,
+          logs: [{ at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message: '无需执行前置节点，已进入元素拾取模式' }],
+        })
       }
       const picked = await picker.pickElement(targetUrl, mode)
       return picked
     } catch (error) {
-      pickerProgress = undefined
+      if (!preservePickerProgressOnError) pickerProgress = undefined
       const detail = error instanceof Error ? error.message : String(error)
       if (/closed|Target page|browser has been closed/i.test(detail)) {
         clearPageEnvironmentListener()

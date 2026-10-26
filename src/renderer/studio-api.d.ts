@@ -20,7 +20,7 @@ interface StudioApi {
   testLlm(config: WorkflowGraph['llm']): Promise<{ ok: boolean; message: string }>
   testCode(code: string, input: import('@graph/types.ts').JsonValue, variables?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>): Promise<{ ok: boolean; result?: import('@graph/types.ts').JsonValue; message?: string }>
   pickElement(url?: string, mode?: 'element' | 'list'): Promise<{ tagName: string; text: string; id: string; className: string; ariaLabel: string; role: string; placeholder: string; selector: string; url: string; title: string; optionValue?: string; triggerSelector?: string; optionSelector?: string }>
-  prepareAndPickElement(preparedGraph: WorkflowGraph | undefined, url?: string, mode?: 'element' | 'list', subflows?: readonly WorkflowGraph[], inputs?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>, pickerContext?: { workflowId: string; nodeId: string; stepIndex: number }): Promise<{ tagName: string; text: string; id: string; className: string; ariaLabel: string; role: string; placeholder: string; selector: string; url: string; title: string; optionValue?: string; triggerSelector?: string; optionSelector?: string }>
+  prepareAndPickElement(preparedGraph: WorkflowGraph | undefined, url?: string, mode?: 'element' | 'list', subflows?: readonly WorkflowGraph[], inputs?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>, pickerContext?: { workflowId: string; nodeId: string; stepIndex: number }, runId?: string): Promise<{ tagName: string; text: string; id: string; className: string; ariaLabel: string; role: string; placeholder: string; selector: string; url: string; title: string; optionValue?: string; triggerSelector?: string; optionSelector?: string }>
 }
 
 declare global {

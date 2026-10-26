@@ -223,6 +223,17 @@ export interface ImageRecognitionConfig {
   readonly type: 'image-recognition'
   readonly image: ValueBinding
   readonly path: string
+  /** Optional reference-image comparison used together with all runtime images. */
+  readonly comparisonEnabled?: boolean
+  readonly comparisonSourceMode?: 'upload' | 'variable'
+  /** Legacy single embedded image, retained for older saved workflows. */
+  readonly comparisonImage?: string
+  readonly comparisonImageName?: string
+  readonly comparisonImages?: readonly { readonly dataUrl: string; readonly name: string }[]
+  readonly comparisonImageSource?: ValueBinding
+  readonly comparisonImagePath?: string
+  /** Business-specific instructions for comparing runtime images with the reference image. */
+  readonly comparisonPrompt?: string
   readonly instruction: string
   readonly cases: readonly ImageRecognitionCase[]
   readonly llmId?: string
