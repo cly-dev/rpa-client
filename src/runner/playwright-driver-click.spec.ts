@@ -1,6 +1,6 @@
 import type { Page } from 'playwright'
 import { describe, expect, it, vi } from 'vitest'
-import { clickExactVisibleText, isPickedFingerprintSelector, shouldClickByExactVisibleText, shouldSkipExpandedTrigger, waitForPickedSelector } from './playwright-driver.ts'
+import { clickExactVisibleText, isPickedFingerprintSelector, parseReadableScopedTextSelector, shouldClickByExactVisibleText, shouldSkipExpandedTrigger, waitForPickedSelector } from './playwright-driver.ts'
 
 describe('exact-text clicks', () => {
   it('uses a retryable visible locator instead of checking the page immediately', async () => {
@@ -91,6 +91,21 @@ describe('fingerprint click routing', () => {
     expect(shouldClickByExactVisibleText(selector)).toBe(false)
     expect(shouldClickByExactVisibleText('text-exact:买错')).toBe(true)
   })
+
+  it('routes a copied readable parent-scoped selector through the structured locator', () => {
+    const selector = 'text-exact:物流太慢 · 父级:#drawer > div.arco-tree > div:nth-of-type(15)'
+    expect(parseReadableScopedTextSelector(selector)).toEqual({ text: '物流太慢', parentPath: '#drawer > div.arco-tree > div:nth-of-type(15)' })
+    expect(isPickedFingerprintSelector(selector)).toBe(true)
+    expect(shouldClickByExactVisibleText(selector)).toBe(false)
+  })
+
+  it('parses the optional copied same-text occurrence', () => {
+    expect(parseReadableScopedTextSelector('text-exact:物流太慢 · 第2个同名 · 父级:#drawer')).toEqual({
+      text: '物流太慢',
+      textIndex: 1,
+      parentPath: '#drawer',
+    })
+  })
 })
 
 describe('picked selector waits', () => {
@@ -116,6 +131,21 @@ describe('picked selector waits', () => {
     const page = { getByText: vi.fn(), locator: vi.fn() } as unknown as Pick<Page, 'getByText' | 'locator'>
     await expect(waitForPickedSelector(page, selector, 'visible', 12_000)).rejects.toThrow('拾取指纹无法按可见文本等待')
     expect(page.getByText).not.toHaveBeenCalled()
+  })
+
+  it('waits for copied exact text inside its copied parent DOM scope', async () => {
+    const waitFor = vi.fn(async () => undefined)
+    const first = vi.fn(() => ({ waitFor }))
+    const getByText = vi.fn(() => ({ first }))
+    const scoped = { getByText }
+    const locator = vi.fn(() => scoped)
+    const page = { getByText: vi.fn(), locator } as unknown as Pick<Page, 'getByText' | 'locator'>
+
+    await waitForPickedSelector(page, 'text-exact:物流太慢 · 父级:#drawer > div.tree', 'visible', 5_000)
+
+    expect(locator).toHaveBeenCalledWith('#drawer > div.tree')
+    expect(getByText).toHaveBeenCalledWith('物流太慢', { exact: true })
+    expect(waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 5_000 })
   })
 
   it('keeps ordinary CSS selectors unchanged', async () => {

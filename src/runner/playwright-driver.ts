@@ -160,10 +160,33 @@ export function uniqueExactTextOwners<T>(
 
 export function isPickedFingerprintSelector(selector: string): boolean {
   const trimmed = selector.trim()
+  if (parseReadableScopedTextSelector(trimmed) !== undefined) return true
   if (trimmed.startsWith(SCOPED_TEXT_EXACT_PREFIX) || trimmed.startsWith(ELEMENT_FINGERPRINT_PREFIX)) return true
   if (!trimmed.startsWith('text-exact:')) return false
   const text = trimmed.slice('text-exact:'.length)
   return text.startsWith('rpa-context:') || text.startsWith(ELEMENT_FINGERPRINT_PREFIX)
+}
+
+export interface ReadableScopedTextSelector {
+  readonly text: string
+  readonly parentPath: string
+  readonly textIndex?: number
+}
+
+/** Parse the copyable selector shown in the properties panel. */
+export function parseReadableScopedTextSelector(selector: string): ReadableScopedTextSelector | undefined {
+  const prefix = 'text-exact:'
+  const separator = ' · 父级:'
+  const trimmed = selector.trim()
+  if (!trimmed.startsWith(prefix)) return undefined
+  const separatorAt = trimmed.indexOf(separator, prefix.length)
+  if (separatorAt < 0) return undefined
+  const label = trimmed.slice(prefix.length, separatorAt).trim()
+  const indexed = /^(.*) · 第(\d+)个同名$/.exec(label)
+  const text = (indexed?.[1] ?? label).trim()
+  const textIndex = indexed === null ? undefined : Math.max(0, Number(indexed[2]) - 1)
+  const parentPath = trimmed.slice(separatorAt + separator.length).trim()
+  return text !== '' && parentPath !== '' ? { text, parentPath, ...(textIndex === undefined ? {} : { textIndex }) } : undefined
 }
 
 /** Legacy `text-exact:登录` clicks; fingerprint payloads must never be treated as page text. */
@@ -424,6 +447,23 @@ async function clickResolvedLocator(locator: Locator, timeoutMs: number): Promis
 }
 
 async function resolveTargetLocator(page: Page, selector: string, timeoutMs: number, requireVisible = true): Promise<Locator> {
+  const readable = parseReadableScopedTextSelector(selector)
+  if (readable !== undefined) {
+    let parent: Locator
+    try {
+      parent = page.locator(readable.parentPath)
+    } catch (error) {
+      throw new Error(`父级 DOM 选择器无效：${readable.parentPath}`, { cause: error })
+    }
+    const matches = parent.getByText(readable.text, { exact: true })
+    const candidates = requireVisible ? matches.visible() : matches
+    const first = readable.textIndex === undefined ? candidates.first() : candidates.nth(readable.textIndex)
+    await first.waitFor({ state: requireVisible ? 'visible' : 'attached', timeout: Math.max(1, timeoutMs) })
+    const count = await candidates.count()
+    if (readable.textIndex === undefined && count > 1) throw new Error(`父级 DOM 内精确文本「${readable.text}」仍匹配到 ${count} 个元素`)
+    if (readable.textIndex !== undefined && count <= readable.textIndex) throw new Error(`父级 DOM 内精确文本「${readable.text}」只有 ${count} 个，找不到第 ${readable.textIndex + 1} 个`)
+    return first
+  }
   const fingerprint = parseElementFingerprint(selector)
   if (fingerprint === undefined) return requireVisible ? page.locator(selector).visible().first() : page.locator(selector).first()
   const locateBudget = timeoutMs >= 8_000 ? timeoutMs - 5_000 : timeoutMs > 1000 ? timeoutMs - 400 : timeoutMs
@@ -496,6 +536,12 @@ export async function waitForPickedSelector(
   timeoutMs: number,
 ): Promise<void> {
   const timeout = Math.max(1, timeoutMs)
+  const readable = parseReadableScopedTextSelector(selector)
+  if (readable !== undefined) {
+    const matches = page.locator(readable.parentPath).getByText(readable.text, { exact: true })
+    await (readable.textIndex === undefined ? matches.first() : matches.nth(readable.textIndex)).waitFor({ state, timeout })
+    return
+  }
   if (isPickedFingerprintSelector(selector)) {
     throw new Error('拾取指纹无法按可见文本等待。请重新拾取该元素')
   }
@@ -709,6 +755,13 @@ function aggregateImageDecision(
   return { ...raw, caseEvaluations }
 }
 
+function requireImageDecision(value: unknown, source: string): z.infer<typeof imageDecisionSchema> {
+  const parsed = imageDecisionSchema.safeParse(value)
+  if (parsed.success) return parsed.data
+  const issue = parsed.error.issues.slice(0, 3).map(item => `${item.path.join('.') || '根对象'}：${item.message}`).join('；')
+  throw new Error(`${source}未返回有效的图片识别结构${issue ? `：${issue}` : ''}`)
+}
+
 async function recognizeImage(
   images: readonly VisionImageInput[],
   instruction: string,
@@ -718,18 +771,21 @@ async function recognizeImage(
 ): Promise<VisionRecognitionDecision> {
   if (!llm.enabled) throw new Error(`AI 配置「${llm.name}」未启用`)
   if (llm.model.trim() === '') throw new Error(`AI 配置「${llm.name}」未填写模型`)
-  const model = new ChatOpenAI({
-    model: llm.model,
-    apiKey: llm.apiKey.trim() || 'not-required',
-    temperature: 0,
-    maxTokens: llm.maxTokens,
-    maxRetries: 1,
-    configuration: { baseURL: langChainBaseUrl(llm) },
-  })
   if (images.length === 0) throw new Error('图片识别至少需要一张待识别图片')
   const references = images.filter(image => image.role === 'reference')
   const inputs = images.filter(image => image.role === 'input')
   if (inputs.length === 0) throw new Error('图片识别至少需要一张待识别图片')
+  // Multi-image structured output grows quickly. A low generic model limit
+  // otherwise truncates valid JSON midway through arrays.
+  const recommendedTokens = Math.min(12_000, Math.max(4_096, 1_600 + inputs.length * 700 + inputs.length * Math.max(1, cases.length) * 220))
+  const model = new ChatOpenAI({
+    model: llm.model,
+    apiKey: llm.apiKey.trim() || 'not-required',
+    temperature: 0,
+    maxTokens: Math.max(llm.maxTokens ?? 0, recommendedTokens),
+    maxRetries: 1,
+    configuration: { baseURL: langChainBaseUrl(llm) },
+  })
   const branches = cases.map(item => `case-${item.id}：${item.name}\n判断要求：${item.prompt}`).join('\n\n')
   const comparisonSection = references.length === 0
     ? '\n\n本次没有参考图片。请直接观察全部待识别图片，并根据可见内容独立判断每个候选场景；comparisons 可以为空。'
@@ -739,7 +795,7 @@ async function recognizeImage(
     { type: 'image_url' as const, image_url: { url: image.dataUrl } },
   ])
   const messages = [
-    new SystemMessage('你是严格的图片对比和场景判断器。全部待识别图片共同描述同一个业务对象，必须综合判断，只能依据可见内容和用户要求，不得猜测。先逐张观察，再提取与图片对比要求有关的可见差异。必须对“每一张待识别图片 × 每一个候选场景”分别返回一条 imageCaseEvaluations，不能只给整组图片一个笼统结论；branch 必须原样使用完整分支 ID。matched=true 表示该图片提供支持场景的明确证据；contradicts=true 仅表示该图片存在足以排除整组图片属于该场景的明确反证。看不到相关内容、角度不同、只有包装或无法判断时，应将 matched 和 contradicts 都设为 false，不能把缺少证据当作反证。例如：产品本体图会反驳“仅包装”，但包装图不会反驳“产品损坏”，因为包装图只是无法观察产品。即使某张图片已提供支持，也不得跳过其他场景或图片。图片无法与参考图比较只影响 comparisons，不阻止依据自身可见内容判断场景。程序将按“至少一张支持且没有一张明确反驳”聚合整组结果，再按配置优先级选路。必须只返回符合结构的 JSON，不要输出 Markdown、额外文字或思考过程。'),
+    new SystemMessage('你是严格的图片对比和场景判断器。全部待识别图片共同描述同一个业务对象，必须综合判断，只能依据可见内容和用户要求，不得猜测。先逐张观察，再提取与图片对比要求有关的可见差异。必须对“每一张待识别图片 × 每一个候选场景”分别返回一条 imageCaseEvaluations，不能只给整组图片一个笼统结论；branch 必须原样使用完整分支 ID。matched=true 表示该图片提供支持场景的明确证据；contradicts=true 仅表示该图片存在足以排除整组图片属于该场景的明确反证。看不到相关内容、角度不同、只有包装或无法判断时，应将 matched 和 contradicts 都设为 false，不能把缺少证据当作反证。例如：产品本体图会反驳“仅包装”，但包装图不会反驳“产品损坏”，因为包装图只是无法观察产品。即使某张图片已提供支持，也不得跳过其他场景或图片。图片无法与参考图比较只影响 comparisons，不阻止依据自身可见内容判断场景。程序将按“至少一张支持且没有一张明确反驳”聚合整组结果，再按配置优先级选路。顶层必须且只能包含 comparisonStatus、comparisonSummary、comparisons、imageCaseEvaluations。comparisons 每项必须包含 inputImageIndex、referenceImageIndex、comparable、reason、differences；differences 每项必须包含 location、description、evidence。imageCaseEvaluations 每项必须包含 inputImageIndex、branch、matched、contradicts、confidence、evidence。禁止使用 image、selectedReferenceImage、subject、visibleSimilarities、visibleDifferences 等其他字段。必须返回完整闭合的 JSON，不要输出 Markdown、额外文字或思考过程。'),
     new HumanMessage({ content: [
       { type: 'text', text: `${instruction.trim() ? `统一要求：${instruction.trim()}\n\n` : ''}待识别图片共 ${inputs.length} 张。${comparisonSection}\n\n候选场景：\n${branches}\n\n请返回差异结果，并逐张判断全部 ${cases.length} 个候选场景，共返回 ${inputs.length * cases.length} 条 imageCaseEvaluations。` },
       ...imageContent,
@@ -747,13 +803,19 @@ async function recognizeImage(
   ]
   try {
     const raw = await model.withStructuredOutput(imageDecisionSchema, { name: 'image_decision', method: 'jsonMode' }).invoke(messages)
-    return aggregateImageDecision(raw, cases)
+    return aggregateImageDecision(requireImageDecision(raw, 'JSON Mode'), cases)
   } catch (jsonModeError) {
     try {
       const raw = await model.withStructuredOutput(imageDecisionSchema, { name: 'image_decision', method: 'functionCalling', strict: true }).invoke(messages)
-      return aggregateImageDecision(raw, cases)
+      return aggregateImageDecision(requireImageDecision(raw, 'Function Calling'), cases)
     } catch (functionCallingError) {
-      throw new Error(`图片识别结构化输出失败（JSON Mode：${imageCallError(jsonModeError, images, llm.apiKey)}；Function Calling：${imageCallError(functionCallingError, images, llm.apiKey)}）`)
+      try {
+        const retryMessages = [...messages, new HumanMessage('上一次结构化输出失败。请压缩每条 reason、evidence 和 differences，只保留必要可见事实，并严格按照指定字段返回一个完整闭合的 JSON 对象。')]
+        const raw = await model.withStructuredOutput(imageDecisionSchema, { name: 'image_decision_retry', method: 'jsonMode' }).invoke(retryMessages)
+        return aggregateImageDecision(requireImageDecision(raw, 'JSON Mode 重试'), cases)
+      } catch (retryError) {
+        throw new Error(`图片识别结构化输出失败（JSON Mode：${imageCallError(jsonModeError, images, llm.apiKey)}；Function Calling：${imageCallError(functionCallingError, images, llm.apiKey)}；JSON Mode 重试：${imageCallError(retryError, images, llm.apiKey)}）`)
+      }
     }
   }
 }
@@ -1068,10 +1130,11 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
     const fingerprintPrefix = 'rpa-fingerprint:'
     const panel = document.createElement('div')
     panel.id = '__rpa_picker_panel__'
-    panel.innerHTML = '<div class="rpa-picker-title">RPA 元素拾取</div><span>移动鼠标预览，点击页面元素后确认</span><div class="rpa-picker-label">当前 Hover 元素</div><div class="rpa-picker-hover">未检测到</div><div class="rpa-picker-label">已选中元素</div><div class="rpa-picker-status">尚未选择</div><code></code><div class="rpa-picker-actions"><button type="button" data-action="confirm">确认拾取</button><button type="button" data-action="cancel">取消</button></div>'
+    panel.innerHTML = '<div class="rpa-picker-title">RPA 元素拾取</div><span>移动鼠标预览，点击页面元素后确认</span><div class="rpa-picker-label">当前 Hover 元素</div><div class="rpa-picker-hover">未检测到</div><div class="rpa-picker-label">已选中元素</div><div class="rpa-picker-status">尚未选择</div><code></code><div class="rpa-picker-actions"><button type="button" data-action="copy">复制选择器</button><button type="button" data-action="confirm">确认拾取</button><button type="button" data-action="cancel">取消</button></div>'
     Object.assign(panel.style, { position: 'fixed', zIndex: '2147483647', top: '16px', right: '16px', width: '240px', padding: '12px', borderRadius: '10px', background: '#111827', color: '#fff', font: '13px/1.4 Segoe UI, sans-serif', boxShadow: '0 8px 24px rgba(0,0,0,.3)' })
     const span = panel.querySelector('span') as HTMLElement
     const code = panel.querySelector('code') as HTMLElement
+    const copy = panel.querySelector('[data-action="copy"]') as HTMLButtonElement
     const confirm = panel.querySelector('[data-action="confirm"]') as HTMLButtonElement
     const cancel = panel.querySelector('[data-action="cancel"]') as HTMLButtonElement
     const hoverInfo = panel.querySelector('.rpa-picker-hover') as HTMLElement
@@ -1089,6 +1152,7 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
     Object.assign(status.style, { marginTop: '3px', color: '#34d399', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })
     Object.assign(code.style, { display: 'block', marginTop: '6px', color: '#93c5fd', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' })
     Object.assign(panel.querySelector('.rpa-picker-actions')?.['style'] ?? {}, { display: 'flex', gap: '6px', marginTop: '10px' })
+    Object.assign(copy.style, { border: '0', borderRadius: '6px', padding: '6px 9px', cursor: 'pointer', background: '#0f766e', color: '#fff' })
     Object.assign(confirm.style, { border: '0', borderRadius: '6px', padding: '6px 9px', cursor: 'pointer', background: '#4f46e5', color: '#fff' })
     Object.assign(cancel.style, { border: '0', borderRadius: '6px', padding: '6px 9px', cursor: 'pointer', background: '#374151', color: '#fff' })
     document.documentElement.appendChild(panel)
@@ -1276,13 +1340,20 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       return `${tag}${id}${rolePart}${text === '' ? '' : ` “${text}${text.length >= 24 ? '…' : ''}”`}`
     }
     const fingerprintPreview = (element: Element): string => {
-      if (stableId(element.id)) {
-        const idSelector = unique(`#${CSS.escape(element.id)}`)
-        if (idSelector !== undefined) return idSelector
+      const value = fingerprint(element)
+      if (!value.startsWith('text-exact:rpa-context:') && !value.startsWith(fingerprintPrefix)) return value
+      const prefix = value.startsWith('text-exact:rpa-context:') ? 'text-exact:rpa-context:' : fingerprintPrefix
+      try {
+        const payload = JSON.parse(decodeURIComponent(value.slice(prefix.length))) as ElementFingerprint
+        if (payload.text !== '') {
+          const index = typeof payload.textIndex === 'number' && payload.textIndex > 0 ? ` · 第${payload.textIndex + 1}个同名` : ''
+          const parent = payload.parentPath ? ` · 父级:${payload.parentPath}` : ''
+          return `text-exact:${payload.text}${index}${parent}`
+        }
+        return payload.css
+      } catch {
+        return value
       }
-      const normalized = ((element as HTMLElement).innerText || element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 24)
-      if (normalized !== '') return `text-exact:${normalized}${normalized.length >= 24 ? '…' : ''}`
-      return compactLabel(element)
     }
     const optionLocator = (element: Element): string => {
       const value = element.getAttribute('data-value')
@@ -1352,6 +1423,7 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
     const out = (event: Event): void => { const target = event.target as Element | null; if (target !== null && !panel.contains(target)) target.removeAttribute('data-rpa-picker-hover') }
     let selected: HTMLElement | undefined
     let selectedOptionValue: string | undefined
+    let selectedCopySelector = ''
     const cleanup = (): void => { document.removeEventListener('mouseover', over, true); document.removeEventListener('mouseout', out, true); document.removeEventListener('pointerdown', click, true); document.removeEventListener('mousedown', click, true); document.removeEventListener('click', click, true); style.remove(); panel.remove() }
     const click = (event: Event): void => {
       const raw = event.target as Element | null
@@ -1363,10 +1435,31 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       span.textContent = '已选中页面元素，请确认或重新选择'
       hoverInfo.textContent = compactLabel(target)
       status.textContent = '请点击“确认拾取”完成选择'
-      code.textContent = fingerprintPreview(target)
+      const overlay = dropdownOverlay(target)
+      const optionRoot = overlay === null ? null : target.closest('option,[role="option"],[role="menuitem"],[role="treeitem"],[data-select-option]')
+      selectedCopySelector = fingerprintPreview(optionRoot ?? target)
+      code.textContent = selectedCopySelector
+      copy.disabled = false
       confirm.disabled = false
     }
+    copy.disabled = true
     confirm.disabled = true
+    copy.addEventListener('click', async event => {
+      event.preventDefault(); event.stopPropagation()
+      if (selectedCopySelector === '') return
+      try {
+        await navigator.clipboard.writeText(selectedCopySelector)
+      } catch {
+        const input = document.createElement('textarea')
+        input.value = selectedCopySelector
+        Object.assign(input.style, { position: 'fixed', left: '-9999px', top: '-9999px' })
+        document.body.appendChild(input)
+        input.select()
+        document.execCommand('copy')
+        input.remove()
+      }
+      status.textContent = '选择器已复制，可粘贴到其他节点复用'
+    })
     confirm.addEventListener('click', event => {
       event.preventDefault(); event.stopPropagation()
       if (selected === undefined) return

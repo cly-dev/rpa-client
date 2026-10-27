@@ -125,11 +125,12 @@ describe('image recognition structured output', () => {
     const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
       expect(new Headers(init.headers).get('authorization')).toBe('Bearer session-token')
       const request = JSON.parse(String(init.body)) as {
-        response_format?: { type?: string }; tool_choice?: unknown
+        response_format?: { type?: string }; tool_choice?: unknown; max_tokens?: number
         messages?: readonly { content?: string | readonly { type?: string; image_url?: { url?: string } }[] }[]
       }
       expect(request.response_format?.type).toBe('json_object')
       expect(request.tool_choice).toBeUndefined()
+      expect(request.max_tokens).toBeGreaterThanOrEqual(4_096)
       expect(request.messages?.some(message => typeof message.content === 'string' && /json/i.test(message.content))).toBe(true)
       expect(request.messages?.some(message => Array.isArray(message.content)
         && message.content.some(part => part.type === 'image_url' && part.image_url?.url === image))).toBe(true)
@@ -218,10 +219,32 @@ describe('image recognition structured output', () => {
     expect(fallback.tool_choice).toBeDefined()
   })
 
+  it('retries JSON mode when both the first JSON response and function result are unusable', async () => {
+    const truncated = '{"comparisonStatus":"completed","comparisons":['
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'chatcmpl-truncated', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, finish_reason: 'length', message: { role: 'assistant', content: truncated } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'chatcmpl-empty-tool', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '' } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'chatcmpl-image-retry', object: 'chat.completion', created: 1, model: 'test-model',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify(decision) } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await createHttpOnlyDriver().recognizeImage?.(images, '', cases, llm)).toEqual(decision)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
   it('reports both failures without exposing the image or the session token', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: `JSON mode rejected ${image}`, type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Function calling rejected session-token', type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Retry still rejected', type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
 
     let failure: unknown
@@ -230,9 +253,11 @@ describe('image recognition structured output', () => {
     const message = (failure as Error).message
     expect(message).toContain('JSON Mode')
     expect(message).toContain('Function Calling')
+    expect(message).toContain('JSON Mode 重试')
     expect(message).toContain('JSON mode rejected')
     expect(message).toContain('Function calling rejected')
     expect(message).not.toContain(image)
     expect(message).not.toContain('session-token')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })

@@ -10,6 +10,7 @@ import type { DryRunState } from "@runner/dry-run.ts";
 import { workflowNeedsBrowser } from "@runner/page-requirement.ts";
 import { failedRunReason, readableRunError } from "./execution-message.ts";
 import { safeEventMessage } from './execution-log.ts';
+import { BrowserModePicker } from './BrowserModePicker.tsx';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
 import { ApprovalRichText } from './ApprovalRichText.tsx';
 import { Pagination } from './Pagination.tsx';
@@ -184,6 +185,7 @@ export function ExecutionCenter({
   const [inputText, setInputText] = useState<Record<string, string>>({});
   const [secretText, setSecretText] = useState<Record<string, string>>({});
   const [launching, setLaunching] = useState(false);
+  const [launchHeadless, setLaunchHeadless] = useState(true);
   const [live, setLive] = useState<LiveRun>();
   const [detail, setDetail] = useState<ExecutionRecord>();
   const [detailLoading, setDetailLoading] = useState(false);
@@ -592,8 +594,8 @@ export function ExecutionCenter({
           executionId: created.id,
           inputs,
           variables,
-          headless: true,
-          openDebugBrowserOnPageActionFailure: true,
+          headless: launchHeadless,
+          openDebugBrowserOnPageActionFailure: launchHeadless,
           subflows,
         });
       } catch (error) {
@@ -975,10 +977,20 @@ export function ExecutionCenter({
               </button>
             </header>
             <div className="execution-dialog-body">
-              <div className="execution-local-note">
-                <span>⌘</span>
-                <p>页面操作会使用本机无头 Chromium；接口请求由本机直接发送。</p>
-              </div>
+              {launchMode === 'schedule' ? (
+                <div className="execution-local-note">
+                  <span>⌘</span>
+                  <p>定时任务始终在后台以无头浏览器执行；接口请求由本机直接发送。</p>
+                </div>
+              ) : (
+                <>
+                  <BrowserModePicker name="execution-browser-mode" headless={launchHeadless} onChange={setLaunchHeadless} />
+                  <div className="execution-local-note">
+                    <span>⌘</span>
+                    <p>{launchHeadless ? '页面操作在后台 Chromium 中执行，不弹出窗口。' : '页面操作会打开可见 Chromium 窗口，便于查看点击和输入。'} 接口请求由本机直接发送。</p>
+                  </div>
+                </>
+              )}
               {definitions.length === 0 && secretDefinitions.length === 0 ? (
                 <p className="execution-no-inputs">
                   此流程没有需要填写的运行时输入。

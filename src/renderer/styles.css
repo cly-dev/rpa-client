@@ -503,6 +503,8 @@ textarea { resize: vertical; }
 .execution-detail-events article p { margin: 0; color: #667085; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
 .execution-error { margin: 8px 19px; padding: 9px 11px; border: 1px solid #fecdca; border-radius: 8px; background: #fffbfa; color: #b42318; font-size: 10px; }
 .node-run-dialog { width: min(720px, 100%); }
+.browser-mode-picker { display: flex; flex-direction: column; gap: 8px; }
+.browser-mode-picker-title { color: #344054; font-size: 11px; }
 .node-run-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .node-run-modes label { display: flex; gap: 9px; padding: 12px; border: 1px solid #e3e7ee; border-radius: 9px; cursor: pointer; }
 .node-run-modes label.is-selected { border-color: #8f84ed; background: #f8f7ff; }
