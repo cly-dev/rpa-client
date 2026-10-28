@@ -27,6 +27,8 @@ export function availableVariables(graph: WorkflowGraph, nodeId: string, subflow
     if (config.type === 'code') {
       names.push(config.outputName)
       for (const output of config.outputs ?? []) names.push(output.name, output.updateVariable ?? '')
+    } else if (config.type === 'agent') {
+      for (const output of config.outputs ?? []) names.push(output.name, output.updateVariable ?? '')
     } else if ('outputName' in config) names.push(config.outputName, 'updateVariable' in config ? config.updateVariable ?? '' : '')
     if (config.type === 'api-request' || config.type === 'api-listen') {
       names.push(config.rawOutputName ?? '', ...(config.fields ?? []).map(field => field.name))

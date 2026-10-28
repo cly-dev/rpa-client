@@ -56,6 +56,43 @@ describe('runDry after walk extract', () => {
 })
 
 describe('runBrowser', () => {
+  it('resolves prompt variables and exposes each structured output by its configured name', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const agent = createNode('agent', { x: 100, y: 0 })
+    const end = createNode('end', { x: 200, y: 0 })
+    const received: unknown[] = []
+    const driver = fakeDriver([])
+    driver.generateAgent = async (task, systemPrompt, outputs) => {
+      received.push(task, systemPrompt, outputs)
+      return { category: 'damaged', confidence: 0.96 }
+    }
+    const graph: WorkflowGraph = {
+      workflowId: 'agent-structured', name: 'Agent structured', version: 1, entryNodeId: start.id,
+      llm: { id: 'default', name: '默认模型', enabled: true, model: 'test-model', baseUrl: 'http://localhost/v1', chatPath: '/chat/completions', apiKey: '', maxTokens: 300 },
+      context: { inputs: [], variables: [{ name: 'orderId', defaultValue: 'A-100' }] },
+      nodes: [
+        start,
+        { ...agent, config: {
+          type: 'agent', systemPrompt: '系统规则：订单 {{orderId}}', task: '判断商品 {{orderId}} 状态', dryAction: 'note',
+          outputs: [
+            { name: 'category', valueType: 'string', description: '商品状态', outputMode: 'produce' },
+            { name: 'confidence', valueType: 'number', description: '置信度', outputMode: 'declare', updateVariable: 'agentConfidence' },
+          ],
+        } },
+        end,
+      ],
+      edges: [createEdge(start.id, 'default', agent.id), createEdge(agent.id, 'default', end.id)],
+    }
+
+    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} })
+
+    expect(state.status).toBe('succeeded')
+    expect(received[0]).toBe('判断商品 A-100 状态')
+    expect(received[1]).toBe('系统规则：订单 A-100')
+    expect(state.outputs[agent.id]).toEqual({ category: 'damaged', confidence: 0.96 })
+    expect(state.variables?.agentConfidence).toBe(0.96)
+  })
+
   it('does not fail a completed start node when only the optional page title becomes unavailable', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const graph: WorkflowGraph = {
@@ -78,6 +115,21 @@ describe('runBrowser', () => {
     const state = await runBrowser(graph, fakeDriver([]), { onUpdate() {}, wait: async () => {} }, { outputs: { 'source-node': { data: 'from injection' } }, stopAfterNodeId: target.id })
     expect(state.status).toBe('succeeded')
     expect(state.variables?.selectedValue).toBe('from injection')
+  })
+
+  it('interpolates variables inside a multiline set-variable value', async () => {
+    const target = createNode('set-variable', { x: 0, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: 'set-variable-multiline', name: 'Set variable multiline', version: 1, entryNodeId: target.id,
+      context: { inputs: [{ name: 'status', type: 'string', required: false }], variables: [{ name: 'orderId', defaultValue: 'A-100' }] },
+      nodes: [{ ...target, config: { type: 'set-variable', name: 'summary', value: { kind: 'literal', value: '订单号：{{orderId}}\n状态：{{inputs.status}}' }, path: '' } }],
+      edges: [],
+    }
+
+    const state = await runBrowser(graph, fakeDriver([]), { onUpdate() {}, wait: async () => {} }, { inputs: { status: '已完成' }, stopAfterNodeId: target.id })
+
+    expect(state.status).toBe('succeeded')
+    expect(state.variables?.summary).toBe('订单号：A-100\n状态：已完成')
   })
 
   it('treats empty arrays and objects as empty values', () => {
@@ -499,7 +551,7 @@ describe('runBrowser', () => {
       workflowId: newId('wf'), name: 'approval variables', version: 1, entryNodeId: start.id,
       nodes: [
         { ...start, config: { type: 'start', url: 'https://example.com' } },
-        { ...approval, config: { ...approval.config, type: 'approval', title: '订单 {{orderId}} 审批', description: '订单 {{orderId}} 已超过 {{overdueDays}} 天，请确认是否继续。' } },
+        { ...approval, config: { ...approval.config, type: 'approval', title: '订单 {{orderId}} 审批', description: '订单 {{orderId}} 已超过 {{overdueDays}} 天，请确认是否继续。' }, notifications: { onApprovalPending: true, onApprovalApproved: true, messageTemplates: { onApprovalPending: '待审批：{{orderId}}', onApprovalApproved: '已通过，逾期 {{overdueDays}} 天' } } },
         approvedEnd,
         rejectedEnd,
         timeoutEnd,
@@ -512,17 +564,20 @@ describe('runBrowser', () => {
       ],
     }
     let renderedDescription = ''
+    let notificationValues: Readonly<Record<string, import('@graph/types.ts').JsonValue>> | undefined
     const state = await runBrowser(graph, fakeDriver(calls), {
       onUpdate() {},
       wait: async () => {},
       requestApproval: async prompt => {
         renderedDescription = prompt.description
+        notificationValues = prompt.notificationValues
         return { decision: 'approved', comment: '', approverName: '当前执行人', decidedAt: '2026-10-08T00:00:00.000Z' }
       },
     }, { variables: { orderId: 'PAY-1001', overdueDays: 91 } })
 
     expect(state.status).toBe('succeeded')
     expect(renderedDescription).toBe('订单 PAY-1001 已超过 91 天，请确认是否继续。')
+    expect(notificationValues).toEqual({ orderId: 'PAY-1001', overdueDays: 91 })
   })
 
   it('executes child nodes inline and shares their variables with the parent', async () => {

@@ -9,6 +9,8 @@ function variableNamesFromNode(node: WorkflowNode): string[] {
   if (config.type === 'code') {
     names.push(...(config.outputs?.length ? config.outputs.map(item => item.name) : [config.outputName || 'result']))
     names.push(...(config.outputs ?? []).map(item => item.updateVariable ?? ''))
+  } else if (config.type === 'agent') {
+    names.push(...(config.outputs ?? []).map(item => item.name), ...(config.outputs ?? []).map(item => item.updateVariable ?? ''))
   } else if ('outputName' in config && typeof config.outputName === 'string') names.push(config.outputName)
   if ('updateVariable' in config && typeof config.updateVariable === 'string') names.push(config.updateVariable)
   if (config.type === 'api-request' || config.type === 'api-listen') {

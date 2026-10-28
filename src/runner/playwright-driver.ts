@@ -6,7 +6,7 @@ import { z } from 'zod'
 import type { BrowserDriver, VisionImageInput, VisionRecognitionDecision } from './browser-run.ts'
 import { ApiResponseError } from './api-response-error.ts'
 import { browserExecutablePath, checkBrowserReadiness } from './browser-readiness.ts'
-import type { JsonValue, WorkflowLlmConfig } from '@graph/types.ts'
+import type { AgentOutputField, JsonValue, WorkflowLlmConfig } from '@graph/types.ts'
 
 export interface PlaywrightSession {
   readonly driver: BrowserDriver
@@ -610,6 +610,55 @@ async function generateText(prompt: string, llm: WorkflowLlmConfig, systemPrompt
   return text.trim()
 }
 
+function agentOutputSchema(field: AgentOutputField): z.ZodType {
+  const schema = field.valueType === 'number' ? z.number()
+    : field.valueType === 'boolean' ? z.boolean()
+      : field.valueType === 'object' ? z.record(z.string(), z.json())
+        : field.valueType === 'array' ? z.array(z.json())
+          : z.string()
+  return schema.describe(field.description.trim() || `输出字段 ${field.name}`)
+}
+
+async function generateAgent(
+  task: string,
+  systemPrompt: string,
+  outputs: readonly AgentOutputField[],
+  llm: WorkflowLlmConfig,
+): Promise<Readonly<Record<string, JsonValue>>> {
+  if (!llm.enabled) throw new Error(`AI 配置「${llm.name}」未启用`)
+  if (llm.model.trim() === '') throw new Error(`AI 配置「${llm.name}」未填写模型`)
+  if (outputs.length === 0) throw new Error('Agent 至少需要配置一个输出字段')
+  const shape: Record<string, z.ZodType> = Object.fromEntries(outputs.map(field => [field.name, agentOutputSchema(field)]))
+  const schema = z.object(shape).strict()
+  const model = new ChatOpenAI({
+    model: llm.model,
+    apiKey: llm.apiKey.trim() || 'not-required',
+    temperature: 0,
+    maxTokens: llm.maxTokens,
+    maxRetries: 1,
+    configuration: { baseURL: langChainBaseUrl(llm) },
+  })
+  const outputContract = outputs.map(field => `- ${field.name}（${field.valueType}）：${field.description}`).join('\n')
+  const messages = [
+    new SystemMessage(`${systemPrompt.trim()}\n\n必须严格按照程序提供的 JSON Schema 返回一个 JSON 对象，不得增加、遗漏或重命名字段，不要输出 Markdown、解释或思考过程。`),
+    new HumanMessage(`任务内容：\n${task.trim()}\n\n输出字段：\n${outputContract}\n\n请返回完整的 JSON 对象。`),
+  ]
+  try {
+    return await model.withStructuredOutput(schema, { name: 'agent_result', method: 'jsonMode' }).invoke(messages) as Readonly<Record<string, JsonValue>>
+  } catch (jsonModeError) {
+    try {
+      return await model.withStructuredOutput(schema, { name: 'agent_result', method: 'functionCalling', strict: true }).invoke(messages) as Readonly<Record<string, JsonValue>>
+    } catch (functionCallingError) {
+      try {
+        const retryMessages = [...messages, new HumanMessage('上一次输出不符合结构。请严格保留全部指定字段及类型，只返回完整 JSON 对象。')]
+        return await model.withStructuredOutput(schema, { name: 'agent_result_retry', method: 'jsonMode' }).invoke(retryMessages) as Readonly<Record<string, JsonValue>>
+      } catch (retryError) {
+        throw new Error(`Agent 结构化输出失败（JSON Mode：${errorMessage(jsonModeError)}；Function Calling：${errorMessage(functionCallingError)}；JSON Mode 重试：${errorMessage(retryError)}）`)
+      }
+    }
+  }
+}
+
 const conditionResultSchema = z.object({
   matched: z.boolean().describe('判断内容是否满足判断要求'),
   reason: z.string().max(500).describe('简短说明判断依据，不要输出思考过程'),
@@ -833,6 +882,7 @@ export function createHttpOnlyDriver(): BrowserDriver {
     currentUrl(): string { return baseUrl },
     requestApi: config => requestApiDirect(config, baseUrl),
     generateText,
+    generateAgent,
     generateCondition,
     generateSwitch,
     recognizeImage,
@@ -932,6 +982,7 @@ function createDriver(page: Page): BrowserDriver {
     },
     requestApi: config => requestApiDirect(config, page.url()),
     generateText,
+    generateAgent,
     generateCondition,
     generateSwitch,
     recognizeImage,

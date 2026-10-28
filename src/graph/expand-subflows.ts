@@ -66,7 +66,7 @@ function applyDefaultLlm(node: WorkflowNode, llmId: string | undefined): Workflo
     if (!isRecord(value)) return value
     const result: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value)) result[key] = fill(item)
-    if (('systemPrompt' in value || 'userPrompt' in value || 'casePrompts' in value || 'aiPrompt' in value || value.type === 'image-recognition') && result['llmId'] === undefined) result['llmId'] = llmId
+    if (('systemPrompt' in value || 'task' in value || 'casePrompts' in value || 'aiPrompt' in value || value.type === 'image-recognition') && result['llmId'] === undefined) result['llmId'] = llmId
     if (('enabled' in value && 'prompt' in value) && result['llmId'] === undefined) result['llmId'] = llmId
     return result
   }

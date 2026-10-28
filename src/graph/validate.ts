@@ -1,9 +1,10 @@
 import { NODE_CATALOG } from './catalog.ts'
-import type { ValidationIssue, ValueBinding, WorkflowGraph } from './types.ts'
+import type { NodeNotificationTrigger, ValidationIssue, ValueBinding, WorkflowGraph } from './types.ts'
 import { switchCaseType, switchCaseValue } from './switch-cases.ts'
 import { subflowInputTypeWarning } from './subflow-input-types.ts'
 import { jsonRequestBodyTemplateError } from './json-request-template.ts'
 import { notificationContentError, validDingTalkRobotUrl, webhookBodyTemplateError } from './webhook-body-template.ts'
+import { DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES, MAX_IMAGE_RECOGNITION_MAX_IMAGES } from './image-recognition-limits.ts'
 
 const MESSAGES: Record<ValidationIssue['code'], string> = {
   'empty-name': '节点名称不能为空',
@@ -18,7 +19,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'unconnected-output': '节点出口没有连接后续节点',
   'unreachable-node': '节点无法从开始节点到达',
   'invalid-target': '连线指向了不接受入线的节点',
-  'agent-prompt-empty': 'Agent 节点需要系统提示',
+  'agent-prompt-empty': 'Agent 需要系统提示、任务内容，以及名称不重复且填写完整的结构化输出字段',
   'condition-ai-prompt-empty': 'AI 条件节点需要填写判断提示词',
   'unknown-binding': '变量绑定引用了不存在的节点或端口',
   'duplicate-id': '节点或连线 id 重复',
@@ -26,7 +27,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'switch-empty-case': '多路判断至少需要一个分支值',
   'switch-invalid-case': '多路判断的数字或布尔匹配值无效',
   'switch-duplicate-case': '多路判断存在重复的精确匹配值，后续重复分支无法命中',
-  'image-recognition-invalid': '图片识别需要图片来源、结果变量名，以及至少一个填写完整且不重复的分支；启用图片对比后还需要上传参考图或选择参考图变量',
+  'image-recognition-invalid': '图片识别需要图片来源、1～8 张的识别上限、结果变量名，以及至少一个填写完整且不重复的分支；启用图片对比后还需要上传参考图或选择参考图变量',
   'missing-entry-workflow': '入口流程不存在',
   'subflow-cycle': '子流程调用存在循环',
   'declared-variable-empty': '声明流程变量时必须填写变量名',
@@ -67,6 +68,7 @@ function bindingsOf(graph: WorkflowGraph, nodeId: string): ValueBinding[] {
   if (node === undefined) return []
   const fromInputs = Object.values(node.inputBindings ?? {})
   if (node.config.type === 'type') return [...fromInputs, node.config.text]
+  if (node.config.type === 'agent') return []
   if (node.config.type === 'condition') return [...fromInputs, node.config.left]
   if (node.config.type === 'image-recognition') return [...fromInputs, node.config.image]
   if (node.config.type === 'call-subflow') return [...fromInputs, ...(node.config.inputMappings ?? []).map(mapping => mapping.source)]
@@ -84,6 +86,7 @@ function bindingOk(graph: WorkflowGraph, binding: ValueBinding): boolean {
 function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
   const fallback = NODE_CATALOG[node.type].dataOutputs.map(port => port.name)
   if (node.config.type === 'extract') return [node.config.outputName || 'text']
+  if (node.config.type === 'agent') return (node.config.outputs ?? []).map(item => item.name).filter(Boolean)
   if (node.config.type === 'image-recognition') return [node.config.outputName || 'imageResult']
   if (node.config.type === 'transform') return [node.config.outputName || 'result']
   if (node.config.type === 'code') return node.config.outputs?.length ? node.config.outputs.map(item => item.name).filter(Boolean) : [node.config.outputName || 'result']
@@ -118,15 +121,24 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
   const ends = graph.nodes.filter(node => node.type === 'end')
   const nodeIds = new Set<string>()
   const edgeIds = new Set<string>()
+  const notificationTriggers: readonly NodeNotificationTrigger[] = ['onSuccess', 'onFailure', 'onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout']
 
   for (const node of graph.nodes) {
-    const notificationError = node.notifications?.enabled === false ? undefined : notificationContentError(node.notifications?.messageTemplate ?? '')
+    const notificationTemplates = node.notifications === undefined ? [] : notificationTriggers
+      .filter(trigger => node.notifications?.[trigger] === true)
+      .map(trigger => node.notifications?.messageTemplates?.[trigger] ?? node.notifications?.messageTemplate ?? '')
+    const notificationError = node.notifications?.enabled === false ? undefined : notificationTemplates.map(notificationContentError).find(error => error !== undefined)
     if (notificationError !== undefined) issues.push({ ...issue('webhook-body-invalid', { nodeId: node.id }), message: notificationError })
     if (nodeIds.has(node.id)) issues.push(issue('duplicate-id', { nodeId: node.id }))
     nodeIds.add(node.id)
     if (node.name.trim() === '') issues.push(issue('empty-name', { nodeId: node.id }))
-    if (node.config.type === 'agent' && node.config.systemPrompt.trim() === '') {
-      issues.push(issue('agent-prompt-empty', { nodeId: node.id }))
+    if (node.config.type === 'agent') {
+      const outputs = node.config.outputs ?? []
+      const outputNames = outputs.map(item => item.name.trim())
+      if ((node.config.systemPrompt ?? '').trim() === '' || (node.config.task ?? '').trim() === '' || outputs.length === 0
+        || outputs.some(item => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(item.name.trim()) || item.description.trim() === '') || new Set(outputNames).size !== outputNames.length) {
+        issues.push(issue('agent-prompt-empty', { nodeId: node.id }))
+      }
     }
     if (node.config.type === 'condition' && node.config.mode === 'ai' && (node.config.aiPrompt ?? '').trim() === '') {
       issues.push(issue('condition-ai-prompt-empty', { nodeId: node.id }))
@@ -145,7 +157,9 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
       const comparisonMissing = config.comparisonEnabled === true && (config.comparisonSourceMode === 'variable'
         ? config.comparisonImageSource === undefined || (config.comparisonImageSource.kind === 'literal' && (config.comparisonImageSource.value === null || (typeof config.comparisonImageSource.value === 'string' && config.comparisonImageSource.value.trim() === '')))
         : (config.comparisonImages?.filter(item => item.dataUrl.trim()).length ?? 0) === 0 && !config.comparisonImage?.trim())
-      if (config.outputName.trim() === '' || config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim()) || new Set(ids).size !== ids.length || (config.image.kind === 'literal' && typeof config.image.value === 'string' && config.image.value.trim() === '') || comparisonMissing) {
+      const maxImages = config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES
+      const maxImagesInvalid = !Number.isInteger(maxImages) || maxImages < 1 || maxImages > MAX_IMAGE_RECOGNITION_MAX_IMAGES
+      if (config.outputName.trim() === '' || config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim()) || new Set(ids).size !== ids.length || (config.image.kind === 'literal' && typeof config.image.value === 'string' && config.image.value.trim() === '') || comparisonMissing || maxImagesInvalid) {
         issues.push(issue('image-recognition-invalid', { nodeId: node.id }))
       }
     }
@@ -187,9 +201,11 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
       ? node.config.steps.filter(step => step.type === 'extract' && step.outputMode === 'declare').map(step => step.type === 'extract' ? step.updateVariable : '')
       : node.config.type === 'code'
         ? node.config.outputs?.filter(output => output.outputMode === 'declare').map(output => output.updateVariable ?? '') ?? []
-        : node.config.type === 'api-request' || node.config.type === 'api-listen' || node.config.type === 'extract' || node.config.type === 'transform' || node.config.type === 'agent' || node.config.type === 'image-recognition'
-        ? node.config.outputMode === 'declare' ? [node.config.updateVariable] : []
-        : []
+        : node.config.type === 'agent'
+          ? (node.config.outputs ?? []).filter(output => output.outputMode === 'declare').map(output => output.updateVariable ?? '')
+          : node.config.type === 'api-request' || node.config.type === 'api-listen' || node.config.type === 'extract' || node.config.type === 'transform' || node.config.type === 'image-recognition'
+            ? node.config.outputMode === 'declare' ? [node.config.updateVariable] : []
+            : []
     if (declaredTargets.some(name => name === undefined || name.trim() === '')) issues.push(issue('declared-variable-empty', { nodeId: node.id }))
     if (bindingsOf(graph, node.id).some(binding => !bindingOk(graph, binding))) {
       issues.push(issue('unknown-binding', { nodeId: node.id }))

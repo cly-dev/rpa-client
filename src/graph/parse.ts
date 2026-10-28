@@ -1,4 +1,5 @@
 import { NODE_TYPES, type JsonValue, type NodeConfig, type NodeType, type OutputVariableMode, type ValueBinding, type WorkflowGraph } from './types.ts'
+import { normalizeImageRecognitionMaxImages } from './image-recognition-limits.ts'
 
 export type ParseResult = { readonly ok: true; readonly graph: WorkflowGraph } | { readonly ok: false; readonly error: string }
 
@@ -83,7 +84,14 @@ function parseConfig(type: NodeType, value: unknown, path: string): NodeConfig {
         selector: typeof value.selector === 'string' ? value.selector : '',
       }
     case 'agent':
-      return { type: 'agent', systemPrompt: typeof value.systemPrompt === 'string' ? value.systemPrompt : '', userPrompt: typeof value.userPrompt === 'string' ? value.userPrompt : '请根据提示完成任务，并以 JSON 格式返回结果。', llmId: typeof value.llmId === 'string' ? value.llmId : undefined, outputName: typeof value.outputName === 'string' && value.outputName.trim() !== '' ? value.outputName : 'json', outputMode: parseOutputMode(value.outputMode), updateVariable: typeof value.updateVariable === 'string' ? value.updateVariable : '', dryAction: value.dryAction === 'handoff' || value.dryAction === 'email' ? value.dryAction : 'note' }
+      return {
+        type: 'agent',
+        systemPrompt: typeof value.systemPrompt === 'string' ? value.systemPrompt : '',
+        task: typeof value.task === 'string' ? value.task : '',
+        outputs: Array.isArray(value.outputs) ? value.outputs.filter(isRecord).map(item => ({ name: typeof item.name === 'string' ? item.name : '', valueType: item.valueType === 'number' || item.valueType === 'boolean' || item.valueType === 'object' || item.valueType === 'array' ? item.valueType : 'string', description: typeof item.description === 'string' ? item.description : '', outputMode: parseOutputMode(item.outputMode), updateVariable: typeof item.updateVariable === 'string' ? item.updateVariable : '' })) : [],
+        llmId: typeof value.llmId === 'string' ? value.llmId : undefined,
+        dryAction: value.dryAction === 'handoff' || value.dryAction === 'email' ? value.dryAction : 'note',
+      }
     case 'condition':
       return {
         type: 'condition',
@@ -104,7 +112,7 @@ function parseConfig(type: NodeType, value: unknown, path: string): NodeConfig {
     case 'switch':
       return { type: 'switch', mode: value.mode === 'ai' ? 'ai' : 'value', left: parseOptionalBinding(value.left, `${path}.left`, empty), path: typeof value.path === 'string' ? value.path : '', cases: Array.isArray(value.cases) ? value.cases.filter((item): item is string => typeof item === 'string') : [''], caseTypes: Array.isArray(value.caseTypes) ? value.caseTypes.map(item => item === 'number' || item === 'boolean' || item === 'null' ? item : 'string') : undefined, caseIds: Array.isArray(value.caseIds) ? value.caseIds.map((item, index) => typeof item === 'string' && item.trim() ? item : `legacy-${index}`) : undefined, casePrompts: Array.isArray(value.casePrompts) ? value.casePrompts.filter((item): item is string => typeof item === 'string') : [], llmId: typeof value.llmId === 'string' ? value.llmId : undefined, aiSystemPrompt: typeof value.aiSystemPrompt === 'string' ? value.aiSystemPrompt : '', aiContext: typeof value.aiContext === 'string' ? value.aiContext : '' }
     case 'image-recognition':
-      return { type: 'image-recognition', image: parseOptionalBinding(value.image, `${path}.image`, empty), path: typeof value.path === 'string' ? value.path : '', comparisonEnabled: value.comparisonEnabled === true, comparisonSourceMode: value.comparisonSourceMode === 'variable' ? 'variable' : 'upload', comparisonImage: typeof value.comparisonImage === 'string' ? value.comparisonImage : '', comparisonImageName: typeof value.comparisonImageName === 'string' ? value.comparisonImageName : '', comparisonImages: Array.isArray(value.comparisonImages) ? value.comparisonImages.filter(isRecord).flatMap(item => typeof item.dataUrl === 'string' && item.dataUrl.trim() ? [{ dataUrl: item.dataUrl, name: typeof item.name === 'string' ? item.name : '' }] : []) : [], comparisonImageSource: parseOptionalBinding(value.comparisonImageSource, `${path}.comparisonImageSource`, empty), comparisonImagePath: typeof value.comparisonImagePath === 'string' ? value.comparisonImagePath : '', comparisonPrompt: typeof value.comparisonPrompt === 'string' ? value.comparisonPrompt : '', instruction: typeof value.instruction === 'string' ? value.instruction : '', cases: Array.isArray(value.cases) ? value.cases.filter(isRecord).map((item, index) => ({ id: typeof item.id === 'string' && item.id.trim() ? item.id : String(index), name: typeof item.name === 'string' ? item.name : '', prompt: typeof item.prompt === 'string' ? item.prompt : '' })) : [], llmId: typeof value.llmId === 'string' ? value.llmId : undefined, outputName: typeof value.outputName === 'string' && value.outputName.trim() ? value.outputName : 'imageResult', outputMode: parseOutputMode(value.outputMode), updateVariable: typeof value.updateVariable === 'string' ? value.updateVariable : '' }
+      return { type: 'image-recognition', image: parseOptionalBinding(value.image, `${path}.image`, empty), path: typeof value.path === 'string' ? value.path : '', maxImages: normalizeImageRecognitionMaxImages(value.maxImages), comparisonEnabled: value.comparisonEnabled === true, comparisonSourceMode: value.comparisonSourceMode === 'variable' ? 'variable' : 'upload', comparisonImage: typeof value.comparisonImage === 'string' ? value.comparisonImage : '', comparisonImageName: typeof value.comparisonImageName === 'string' ? value.comparisonImageName : '', comparisonImages: Array.isArray(value.comparisonImages) ? value.comparisonImages.filter(isRecord).flatMap(item => typeof item.dataUrl === 'string' && item.dataUrl.trim() ? [{ dataUrl: item.dataUrl, name: typeof item.name === 'string' ? item.name : '' }] : []) : [], comparisonImageSource: parseOptionalBinding(value.comparisonImageSource, `${path}.comparisonImageSource`, empty), comparisonImagePath: typeof value.comparisonImagePath === 'string' ? value.comparisonImagePath : '', comparisonPrompt: typeof value.comparisonPrompt === 'string' ? value.comparisonPrompt : '', instruction: typeof value.instruction === 'string' ? value.instruction : '', cases: Array.isArray(value.cases) ? value.cases.filter(isRecord).map((item, index) => ({ id: typeof item.id === 'string' && item.id.trim() ? item.id : String(index), name: typeof item.name === 'string' ? item.name : '', prompt: typeof item.prompt === 'string' ? item.prompt : '' })) : [], llmId: typeof value.llmId === 'string' ? value.llmId : undefined, outputName: typeof value.outputName === 'string' && value.outputName.trim() ? value.outputName : 'imageResult', outputMode: parseOutputMode(value.outputMode), updateVariable: typeof value.updateVariable === 'string' ? value.updateVariable : '' }
     case 'call-subflow':
       return { type: 'call-subflow', workflowId: typeof value.workflowId === 'string' ? value.workflowId : '', workflowVersion: typeof value.workflowVersion === 'number' && Number.isInteger(value.workflowVersion) && value.workflowVersion > 0 ? value.workflowVersion : undefined, inputMappings: Array.isArray(value.inputMappings) ? value.inputMappings.filter(isRecord).map(item => ({ inputName: typeof item.inputName === 'string' ? item.inputName : '', source: parseOptionalBinding(item.source, `${path}.inputMappings.source`, empty) })) : [] }
     case 'approval':
@@ -163,6 +171,14 @@ export function parseWorkflow(value: unknown): ParseResult {
           onApprovalApproved: raw.notifications.onApprovalApproved === true,
           onApprovalRejected: raw.notifications.onApprovalRejected === true,
           onApprovalTimeout: raw.notifications.onApprovalTimeout === true,
+          messageTemplates: isRecord(raw.notifications.messageTemplates) ? {
+            onSuccess: typeof raw.notifications.messageTemplates.onSuccess === 'string' ? raw.notifications.messageTemplates.onSuccess : undefined,
+            onFailure: typeof raw.notifications.messageTemplates.onFailure === 'string' ? raw.notifications.messageTemplates.onFailure : undefined,
+            onApprovalPending: typeof raw.notifications.messageTemplates.onApprovalPending === 'string' ? raw.notifications.messageTemplates.onApprovalPending : undefined,
+            onApprovalApproved: typeof raw.notifications.messageTemplates.onApprovalApproved === 'string' ? raw.notifications.messageTemplates.onApprovalApproved : undefined,
+            onApprovalRejected: typeof raw.notifications.messageTemplates.onApprovalRejected === 'string' ? raw.notifications.messageTemplates.onApprovalRejected : undefined,
+            onApprovalTimeout: typeof raw.notifications.messageTemplates.onApprovalTimeout === 'string' ? raw.notifications.messageTemplates.onApprovalTimeout : undefined,
+          } : undefined,
           messageTemplate: typeof raw.notifications.messageTemplate === 'string' ? raw.notifications.messageTemplate : undefined,
         } : undefined,
       }

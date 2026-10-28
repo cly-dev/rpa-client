@@ -24,13 +24,31 @@ describe('validateGraph', () => {
   })
 
   it('rejects an empty agent prompt', () => {
-    const graph = createDefaultTemplate()
-    const nodes = graph.nodes.map(node =>
-      node.config.type === 'agent'
-        ? { ...node, config: { ...node.config, systemPrompt: '   ' } }
-        : node,
-    )
-    expect(firstIssue({ ...graph, nodes })?.code).toBe('agent-prompt-empty')
+    const start = createNode('start', { x: 0, y: 0 })
+    const agent = createNode('agent', { x: 100, y: 0 })
+    const end = createNode('end', { x: 200, y: 0 })
+    const graph = {
+      ...createDefaultTemplate(),
+      entryNodeId: start.id,
+      nodes: [start, { ...agent, config: { ...agent.config, type: 'agent' as const, systemPrompt: '   ' } }, end],
+      edges: [createEdge(start.id, 'default', agent.id), createEdge(agent.id, 'default', end.id)],
+    }
+    expect(firstIssue(graph)?.code).toBe('agent-prompt-empty')
+  })
+
+  it('reports an incomplete Agent draft instead of crashing when structured fields are missing', () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const agent = createNode('agent', { x: 100, y: 0 })
+    const end = createNode('end', { x: 200, y: 0 })
+    const incomplete = { ...agent, config: { type: 'agent', systemPrompt: '系统规则', dryAction: 'note' } as unknown as typeof agent.config }
+    const graph = {
+      ...createDefaultTemplate(), entryNodeId: start.id,
+      nodes: [start, incomplete, end],
+      edges: [createEdge(start.id, 'default', agent.id), createEdge(agent.id, 'default', end.id)],
+    }
+
+    expect(() => validateGraph(graph)).not.toThrow()
+    expect(firstIssue(graph)?.code).toBe('agent-prompt-empty')
   })
 
   it('rejects a binding to a missing port', () => {

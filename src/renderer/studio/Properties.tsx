@@ -2,9 +2,10 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { NODE_CATALOG, newId, type DataPort } from '@graph/catalog.ts'
 import { validateGraph, validatePublishConnections } from '@graph/validate.ts'
 import { subflowInputTypeWarning } from '@graph/subflow-input-types.ts'
-import type { CallSubflowInputMapping, LoopConditionClause, NodeConfig, NodeNotificationConfig, OutputVariableMode as OutputVariableModeType, PageActionStep, SwitchConfig, ValueBinding, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
+import type { CallSubflowInputMapping, LoopConditionClause, NodeConfig, NodeNotificationConfig, NodeNotificationTrigger, OutputVariableMode as OutputVariableModeType, PageActionStep, SwitchConfig, ValueBinding, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import { reorderSwitchCase, switchCaseId, switchCaseLabel, switchCaseType, switchCaseValue, type SwitchCaseType } from '@graph/switch-cases.ts'
 import { reorderImageRecognitionCase } from '@graph/image-recognition-cases.ts'
+import { DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES, MAX_IMAGE_RECOGNITION_MAX_IMAGES, normalizeImageRecognitionMaxImages } from '@graph/image-recognition-limits.ts'
 import { reorderPageActionStep } from '@graph/page-action-steps.ts'
 import { getWorkflowRevision, listWorkflowRevisions, listWorkflows, listWorkspaces, RPA_SERVICE_URL, type WorkflowListItem, type WorkflowRevisionItem } from '../workflow-api.ts'
 import { CodeNodeEditor } from './CodeNodeEditor.tsx'
@@ -75,6 +76,16 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
   const nodeIssues = [...validateGraph(graph, subflows), ...validatePublishConnections(graph)].filter(issue => issue.nodeId === node.id)
   const hasNotificationTrigger = node.notifications?.onSuccess === true || node.notifications?.onFailure === true || node.notifications?.onApprovalPending === true || node.notifications?.onApprovalApproved === true || node.notifications?.onApprovalRejected === true || node.notifications?.onApprovalTimeout === true
   const notificationEnabled = node.notifications?.enabled ?? hasNotificationTrigger
+  const notificationOptions: readonly { readonly trigger: NodeNotificationTrigger; readonly label: string }[] = [
+    { trigger: 'onSuccess', label: '节点成功' },
+    { trigger: 'onFailure', label: '节点失败' },
+    ...(node.type === 'approval' ? [
+      { trigger: 'onApprovalPending' as const, label: '待审批' },
+      { trigger: 'onApprovalApproved' as const, label: '审批通过' },
+      { trigger: 'onApprovalRejected' as const, label: '审批拒绝' },
+      { trigger: 'onApprovalTimeout' as const, label: '审批超时' },
+    ] : []),
+  ]
 
   return (
     <CurrentNodeIdContext.Provider value={node.id}>
@@ -106,17 +117,12 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
         {notificationEnabled ? <>
           <p className="properties-hint">发送到流程设置中的钉钉机器人地址；仅执行中心运行已发布版本时发送。</p>
           {hasNotificationTrigger && !graph.webhook?.url.trim() ? <p className="properties-hint node-notification-warning">已启用节点通知，请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
-          {([
-          ['onSuccess', '节点成功'],
-          ['onFailure', '节点失败'],
-          ...(node.type === 'approval' ? [
-            ['onApprovalPending', '待审批'],
-            ['onApprovalApproved', '审批通过'],
-            ['onApprovalRejected', '审批拒绝'],
-            ['onApprovalTimeout', '审批超时'],
-          ] : []),
-          ] as [keyof NodeNotificationConfig, string][]).map(([key, label]) => <label key={key} className="node-notification-option"><input type="checkbox" checked={node.notifications?.[key] === true} onChange={event => { onChange(node.id, { notifications: { ...node.notifications, [key]: event.target.checked } }) }} />{label}</label>)}
-          {(graph.webhook?.provider ?? 'dingtalk') === 'dingtalk' ? <div className="node-notification-message"><label>本节点通知内容<textarea spellCheck={false} value={node.notifications?.messageTemplate ?? ''} placeholder="留空则使用流程默认文案" onChange={event => { onChange(node.id, { notifications: { ...node.notifications, messageTemplate: event.target.value } }) }} /></label><p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。留空则继承流程设置。</p><select aria-label="插入通知变量" value="" onChange={event => { if (event.target.value) onChange(node.id, { notifications: { ...node.notifications, messageTemplate: `${node.notifications?.messageTemplate ?? ''}{{${event.target.value}}}` } }) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>{notificationContentError(node.notifications?.messageTemplate ?? '') ? <p className="webhook-body-error">{notificationContentError(node.notifications?.messageTemplate ?? '')}</p> : null}<WebhookTestButton url={graph.webhook?.url ?? ''} messageTemplate={node.notifications?.messageTemplate || graph.webhook?.messageTemplate || ''} workflowName={graph.name} nodeName={node.name} /></div> : null}
+          {notificationOptions.map(({ trigger, label }) => {
+            const checked = node.notifications?.[trigger] === true
+            const template = node.notifications?.messageTemplates?.[trigger] ?? node.notifications?.messageTemplate ?? ''
+            const templateError = notificationContentError(template)
+            return <div key={trigger} className="node-notification-status"><label className="node-notification-option"><input type="checkbox" checked={checked} onChange={event => { onChange(node.id, { notifications: { ...node.notifications, [trigger]: event.target.checked } }) }} />{label}</label>{checked && (graph.webhook?.provider ?? 'dingtalk') === 'dingtalk' ? <div className="node-notification-message"><label>{label}通知内容<textarea spellCheck={false} value={template} placeholder="留空则使用流程默认文案" onChange={event => { onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: event.target.value } } }) }} /></label><p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。仅在“{label}”状态下使用，留空则继承流程默认文案。</p><select aria-label={`插入${label}通知变量`} value="" onChange={event => { if (event.target.value) onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: `${template}{{${event.target.value}}}` } } }) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>{templateError ? <p className="webhook-body-error">{templateError}</p> : null}<WebhookTestButton url={graph.webhook?.url ?? ''} messageTemplate={template || graph.webhook?.messageTemplate || ''} workflowName={graph.name} nodeName={node.name} /></div> : null}</div>
+          })}
         </> : <p className="properties-hint">开启后可设置通知时机和内容。</p>}
       </section>
       {node.type !== 'start' && node.type !== 'end' ? (
@@ -243,17 +249,7 @@ function ConfigFields({
         </div>
       }
     case 'agent':
-      return (
-        <div className="agent-config">
-          <VariableReferencePicker graph={graph} />
-          <label>使用的 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>系统提示<textarea rows={4} value={config.systemPrompt} onChange={event => { onChange({ ...config, systemPrompt: event.target.value }) }} placeholder="定义 Agent 的角色、规则和输出约束" /></label>
-          <label>任务内容<textarea rows={5} value={config.userPrompt} onChange={event => { onChange({ ...config, userPrompt: event.target.value }) }} placeholder="可引用变量，例如：请为订单 {{workDetail.id}} 生成处理建议" /></label>
-          <p className="properties-hint">提示词支持 <code>{'{{变量名}}'}</code> 引用流程输入、循环变量及前置节点产出。Agent 按 JSON 格式返回结果。</p>
-          <label>产出变量名<input value={config.outputName} onChange={event => { onChange({ ...config, outputName: event.target.value }) }} placeholder="例如 json" /></label>
-          <OutputVariableMode graph={graph} mode={config.outputMode} target={config.updateVariable} onChange={(outputMode, updateVariable) => { onChange({ ...config, outputMode, updateVariable }) }} />
-        </div>
-      )
+      return <AgentFields graph={graph} config={config} onChange={onChange} />
     case 'condition':
       if (config.mode === 'ai') return <div className="condition-form"><label>我想判断<select value="ai" onChange={event => { const mode = event.target.value as typeof config.mode; onChange({ ...config, mode }) }}><option value="value">一个变量的值</option><option value="url">当前页面 URL</option><option value="element">页面元素</option><option value="ai">AI 判断</option></select></label><ConditionAiFields graph={graph} node={node} config={config} onChange={onChange} /></div>
       if (config.clauses !== undefined) return <ConditionClauses graph={graph} node={node} config={config} onChange={onChange} />
@@ -298,7 +294,8 @@ function ConfigFields({
       return <div className="switch-config image-recognition-config">
         <BindingField graph={graph} nodeId={node.id} label="图片来源变量" binding={config.image} onChange={image => { onChange({ ...config, image }, { ...node.inputBindings, image }) }} />
         <label>字段路径（可选）<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="例如 data.imageUrl" /></label>
-        <p className="properties-hint">支持单张图片或图片数组，单次最多 8 张；每项可为图片 URL、data:image/...;base64、Base64 字符串，或包含 url、imageUrl、base64 字段的对象。全部图片会在一次 AI 调用中综合判断，最终只进入一条支路。</p>
+        <label>最多识别图片数<input type="number" min={1} max={MAX_IMAGE_RECOGNITION_MAX_IMAGES} step={1} value={config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES} onChange={event => { onChange({ ...config, maxImages: normalizeImageRecognitionMaxImages(event.currentTarget.valueAsNumber) }) }} /></label>
+        <p className="properties-hint">支持单张图片或图片数组，本节点会按原顺序最多识别 {config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES} 张（系统上限 {MAX_IMAGE_RECOGNITION_MAX_IMAGES} 张）；超出的图片不会传给 AI。每项可为图片 URL、data:image/...;base64、Base64 字符串，或包含 url、imageUrl、base64 字段的对象。全部入选图片会在一次 AI 调用中综合判断，最终只进入一条支路。</p>
         <label>使用的视觉 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>统一判断要求（可选）<textarea rows={3} value={config.instruction} onChange={event => { onChange({ ...config, instruction: event.target.value }) }} placeholder="例如只依据图片可见内容判断，不推测图片之外的信息" /></label>
         <section className="image-comparison-panel">
@@ -341,13 +338,21 @@ function ConfigFields({
     case 'handoff':
       return <label>人工处理说明<textarea rows={5} value={config.note} onChange={event => { onChange({ ...config, note: event.target.value }) }} placeholder="告诉操作人员需要检查什么" /></label>
     case 'set-variable':
-      return (
+      {
+        const valueText = bindingTemplateText(config.value)
+        return (
         <>
           <label>变量名<input value={config.name} onChange={event => { onChange({ ...config, name: event.target.value }) }} placeholder="例如 order.currentId" /></label>
-          <BindingField graph={graph} nodeId={node.id} label="变量值" binding={config.value} onChange={value => { onChange({ ...config, value }, { ...node.inputBindings, value }) }} />
+          <VariableReferencePicker graph={graph} />
+          <label>变量值<textarea rows={6} value={valueText} onChange={event => {
+            const value = { kind: 'literal' as const, value: event.target.value }
+            onChange({ ...config, value, interpolate: true }, { ...node.inputBindings, value })
+          }} placeholder={'支持多行文本，例如：\n订单号：{{orderId}}\n处理结果：{{result}}'} /></label>
+          <p className="properties-hint">支持多行内容和变量引用，例如 <code>{'{{变量名}}'}</code>、<code>{'{{inputs.输入名}}'}</code>、<code>{'{{order.id}}'}</code>；运行时会替换为实际值。</p>
           <label>字段路径<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="可选，例如 data.id" /></label>
         </>
-      )
+        )
+      }
     case 'transform':
       return (
         <>
@@ -479,6 +484,30 @@ function ApiRequestEditor({ graph, config, onChange }: { graph: WorkflowGraph; c
   </div>
 }
 
+function AgentFields({ graph, config, onChange }: { graph: WorkflowGraph; config: Extract<NodeConfig, { type: 'agent' }>; onChange: (config: NodeConfig) => void }): ReactNode {
+  const outputs = config.outputs ?? []
+  const patchOutput = (index: number, patch: Partial<(typeof config.outputs)[number]>): void => {
+    onChange({ ...config, outputs: outputs.map((output, outputIndex) => outputIndex === index ? { ...output, ...patch } : output) })
+  }
+  return <div className="agent-config code-node-config code-node-dify">
+    <label>使用的 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    <VariableReferencePicker graph={graph} />
+    <label>系统提示<textarea rows={5} value={config.systemPrompt ?? ''} onChange={event => { onChange({ ...config, systemPrompt: event.target.value }) }} placeholder="定义 Agent 的角色、业务规则和禁止事项，可引用 {{变量名}}" /></label>
+    <label>任务内容<textarea rows={5} value={config.task ?? ''} onChange={event => { onChange({ ...config, task: event.target.value }) }} placeholder="例如：根据订单 {{order}} 和客户描述 {{message}} 生成售后处理建议。" /></label>
+    <p className="properties-hint">系统提示和任务内容都支持直接引用流程输入、全局变量、循环变量及前置节点产出，例如 <code>{'{{order.id}}'}</code>。</p>
+    <section className="code-dify-section">
+      <div className="code-dify-heading"><div><strong>结构化输出</strong><p>每个字段都会成为节点产出变量，模型必须严格按名称和类型返回。</p></div><button type="button" onClick={() => { onChange({ ...config, outputs: [...outputs, { name: '', valueType: 'string', description: '', outputMode: 'produce' }] }) }}>＋添加输出字段</button></div>
+      {outputs.map((output, index) => <div className="agent-structured-field" key={`agent-output-${index}`}>
+        <div className="agent-output-definition"><label>字段变量名<input aria-label={`Agent 输出字段 ${index + 1} 名称`} value={output.name} placeholder="例如 category" onChange={event => { patchOutput(index, { name: event.target.value.replace(/[^A-Za-z0-9_]/g, '_') }) }} /></label><label>字段类型<select value={output.valueType} onChange={event => { patchOutput(index, { valueType: event.target.value as typeof output.valueType }) }}><option value="string">文本</option><option value="number">数字</option><option value="boolean">布尔值</option><option value="object">对象</option><option value="array">数组</option></select></label></div>
+        <label>字段说明<input value={output.description} placeholder="例如：售后场景分类名称" onChange={event => { patchOutput(index, { description: event.target.value }) }} /></label>
+        <OutputVariableMode graph={graph} mode={output.outputMode} target={output.updateVariable} onChange={(outputMode, updateVariable) => { patchOutput(index, { outputMode, updateVariable }) }} />
+        <button type="button" disabled={outputs.length <= 1} onClick={() => { onChange({ ...config, outputs: outputs.filter((_, outputIndex) => outputIndex !== index) }) }}>删除输出字段</button>
+      </div>)}
+    </section>
+    <p className="properties-hint">执行时优先使用 JSON Mode，失败后自动切换 Function Calling，并由字段 Schema 校验结果；不再对普通文本执行 <code>JSON.parse</code>。</p>
+  </div>
+}
+
 function OutputVariableMode({ graph, mode, target, onChange }: { graph: WorkflowGraph; mode?: OutputVariableModeType; target?: string; onChange: (mode: OutputVariableModeType, target: string) => void }): ReactNode {
   const names = outputVariableNames(graph, useContext(CurrentNodeIdContext), useContext(SubflowVariableContext))
   const selectedMode = mode ?? 'produce'
@@ -506,6 +535,7 @@ function declaredOutputVariableNames(nodes: readonly WorkflowNode[]): string[] {
   return nodes.flatMap(node => {
     const config = node.config
     if (config.type === 'page-action') return config.steps.flatMap(step => step.type === 'extract' && step.outputMode === 'declare' && step.updateVariable?.trim() ? [step.updateVariable] : [])
+    if (config.type === 'agent') return (config.outputs ?? []).flatMap(output => output.outputMode === 'declare' && output.updateVariable?.trim() ? [output.updateVariable] : [])
     if (config.type === 'api-request' || config.type === 'api-listen' || config.type === 'extract' || config.type === 'transform' || config.type === 'code' || config.type === 'image-recognition') {
       return config.outputMode === 'declare' && config.updateVariable?.trim() ? [config.updateVariable] : []
     }
@@ -536,6 +566,14 @@ function PageActionEditor({ graph, steps, onChange, onPick }: { graph: WorkflowG
 function selectorText(selector: string | { readonly strategy: string; readonly value: string }): string {
   const value = typeof selector === 'string' ? selector : selector.value
   return displayPickedSelector(value)
+}
+
+function bindingTemplateText(binding: ValueBinding): string {
+  if (binding.kind === 'node-output') return `{{outputs.${binding.nodeId}.${binding.port}}}`
+  if (binding.kind === 'workflow-input') return `{{inputs.${binding.name}}}`
+  if (binding.kind === 'variable') return `{{${binding.name}}}`
+  if (binding.kind === 'runtime') return `{{${binding.path}}}`
+  return typeof binding.value === 'string' ? binding.value : JSON.stringify(binding.value, null, 2)
 }
 
 function pageActionVariableNames(graph: WorkflowGraph, nodeId: string, subflowNames: readonly string[] = []): string[] {
@@ -998,7 +1036,7 @@ function nodeDataOutputs(node: WorkflowNode): readonly DataPort[] {
   if (node.config.type === 'extract') {
     return [{ name: node.config.outputName || fallback[0]?.name || 'result', label: node.config.mode === 'list' ? '列表数据' : '抽取结果' }]
   }
-  if (node.config.type === 'agent') return [{ name: node.config.outputName || 'json', label: 'AI 结果' }]
+  if (node.config.type === 'agent') return (node.config.outputs ?? []).filter(output => output.name.trim()).map(output => ({ name: output.name, label: output.description || 'AI 结果' }))
   if (node.config.type === 'image-recognition') return [{ name: node.config.outputName || 'imageResult', label: '图片识别结果' }]
   if (node.config.type === 'transform' || node.config.type === 'code') {
     return [{ name: node.config.outputName || 'result', label: '处理结果' }]

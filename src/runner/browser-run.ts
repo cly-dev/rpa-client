@@ -1,18 +1,18 @@
 import { NODE_CATALOG, newId } from '@graph/catalog.ts'
-import type { ElementLocator, JsonValue, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
+import type { AgentOutputField, ElementLocator, JsonValue, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
-import { dryAgentJson } from './dry-run.ts'
 import { walkGraph, type RunHandlers, type RunState, type StepResult } from './walk.ts'
 import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, resolveRequestBodyPreview, runtimeInputValues, type WorkflowContext } from './context.ts'
 import { expandSubflows } from '@graph/expand-subflows.ts'
 import { notificationContentReferences } from '@graph/webhook-body-template.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from './page-requirement.ts'
 import { runWorkflowCode } from './code-runtime.ts'
-import { decodeImageCollectionValue, ImageAccessProbeError, normalizeImageSourcesWithProbe } from './image-source.ts'
+import { decodeImageCollectionValue, normalizeImageSources } from './image-source.ts'
 import { findSwitchCaseIndex } from '@graph/switch-cases.ts'
 import { loopIterationTotal } from './loop.ts'
 import { ApiResponseError } from './api-response-error.ts'
 import { isPickedDropdownOption, pickedSelectorsTargetSameElement } from '@graph/picked-selector.ts'
+import { normalizeImageRecognitionMaxImages } from '@graph/image-recognition-limits.ts'
 
 export interface VisionImageInput {
   readonly dataUrl: string
@@ -65,6 +65,7 @@ export interface BrowserDriver {
   extractListAuto?(containerSelector: string): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
   extractListAi?(containerSelector: string, fields: readonly string[], prompt: string, llm: WorkflowLlmConfig): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
   generateText?(prompt: string, llm: WorkflowLlmConfig, systemPrompt?: string): Promise<string>
+  generateAgent?(task: string, systemPrompt: string, outputs: readonly AgentOutputField[], llm: WorkflowLlmConfig): Promise<Readonly<Record<string, JsonValue>>>
   generateCondition?(content: string, requirement: string, llm: WorkflowLlmConfig): Promise<{ matched: boolean; reason: string }>
   generateSwitch?(content: string, cases: readonly { id: string; name: string; prompt: string }[], systemPrompt: string, llm: WorkflowLlmConfig, supplementalContext?: string): Promise<{ branch: string; reason: string }>
   recognizeImage?(images: readonly VisionImageInput[], instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig, comparisonPrompt?: string): Promise<VisionRecognitionDecision>
@@ -442,20 +443,23 @@ async function liveStep(
     }, driver, context, config.timeoutMs)
   }
   if (node.config.type === 'agent') {
+    const outputs = node.config.outputs ?? []
+    if (!(node.config.task ?? '').trim() || outputs.length === 0) throw new Error('Agent 结构化配置不完整，请配置任务内容和输出字段')
     const llm = (node.config.llmId !== undefined ? context.llms?.[node.config.llmId] : undefined)
       ?? context.llm
       ?? (context.llms === undefined ? undefined : Object.values(context.llms)[0])
     if (llm === undefined) throw new Error('Agent 节点未找到可用的 AI 配置')
-    if (driver.generateText === undefined) throw new Error('当前运行器不支持 Agent 模型调用')
-    const userPrompt = String(resolveExpression(node.config.userPrompt, context))
+    if (driver.generateAgent === undefined) throw new Error('当前运行器不支持 Agent 结构化模型调用')
+    const task = String(resolveExpression(node.config.task, context))
     const systemPrompt = String(resolveExpression(node.config.systemPrompt, context))
-    const content = await driver.generateText(userPrompt, llm, systemPrompt)
-    const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-    let parsed: unknown
-    try { parsed = JSON.parse(cleaned) } catch { throw new Error('Agent 返回内容不是有效 JSON，请在提示词中要求只返回 JSON') }
-    if (!isJsonValue(parsed)) throw new Error('Agent 返回了不支持的 JSON 值')
-    const outputName = node.config.outputName.trim() || 'json'
-    return { message: `Agent 已生成结果并产出 ${outputName}`, outputs: { [outputName]: parsed } }
+    const result = await driver.generateAgent(task, systemPrompt, outputs, llm)
+    if (!isJsonValue(result)) throw new Error('Agent 返回了不支持的结构化结果')
+    const expected = new Set(outputs.map(field => field.name))
+    const missing = outputs.filter(field => !Object.hasOwn(result, field.name)).map(field => field.name)
+    const unexpected = Object.keys(result).filter(name => !expected.has(name))
+    if (missing.length > 0 || unexpected.length > 0) throw new Error(`Agent 返回字段与配置不一致${missing.length > 0 ? `；缺少：${missing.join('、')}` : ''}${unexpected.length > 0 ? `；多出：${unexpected.join('、')}` : ''}`)
+    const structured = Object.fromEntries(outputs.map(field => [field.name, result[field.name]]))
+    return { message: `Agent 已生成 ${outputs.length} 个结构化字段`, outputs: structured }
   }
   if (node.config.type === 'image-recognition') {
     const config = node.config
@@ -465,14 +469,10 @@ async function liveStep(
     if (llm === undefined) throw new Error('图片识别节点未找到可用的视觉 AI 配置')
     if (driver.recognizeImage === undefined) throw new Error('当前运行器不支持图片识别')
     if (config.cases.length === 0 || config.cases.some(item => !item.id.trim() || !item.name.trim() || !item.prompt.trim())) throw new Error('图片识别的每个分支都需要名称和判断要求')
+    const maxImages = normalizeImageRecognitionMaxImages(config.maxImages)
     const value = resolveImageBindingValue(config.image, config.path, context, '待识别图片来源')
-    let imageSources: Awaited<ReturnType<typeof normalizeImageSourcesWithProbe>>
-    try { imageSources = await normalizeImageSourcesWithProbe(value) }
-    catch (error) {
-      if (error instanceof ImageAccessProbeError) throw new Error(`${error.message}；链接地址：${redactLogUrl(error.url)}`)
-      throw error
-    }
-    let comparisonSources: Awaited<ReturnType<typeof normalizeImageSourcesWithProbe>> = []
+    const imageSources = await normalizeImageSources(value, { maxCount: maxImages, truncate: true })
+    let comparisonSources: Awaited<ReturnType<typeof normalizeImageSources>> = []
     let comparisonNames: readonly string[] = []
     if (config.comparisonEnabled === true) {
       let comparisonValue: JsonValue
@@ -487,11 +487,8 @@ async function liveStep(
         comparisonValue = selected.map(item => item.dataUrl)
         comparisonNames = selected.map(item => item.name)
       }
-      try { comparisonSources = await normalizeImageSourcesWithProbe(comparisonValue) }
-      catch (error) {
-        if (error instanceof ImageAccessProbeError) throw new Error(`对比图片处理失败：${error.message}；链接地址：${redactLogUrl(error.url)}`)
-        throw new Error(`对比图片处理失败：${error instanceof Error ? error.message : String(error)}`)
-      }
+      try { comparisonSources = await normalizeImageSources(comparisonValue) }
+      catch (error) { throw new Error(`对比图片处理失败：${error instanceof Error ? error.message : String(error)}`) }
     }
     const cases = config.cases.map(item => ({ ...item, prompt: String(resolveExpression(item.prompt, context)) }))
     const images: VisionImageInput[] = [
@@ -540,13 +537,12 @@ async function liveStep(
     const reason = (chosenEvaluation?.evidence || decision.comparisonSummary).trim().slice(0, 500)
     const outputName = config.outputName.trim() || 'imageResult'
     const result = { branch, label, reason, imageCount: imageSources.length, comparisonEnabled: comparisonSources.length > 0, comparisonImageCount: comparisonSources.length, comparisonStatus: decision.comparisonStatus, comparisonSummary: decision.comparisonSummary, comparisons: decision.comparisons, imageCaseEvaluations: decision.imageCaseEvaluations, caseEvaluations: decision.caseEvaluations, confidence: chosenEvaluation?.confidence ?? 0 }
-    const probeLog = imageSources.flatMap((source, index) => source.probe === undefined ? [] : [`第 ${index + 1} 张图片链接访问探针通过（HTTP ${source.probe.status}，${source.probe.mime}，${source.probe.bytes} 字节）`])
     const evaluationLogs = cases.map(item => {
       const evaluation = decision.caseEvaluations.find(candidate => candidate.branch === `case-${item.id}`)
       const matchedImages = decision.imageCaseEvaluations.filter(candidate => candidate.branch === `case-${item.id}` && candidate.matched).map(candidate => candidate.inputImageIndex)
       return `场景判断「${item.name}」：${evaluation?.matched === true ? `命中（图片 ${matchedImages.join('、')}）` : '不命中'}（置信度 ${Math.round((evaluation?.confidence ?? 0) * 100)}%）`
     })
-    return { message: `已综合识别 ${imageSources.length} 张图片，进入「${label}」${reason ? `：${reason}` : ''}`, branch, outputs: { [outputName]: result }, logs: [...probeLog, ...evaluationLogs, `图片识别实际分支：${branch}`] }
+    return { message: `已综合识别 ${imageSources.length} 张图片，进入「${label}」${reason ? `：${reason}` : ''}`, branch, outputs: { [outputName]: result }, logs: [`本节点最多识别 ${maxImages} 张待识别图片`, ...evaluationLogs, `图片识别实际分支：${branch}`] }
   }
   if (node.config.type === 'condition') {
     const check = async (): Promise<{ matched: boolean; message: string }> => {
@@ -738,7 +734,7 @@ async function liveStep(
     }
     if (config.type === 'set-variable') {
       const bound = resolveBindingInContext(config.value, context)
-      const raw = config.interpolate && typeof bound === 'string' ? resolveExpression(bound, context) : bound
+      const raw = typeof bound === 'string' && (config.value.kind === 'literal' || config.interpolate === true) ? resolveExpression(bound, context) : bound
       let value = config.path.trim() === '' ? raw : walkPath(raw, config.path)
       if (config.requiredInput !== undefined) {
         const empty = isEmptyValue(value)
@@ -874,11 +870,21 @@ export async function runBrowser(
     llm: runnableGraph.llm,
     llms: Object.fromEntries((runnableGraph.llms ?? (runnableGraph.llm === undefined ? [] : [runnableGraph.llm])).map(item => [item.id, item])),
   }
-  const notificationValuesFor = (nodeId: string): Record<string, import('@graph/types.ts').JsonValue> => {
+  const notificationValuesFor = (nodeId: string, event?: NonNullable<import('./walk.ts').RunLogLine['notificationEvent']>): Record<string, import('@graph/types.ts').JsonValue> => {
     const node = runnableGraph.nodes.find(item => item.id === nodeId)
     const marker = nodeId.split('::').at(-2)
     const owner = marker === undefined ? undefined : options.subflows?.find(item => `${item.workflowId.replace(/[^A-Za-z0-9_]/g, '_')}_v${item.version}` === marker)
-    const template = node?.notifications?.messageTemplate?.trim() || owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
+    const defaultTemplate = owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
+    const templateFor = (trigger: import('@graph/types.ts').NodeNotificationTrigger): string => {
+      const statusTemplate = node?.notifications?.messageTemplates?.[trigger]
+      return (statusTemplate === undefined ? node?.notifications?.messageTemplate : statusTemplate)?.trim() || defaultTemplate
+    }
+    const template = event === undefined
+      ? (['onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout'] as const)
+          .filter(trigger => node?.notifications?.[trigger] === true)
+          .map(templateFor)
+          .join('\n')
+      : templateFor(event === 'node.succeeded' ? 'onSuccess' : 'onFailure')
     const values: Record<string, import('@graph/types.ts').JsonValue> = {}
     let totalLength = 0
     for (const path of notificationContentReferences(template)) {
@@ -906,7 +912,7 @@ export async function runBrowser(
     ...handlers,
     onUpdate: next => {
       Object.assign(context.outputs, next.outputs)
-      const logs = next.logs.map(log => log.notificationEvent ? { ...log, notificationValues: notificationValuesFor(log.nodeId) } : log)
+      const logs = next.logs.map(log => log.notificationEvent ? { ...log, notificationValues: notificationValuesFor(log.nodeId, log.notificationEvent) } : log)
       latestState = { ...next, logs, inputs: { ...context.inputs }, variables: { ...context.variables }, page: { ...context.page } }
       handlers.onUpdate(latestState)
     },
@@ -926,7 +932,9 @@ export async function runBrowser(
       const updateTargets = new Map<string, string>()
       const config = node.config
       if (config.type === 'api-request' || config.type === 'api-listen' || config.type === 'extract' || config.type === 'transform' || config.type === 'code' || config.type === 'agent' || config.type === 'image-recognition') {
-        if ((config.outputMode === 'update' || config.outputMode === 'declare') && config.updateVariable?.trim()) updateTargets.set(config.outputName, config.updateVariable)
+        if (config.type === 'agent') {
+          for (const item of config.outputs ?? []) if ((item.outputMode === 'update' || item.outputMode === 'declare') && item.updateVariable?.trim()) updateTargets.set(item.name, item.updateVariable)
+        } else if ((config.outputMode === 'update' || config.outputMode === 'declare') && config.updateVariable?.trim()) updateTargets.set(config.outputName, config.updateVariable)
         if (config.type === 'code') for (const item of config.outputs ?? []) if ((item.outputMode === 'update' || item.outputMode === 'declare') && item.updateVariable?.trim()) updateTargets.set(item.name, item.updateVariable)
       } else if (config.type === 'page-action') {
         for (const step of config.steps) if (step.type === 'extract' && (step.outputMode === 'update' || step.outputMode === 'declare') && step.updateVariable?.trim()) updateTargets.set(step.outputName, step.updateVariable)

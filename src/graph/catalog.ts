@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_PROMPT, DEFAULT_EXECUTION, type JsonValue, type NodeConfig, type NodeType, type ValueBinding } from './types.ts'
+import { DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES } from './image-recognition-limits.ts'
 
 export interface FlowOutput {
   readonly name: string
@@ -110,13 +111,13 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinition> = {
   agent: {
     type: 'agent',
     title: 'Agent',
-    description: '交给模型，输出 JSON 供下游使用',
+    description: '将结构化数据交给模型，并按配置字段输出',
     kind: 'decision',
     acceptsIncoming: true,
     palette: true,
     flowOutputs: DEFAULT_FLOW,
     dataInputs: [],
-    dataOutputs: [{ name: 'json', label: 'AI 结果' }],
+    dataOutputs: [{ name: 'result', label: 'AI 结构化结果' }],
   },
   condition: {
     type: 'condition',
@@ -244,13 +245,13 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'wait':
       return { type: 'wait', mode: 'visible', ms: 10000, selector: '' }
     case 'agent':
-      return { type: 'agent', systemPrompt: DEFAULT_AGENT_PROMPT, userPrompt: '请根据提示完成任务，并以 JSON 格式返回结果。', outputName: 'json', dryAction: 'note' }
+      return { type: 'agent', systemPrompt: DEFAULT_AGENT_PROMPT, task: '请根据提示中引用的变量完成任务。', outputs: [{ name: 'result', valueType: 'string', description: '任务处理结果' }], dryAction: 'note' }
     case 'condition':
       return { type: 'condition', left: literalBinding(''), path: '', equals: '', mode: 'value', selector: '', operator: 'equals', clauses: [{ binding: literalBinding(''), operator: 'equals', value: '' }], logic: 'and', waitForCondition: false, waitTimeoutMs: 10000, pollIntervalMs: 500, aiPrompt: '', llmId: undefined }
     case 'switch':
       return { type: 'switch', left: literalBinding(''), path: '', cases: [''], caseTypes: ['string'], caseIds: [newId('case')], aiContext: '' }
     case 'image-recognition':
-      return { type: 'image-recognition', image: literalBinding(''), path: '', comparisonEnabled: false, comparisonSourceMode: 'upload', comparisonImage: '', comparisonImageName: '', comparisonImages: [], comparisonImageSource: literalBinding(''), comparisonImagePath: '', comparisonPrompt: '', instruction: '', cases: [{ id: newId('case'), name: '', prompt: '' }], outputName: 'imageResult' }
+      return { type: 'image-recognition', image: literalBinding(''), path: '', maxImages: DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES, comparisonEnabled: false, comparisonSourceMode: 'upload', comparisonImage: '', comparisonImageName: '', comparisonImages: [], comparisonImageSource: literalBinding(''), comparisonImagePath: '', comparisonPrompt: '', instruction: '', cases: [{ id: newId('case'), name: '', prompt: '' }], outputName: 'imageResult' }
     case 'call-subflow':
       return { type: 'call-subflow', workflowId: '', workflowVersion: undefined, inputMappings: [] }
     case 'approval':

@@ -15,6 +15,7 @@ export function variableOptions(graph: WorkflowGraph, nodeId: string, subflowVar
     if (config.type === 'for-each') names.push(config.itemVar || 'item', config.indexVar || 'index', ...(config.declaredVariables ?? []))
     if (config.type === 'set-variable' && config.name.trim()) names.push(config.name)
     if (config.type === 'code') names.push(...(config.outputs ?? []).map(output => output.name))
+    else if (config.type === 'agent') names.push(...(config.outputs ?? []).map(output => output.name))
     else if ((config.type === 'api-request' || config.type === 'api-listen') && config.outputName.trim()) names.push(config.outputName, ...(config.fields ?? []).map(field => field.name))
     else if ('outputName' in config && config.outputName.trim()) names.push(config.outputName)
     for (const name of names.filter(Boolean)) options.push({ key: `variable:${name}`, label: `${node.name} / ${name}`, binding: { kind: 'variable', name } })
@@ -41,7 +42,7 @@ function aliasFrom(option: VariableOption | undefined): string {
   return /^[A-Za-z_$]/.test(alias) ? alias : `value_${alias}`
 }
 
-const DEFAULT_OUTPUT = { name: 'result', valueType: 'any' as const, outputMode: 'produce' as const }
+const DEFAULT_OUTPUT: NonNullable<CodeConfig['outputs']>[number] = { name: 'result', valueType: 'any', outputMode: 'produce' }
 
 function propertyAccess(root: 'input' | 'variables', name: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? `${root}.${name}` : `${root}[${JSON.stringify(name)}]`

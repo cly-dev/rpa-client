@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createEdge, createNode } from '@graph/mutate.ts'
 import { parseWorkflow } from '@graph/parse.ts'
 import { validateGraph } from '@graph/validate.ts'
@@ -41,7 +41,7 @@ describe('image recognition node', () => {
     expect(workflowNeedsBrowser([graph])).toBe(false)
     const parsed = parseWorkflow(graph)
     expect(parsed.ok).toBe(true)
-    if (parsed.ok) expect(parsed.graph.nodes.find(node => node.type === 'image-recognition')?.config).toMatchObject({ type: 'image-recognition', comparisonEnabled: false, comparisonSourceMode: 'upload', comparisonPrompt: '比较可见内容', cases: [{ id: 'paid' }, { id: 'logistics' }] })
+    if (parsed.ok) expect(parsed.graph.nodes.find(node => node.type === 'image-recognition')?.config).toMatchObject({ type: 'image-recognition', maxImages: 3, comparisonEnabled: false, comparisonSourceMode: 'upload', comparisonPrompt: '比较可见内容', cases: [{ id: 'paid' }, { id: 'logistics' }] })
   })
 
   it('can dry-run an image-only workflow without a start URL', async () => {
@@ -150,19 +150,14 @@ describe('image recognition node', () => {
     expect(state.status).toBe('succeeded')
   })
 
-  it('probes an image URL once, logs only its metadata, then recognizes the downloaded image', async () => {
+  it('passes an image URL directly to the vision model without producing probe logs', async () => {
     const { graph } = fixture()
     const observed: string[] = []
-    const fetchMock = vi.fn(async () => new Response(Buffer.from(tinyPng.slice(tinyPng.indexOf(',') + 1), 'base64'), { headers: { 'content-type': 'image/png' } }))
-    vi.stubGlobal('fetch', fetchMock)
-    try {
-      const state = await runBrowser(graph, driver('case-paid', observed), { onUpdate() {}, wait: async () => {} }, { variables: { photo: 'https://example.com/photo.png?token=secret' } })
-      expect(state.status).toBe('succeeded')
-      expect(fetchMock).toHaveBeenCalledOnce()
-      expect(observed[0]).toBe(`input:${tinyPng}`)
-      expect(state.logs.some(line => line.message.includes('图片链接访问探针通过（HTTP 200，image/png，8 字节）'))).toBe(true)
-      expect(state.logs.some(line => line.message.includes('token=secret') || line.message.includes(tinyPng))).toBe(false)
-    } finally { vi.unstubAllGlobals() }
+    const imageUrl = 'https://example.com/photo.png?token=secret'
+    const state = await runBrowser(graph, driver('case-paid', observed), { onUpdate() {}, wait: async () => {} }, { variables: { photo: imageUrl } })
+    expect(state.status).toBe('succeeded')
+    expect(observed[0]).toBe(`input:${imageUrl}`)
+    expect(state.logs.some(line => line.message.includes('探针'))).toBe(false)
   })
 
   it('sends multiple images in one model call and still selects one branch', async () => {
@@ -173,6 +168,19 @@ describe('image recognition node', () => {
     expect(state.nodes[endings[0]]).toBe('succeeded')
     expect(observed[0]).toBe(`input:${tinyPng}|input:${tinyPng}`)
     expect(state.outputs[nodeId]?.imageResult).toMatchObject({ imageCount: 2, comparisonEnabled: false, branch: 'case-paid' })
+  })
+
+  it('uses only the first configured number of runtime images', async () => {
+    const { graph, nodeId } = fixture()
+    const nodes = graph.nodes.map(node => node.id === nodeId && node.config.type === 'image-recognition'
+      ? { ...node, config: { ...node.config, maxImages: 2 } }
+      : node)
+    const observed: string[] = []
+    const state = await runBrowser({ ...graph, nodes }, driver('case-paid', observed), { onUpdate() {}, wait: async () => {} }, { variables: { photo: [tinyPng, tinyPng, tinyPng, tinyPng] } })
+    expect(state.status).toBe('succeeded')
+    expect(observed[0]).toBe(`input:${tinyPng}|input:${tinyPng}`)
+    expect(state.outputs[nodeId]?.imageResult).toMatchObject({ imageCount: 2, branch: 'case-paid' })
+    expect(state.logs.some(line => line.message.includes('本节点最多识别 2 张待识别图片'))).toBe(true)
   })
 
   it('adds one reference image and resolves the optional comparison prompt', async () => {
@@ -233,18 +241,4 @@ describe('image recognition node', () => {
     expect(state.logs.some(line => line.message.includes('字段路径「missing.path」未读取到值'))).toBe(true)
   })
 
-  it('logs the redacted image URL when its access probe fails', async () => {
-    const { graph, nodeId } = fixture()
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })))
-    try {
-      const state = await runBrowser(graph, driver('case-paid', []), { onUpdate() {}, wait: async () => {} }, {
-        variables: { photo: 'https://example.com/missing.png?token=secret&size=large' },
-      })
-      expect(state.status).toBe('failed')
-      expect(state.nodes[nodeId]).toBe('failed')
-      expect(state.logs.some(line => line.message.includes('HTTP 404')
-        && line.message.includes('https://example.com/missing.png?token=******&size=large'))).toBe(true)
-      expect(state.logs.some(line => line.message.includes('token=secret'))).toBe(false)
-    } finally { vi.unstubAllGlobals() }
-  })
 })

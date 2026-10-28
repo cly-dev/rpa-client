@@ -8,6 +8,7 @@ export function VariablesPanel({ graph, subflows = [], outputs, inputs: runtimeI
   const declared = graph.nodes.flatMap(node => {
     const config = node.config
     if (config.type === 'code') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType ?? 'any' }))
+    if (config.type === 'agent') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType }))
     if (!('outputMode' in config) || config.outputMode !== 'declare' || !config.updateVariable?.trim()) return []
     const name = config.updateVariable.trim()
     const type = config.type === 'api-request' || config.type === 'api-listen' ? (config.responseType === 'json' ? 'object/array' : 'string') : config.type === 'code' ? 'object' : 'string'
@@ -63,7 +64,7 @@ function nodeOutputs(node: WorkflowNode, outputs?: Readonly<Record<string, NodeO
     if (node.config.outputs && node.config.outputs.length > 0) configured.push(...node.config.outputs.filter(output => output.name.trim() !== '').map(output => ({ name: output.name, type: output.valueType ?? 'any' })))
     else configured.push({ name: node.config.outputName, type: 'object' })
   }
-  if (node.config.type === 'agent') configured.push({ name: node.config.outputName || 'json', type: 'AI 生成结果' })
+  if (node.config.type === 'agent') configured.push(...(node.config.outputs ?? []).filter(output => output.name.trim() !== '').map(output => ({ name: output.name, type: output.valueType })))
   if (node.config.type === 'image-recognition') configured.push({ name: node.config.outputName || 'imageResult', type: '图片识别结果' })
   if (node.config.type === 'api-listen') {
     configured.push({ name: node.config.outputName, type: node.config.responseType === 'json' ? 'object/array' : 'string' })

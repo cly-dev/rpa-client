@@ -10,15 +10,12 @@ import { loopIterationTotal } from './loop.ts'
 
 export type { RunHandlers as DryRunHandlers, RunLogLine, RunState, RunState as DryRunState } from './walk.ts'
 
-const DRY_AGENT_JSON = {
-  intent: 'reply',
-  reply: '（试运行）已根据上游抽取结果生成回复，下一期才会调用模型。',
-  confidence: 0.92,
-  reason: 'dry-run',
-} as const
-
-export function dryAgentJson(): NodeOutputs {
-  return { json: DRY_AGENT_JSON }
+function dryAgentValue(type: 'string' | 'number' | 'boolean' | 'object' | 'array'): import('@graph/types.ts').JsonValue {
+  if (type === 'number') return 0
+  if (type === 'boolean') return false
+  if (type === 'object') return { dryRun: true }
+  if (type === 'array') return []
+  return '（试运行）Agent 结构化输出'
 }
 
 function selectorText(selector: string | ElementLocator): string {
@@ -52,7 +49,9 @@ function dryStep(
     }
   }
   if (node.config.type === 'agent') {
-    return { message: `试运行 JSON intent=${DRY_AGENT_JSON.intent}`, outputs: { ...dryAgentJson(), [node.config.outputName || 'json']: DRY_AGENT_JSON } }
+    const outputs = node.config.outputs ?? []
+    const result = Object.fromEntries(outputs.map(output => [output.name, dryAgentValue(output.valueType)]))
+    return { message: `Agent 试运行产出 ${outputs.length} 个结构化字段`, outputs: result }
   }
   if (node.config.type === 'image-recognition') {
     return { message: '图片识别仅在真实运行时调用视觉模型；试运行进入否则分支', branch: 'else', outputs: { [node.config.outputName || 'imageResult']: { branch: 'else', label: '否则', reason: '试运行未调用视觉模型' } } }

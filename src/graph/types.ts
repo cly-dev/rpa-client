@@ -57,6 +57,8 @@ export interface NodeExecutionPolicy {
   readonly onError: 'fail-run' | 'human-handoff'
 }
 
+export type NodeNotificationTrigger = 'onSuccess' | 'onFailure' | 'onApprovalPending' | 'onApprovalApproved' | 'onApprovalRejected' | 'onApprovalTimeout'
+
 export interface NodeNotificationConfig {
   readonly enabled?: boolean
   readonly onSuccess?: boolean
@@ -65,6 +67,9 @@ export interface NodeNotificationConfig {
   readonly onApprovalApproved?: boolean
   readonly onApprovalRejected?: boolean
   readonly onApprovalTimeout?: boolean
+  /** Status-specific content. Keys match the corresponding notification switches. */
+  readonly messageTemplates?: Readonly<Partial<Record<NodeNotificationTrigger, string>>>
+  /** Legacy shared content retained as a fallback for older workflows. */
   readonly messageTemplate?: string
 }
 
@@ -159,14 +164,20 @@ export interface WaitConfig {
   readonly selector: string | ElementLocator
 }
 
+export interface AgentOutputField {
+  readonly name: string
+  readonly valueType: 'string' | 'number' | 'boolean' | 'object' | 'array'
+  readonly description: string
+  readonly outputMode?: OutputVariableMode
+  readonly updateVariable?: string
+}
+
 export interface AgentConfig {
   readonly type: 'agent'
   readonly systemPrompt: string
-  readonly userPrompt: string
+  readonly task: string
+  readonly outputs: readonly AgentOutputField[]
   readonly llmId?: string
-  readonly outputName: string
-  readonly outputMode?: OutputVariableMode
-  readonly updateVariable?: string
   readonly dryAction: RouteAction
 }
 
@@ -223,6 +234,8 @@ export interface ImageRecognitionConfig {
   readonly type: 'image-recognition'
   readonly image: ValueBinding
   readonly path: string
+  /** Maximum number of runtime input images included in one recognition call. */
+  readonly maxImages?: number
   /** Optional reference-image comparison used together with all runtime images. */
   readonly comparisonEnabled?: boolean
   readonly comparisonSourceMode?: 'upload' | 'variable'
@@ -488,10 +501,7 @@ export const DEFAULT_EXECUTION: NodeExecutionPolicy = {
 }
 
 export const DEFAULT_AGENT_PROMPT = [
-  '你是通用分流节点。只输出一个 JSON 对象，不要 Markdown。',
-  '根据页面抽取结果选择下一步动作：',
-  '- action: note | handoff | email',
-  '- reason: 短理由',
-  '- note: action=note 时写入固定区域的文本',
-  '- email: { to, subject, body }，action=email 时在业务页里填发送',
+  '你是严谨的业务处理助手。',
+  '只根据系统提示、任务内容及其中已经解析的变量数据生成结果，不得编造不存在的信息。',
+  '严格遵循程序提供的输出字段、类型和字段说明。',
 ].join('\n')

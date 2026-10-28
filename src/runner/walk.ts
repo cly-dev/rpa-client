@@ -29,7 +29,7 @@ function nodeSetup(node: WorkflowNode): string {
     case 'approval': return `审批字段：${config.fields.length} 个；超时：${config.timeoutMinutes} 分钟`
     case 'handoff': return '等待人工接管'
     case 'set-variable': return `目标变量：${config.name || '未命名'}；取值路径：${config.path.trim() ? '已配置' : '无'}`
-    case 'agent': return `AI 配置：${config.llmId || '使用默认配置'}；产出：${config.outputName}`
+    case 'agent': return `AI 配置：${config.llmId || '使用默认配置'}；提示词变量引用；结构化输出：${config.outputs?.length ?? 0} 个`
     case 'code': return `代码输入：${config.inputs?.length ?? 1} 个；声明输出：${config.outputs?.length ?? 1} 个`
     case 'extract': return `抽取方式：${config.mode ?? 'text'}；产出：${config.outputName}`
     case 'transform': return `转换操作：${config.operation}；产出：${config.outputName}`

@@ -3,6 +3,70 @@ import { createHttpOnlyDriver } from './playwright-driver.ts'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
+describe('Agent structured input and output', () => {
+  const llm = {
+    id: 'agent-test', name: 'Agent 测试', enabled: true, model: 'thinking-model',
+    baseUrl: 'http://127.0.0.1:3333/v1', chatPath: '/chat/completions', apiKey: '', maxTokens: 300,
+  }
+  const outputs = [
+    { name: 'category', valueType: 'string' as const, description: '业务分类' },
+    { name: 'confidence', valueType: 'number' as const, description: '0 到 1 的置信度' },
+  ]
+
+  it('sends the resolved task and validates named output fields in JSON mode', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as {
+        response_format?: { type?: string }
+        tool_choice?: unknown
+        messages?: readonly { content?: string }[]
+      }
+      expect(request.response_format?.type).toBe('json_object')
+      expect(request.tool_choice).toBeUndefined()
+      const content = request.messages?.map(message => message.content ?? '').join('\n') ?? ''
+      expect(content).toContain('判断订单 A-100 的售后业务分类')
+      expect(content).toContain('category（string）')
+      expect(content).toContain('confidence（number）')
+      return new Response(JSON.stringify({
+        id: 'chatcmpl-agent-json', object: 'chat.completion', created: 1, model: 'thinking-model',
+        choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: '{"category":"damage","confidence":0.92}' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createHttpOnlyDriver().generateAgent?.(
+      '判断订单 A-100 的售后业务分类',
+      '你是售后分类助手',
+      outputs,
+      llm,
+    )
+
+    expect(result).toEqual({ category: 'damage', confidence: 0.92 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to function calling when Agent JSON mode is unavailable', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'json_object not supported', type: 'invalid_request_error' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        id: 'chatcmpl-agent-tool', object: 'chat.completion', created: 1, model: 'thinking-model',
+        choices: [{ index: 0, finish_reason: 'tool_calls', message: {
+          role: 'assistant', content: '',
+          tool_calls: [{ id: 'call-agent', type: 'function', function: { name: 'agent_result', arguments: '{"category":"shipping","confidence":0.88}' } }],
+        } }],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createHttpOnlyDriver().generateAgent?.('对订单 A-200 分类', '系统规则', outputs, llm)
+
+    expect(result).toEqual({ category: 'shipping', confidence: 0.88 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const fallback = JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body)) as { tool_choice?: unknown }
+    expect(fallback.tool_choice).toBeDefined()
+  })
+})
+
 describe('AI condition structured output', () => {
   const llm = {
     id: 'test', name: '测试', enabled: true, model: 'thinking-model',

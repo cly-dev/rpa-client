@@ -683,6 +683,10 @@ textarea { resize: vertical; }
 .node-notification-message label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; color: #344054; }
 .node-notification-message textarea { width: 100%; box-sizing: border-box; min-height: 100px; padding: 8px; border: 1px solid #d0d5dd; border-radius: 7px; resize: vertical; font: inherit; font-size: 12px; line-height: 1.5; }
 .node-notification-message select { max-width: 100%; padding: 6px; border: 1px solid #d0d5dd; border-radius: 7px; background: #fff; }
+.node-notification-status + .node-notification-status { margin-top: 8px; }
+.agent-structured-field { display: grid; gap: 10px; padding: 12px; border: 1px solid #dbe3f4; border-radius: 9px; background: #f8faff; }
+.agent-structured-field + .agent-structured-field { margin-top: 10px; }
+.agent-output-definition { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; }
 .webhook-test-action { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .webhook-test-action button { padding: 6px 10px; border: 1px solid #818cf8; border-radius: 7px; background: #eef2ff; color: #4338ca; cursor: pointer; }
 .webhook-test-action button:disabled { opacity: .5; cursor: default; }
