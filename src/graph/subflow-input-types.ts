@@ -25,6 +25,7 @@ function outputType(node: WorkflowNode, port: string): InferredType {
     return declared === undefined || declared === 'any' ? 'unknown' : declared
   }
   if (config.type === 'agent') return (config.outputs ?? []).find(output => output.name === port)?.valueType ?? 'unknown'
+  if (config.type === 'switch' && config.mode === 'ai' && (config.reasonOutputName?.trim() || 'reason') === port) return 'string'
   if (config.type === 'extract' && (config.outputName || 'text') === port) return config.mode === 'list' ? 'array' : 'string'
   if (config.type === 'page-action' && config.steps.some(step => step.type === 'extract' && step.outputName === port)) return 'string'
   if (config.type === 'api-request' && config.responseType === 'text' && (config.outputName || 'responseData') === port) return 'string'

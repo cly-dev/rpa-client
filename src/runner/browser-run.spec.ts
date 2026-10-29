@@ -423,6 +423,38 @@ describe('runBrowser', () => {
     expect(calls).toEqual(['open:https://example.com', 'type:#name=Alice', 'click:#submit'])
   })
 
+  it('passes replace and append modes to page-action input steps', async () => {
+    const calls: string[] = []
+    const inputCalls: Array<{ selector: string; text: string; mode: 'replace' | 'append' | undefined }> = []
+    const start = createNode('start', { x: 0, y: 0 })
+    const action = createNode('page-action', { x: 80, y: 0 })
+    const end = createNode('end', { x: 160, y: 0 })
+    const driver: BrowserDriver = {
+      ...fakeDriver(calls),
+      async type(selector, text, _timeoutMs, mode) { inputCalls.push({ selector, text, mode }) },
+    }
+    const graph: WorkflowGraph = {
+      workflowId: newId('wf'), name: 'page input modes', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: 'https://example.com' } },
+        { ...action, config: { type: 'page-action', steps: [
+          { type: 'type', selector: '#replace', value: { kind: 'literal', value: 'new value' } },
+          { type: 'type', selector: '#append', value: { kind: 'literal', value: ' suffix' }, inputMode: 'append' },
+        ] } },
+        end,
+      ],
+      edges: [createEdge(start.id, 'default', action.id), createEdge(action.id, 'default', end.id)],
+    }
+
+    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} })
+
+    expect(state.status).toBe('succeeded')
+    expect(inputCalls).toEqual([
+      { selector: '#replace', text: 'new value', mode: 'replace' },
+      { selector: '#append', text: ' suffix', mode: 'append' },
+    ])
+  })
+
   it('skips a duplicated dropdown trigger left by an older picked workflow', async () => {
     const picked = (css: string, role: string, text: string): string => `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({ version: 1, tag: 'div', css, parentPath: '#form', role, text }))}`
     const triggerBeforeOpen = picked('#status', 'combobox', '请选择')
@@ -499,7 +531,7 @@ describe('runBrowser', () => {
       llm: { id: 'test-ai', name: '测试 AI', enabled: true, model: 'test', baseUrl: 'https://example.com', chatPath: '/v1/chat/completions', apiKey: '', maxTokens: 100 },
       nodes: [
         { ...start, config: { type: 'start', url: 'https://example.com' } },
-        { ...choice, config: { type: 'switch', mode: 'ai', left: { kind: 'literal', value: '我去你的' }, path: '', cases: ['打招呼', '骂人的话'], casePrompts: ['打招呼的话', '骂人的话'], aiContext: '{{orderContext}}' } },
+        { ...choice, config: { type: 'switch', mode: 'ai', left: { kind: 'literal', value: '我去你的' }, path: '', cases: ['打招呼', '骂人的话'], casePrompts: ['打招呼的话', '骂人的话'], aiContext: '{{orderContext}}', reasonOutputName: 'routeReason' } },
         matchedEnd, elseEnd,
       ],
       edges: [createEdge(start.id, 'default', choice.id), createEdge(choice.id, 'case-1', matchedEnd.id), createEdge(choice.id, 'else', elseEnd.id)],
@@ -516,6 +548,8 @@ describe('runBrowser', () => {
     expect(state.nodes[matchedEnd.id]).toBe('succeeded')
     expect(state.nodes[elseEnd.id]).toBe('pending')
     expect(state.logs.some(item => item.message.includes('带有辱骂语气'))).toBe(true)
+    expect(state.outputs[choice.id]).toEqual({ routeReason: '带有辱骂语气' })
+    expect(state.variables?.routeReason).toBe('带有辱骂语气')
   })
 
   it('fails an AI switch that returns an unknown branch instead of silently taking else', async () => {

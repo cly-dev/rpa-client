@@ -59,7 +59,7 @@ export interface BrowserDriver {
   hover?(selector: string, timeoutMs?: number): Promise<void>
   click(selector: string, timeoutMs?: number): Promise<void>
   selectOption?(selector: string, value: string, timeoutMs?: number): Promise<void>
-  type(selector: string, text: string, timeoutMs?: number): Promise<void>
+  type(selector: string, text: string, timeoutMs?: number, inputMode?: 'replace' | 'append'): Promise<void>
   extract(selector: string): Promise<string>
   extractList?(rowSelector: string, fields: readonly { name: string; selector: string; attribute?: string }[]): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
   extractListAuto?(containerSelector: string): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
@@ -629,7 +629,8 @@ async function liveStep(
       const chosen = cases.find(item => item.id === decision.branch)
       if (chosen === undefined && decision.branch !== 'else') throw new Error(`AI 多路判断返回了未知分支「${decision.branch}」`)
       const reason = decision.reason.trim().slice(0, 500)
-      return { message: chosen === undefined ? `AI 判断进入「否则」${reason ? `：${reason}` : ''}` : `AI 判断进入「${chosen.name}」${reason ? `：${reason}` : ''}`, branch: chosen?.id ?? 'else', logs: [`AI 场景判断结果：${chosen?.name ?? '否则'}`] }
+      const reasonOutputName = config.reasonOutputName?.trim() || 'reason'
+      return { message: chosen === undefined ? `AI 判断进入「否则」${reason ? `：${reason}` : ''}` : `AI 判断进入「${chosen.name}」${reason ? `：${reason}` : ''}`, branch: chosen?.id ?? 'else', outputs: { [reasonOutputName]: reason }, logs: [`AI 场景判断结果：${chosen?.name ?? '否则'}`, `判断依据已写入变量：${reasonOutputName}`] }
     }
     const index = findSwitchCaseIndex(config, value)
     return { message: index >= 0 ? `走分支 ${index + 1}（${value}）` : `走否则分支（${value}）`, branch: index >= 0 ? `case-${index}` : 'else' }
@@ -681,7 +682,9 @@ async function liveStep(
               const bound = resolveBindingInContext(step.value, context)
               text = asText(resolveExpression(asText(bound), context))
             }
-            await driver.type(String(resolveExpression(selectorText(step.selector), context)), text, node.execution.timeoutMs)
+            const inputMode = step.inputMode ?? 'replace'
+            trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 输入方式：${inputMode === 'append' ? '拼接到原内容后面' : '替换原内容'}`)
+            await driver.type(String(resolveExpression(selectorText(step.selector), context)), text, node.execution.timeoutMs, inputMode)
           }
           if (step.type === 'extract') {
             const selectedLlm = step.ai?.llmId !== undefined ? context.llms?.[step.ai.llmId] : context.llm

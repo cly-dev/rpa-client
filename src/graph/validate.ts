@@ -27,6 +27,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'switch-empty-case': '多路判断至少需要一个分支值',
   'switch-invalid-case': '多路判断的数字或布尔匹配值无效',
   'switch-duplicate-case': '多路判断存在重复的精确匹配值，后续重复分支无法命中',
+  'switch-ai-reason-output-invalid': 'AI 多路判断的判断依据变量名只能使用英文字母、数字和下划线，且不能以数字开头',
   'image-recognition-invalid': '图片识别需要图片来源、1～8 张的识别上限、结果变量名，以及至少一个填写完整且不重复的分支；启用图片对比后还需要上传参考图或选择参考图变量',
   'missing-entry-workflow': '入口流程不存在',
   'subflow-cycle': '子流程调用存在循环',
@@ -88,6 +89,7 @@ function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
   if (node.config.type === 'extract') return [node.config.outputName || 'text']
   if (node.config.type === 'agent') return (node.config.outputs ?? []).map(item => item.name).filter(Boolean)
   if (node.config.type === 'image-recognition') return [node.config.outputName || 'imageResult']
+  if (node.config.type === 'switch' && node.config.mode === 'ai') return [node.config.reasonOutputName?.trim() || 'reason']
   if (node.config.type === 'transform') return [node.config.outputName || 'result']
   if (node.config.type === 'code') return node.config.outputs?.length ? node.config.outputs.map(item => item.name).filter(Boolean) : [node.config.outputName || 'result']
   if (node.config.type === 'api-request') return [node.config.outputName || 'responseData', ...(node.config.rawOutputName?.trim() ? [node.config.rawOutputName] : []), ...(node.config.fields ?? []).map(field => field.name).filter(Boolean)]
@@ -150,6 +152,9 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
       if (values.some(value => value === undefined)) issues.push(issue('switch-invalid-case', { nodeId: node.id }))
       const keys = values.map((value, index) => JSON.stringify([switchCaseType(config, index), value]))
       if (new Set(keys).size !== keys.length) issues.push(issue('switch-duplicate-case', { nodeId: node.id }))
+    }
+    if (node.config.type === 'switch' && node.config.mode === 'ai' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(node.config.reasonOutputName?.trim() || 'reason')) {
+      issues.push(issue('switch-ai-reason-output-invalid', { nodeId: node.id }))
     }
     if (node.config.type === 'image-recognition') {
       const config = node.config

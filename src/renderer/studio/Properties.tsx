@@ -272,6 +272,8 @@ function ConfigFields({
           <label>字段路径<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="例如 intent" /></label>
           {config.mode === 'ai' ? <>
             <label>使用的 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>判断依据变量名<input value={config.reasonOutputName ?? 'reason'} onChange={event => { onChange({ ...config, reasonOutputName: event.target.value }) }} placeholder="例如 reason 或 routeReason" /></label>
+            <p className="properties-hint">AI 会固定输出简短判断依据，并写入该变量；后续节点可使用 <code>{`{{${config.reasonOutputName?.trim() || 'reason'}}}`}</code> 引用。</p>
             <label>补充数据与上下文<textarea rows={5} value={config.aiContext ?? ''} onChange={event => { onChange({ ...config, aiContext: event.target.value }) }} placeholder={'例如：\n客户等级：{{customer.level}}\n店铺：{{shop.name}}\n订单详情：{{order}}\n判断时优先参考客户等级和订单状态。'} /></label>
             <p className="properties-hint">支持 <code>{'{{变量名}}'}</code> 引用流程变量、循环变量和前置节点产出；对象和数组会作为 JSON 提供给 AI。请只填写与本次判断有关的数据。</p>
             <div className="switch-ai-branches">
@@ -549,7 +551,7 @@ function ApiPairSection({ title, items, add, edit, remove }: { title: string; it
 
 function PageActionEditor({ graph, steps, onChange, onPick }: { graph: WorkflowGraph; steps: readonly PageActionStep[]; onChange: (steps: readonly PageActionStep[]) => void; onPick: (field: 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField', stepIndex?: number) => void }): ReactNode {
   const add = (type: PageActionStep['type']): void => {
-    const next: PageActionStep = type === 'open' ? { type, url: '' } : type === 'click' ? { type, selector: '' } : type === 'type' ? { type, selector: '', value: { kind: 'literal', value: '' } } : type === 'hover' ? { type, selector: '' } : type === 'wait' ? { type, ms: 1000 } : { type, selector: '', outputName: 'text', mode: 'text' }
+    const next: PageActionStep = type === 'open' ? { type, url: '' } : type === 'click' ? { type, selector: '' } : type === 'type' ? { type, selector: '', value: { kind: 'literal', value: '' }, inputMode: 'replace' } : type === 'hover' ? { type, selector: '' } : type === 'wait' ? { type, ms: 1000 } : { type, selector: '', outputName: 'text', mode: 'text' }
     onChange([...steps, next])
   }
   const patch = (index: number, value: PageActionStep): void => { onChange(steps.map((step, i) => i === index ? value : step)) }
@@ -558,7 +560,7 @@ function PageActionEditor({ graph, steps, onChange, onPick }: { graph: WorkflowG
     {step.type === 'click' ? <label>点击选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label> : null}
     {step.type === 'hover' ? <label>Hover 选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label> : null}
     {step.type === 'wait' ? <><label>等待毫秒<input type="number" value={step.ms} onChange={event => { patch(index, { ...step, ms: Number(event.target.value) }) }} /></label><label>等待选择器（可选）<div className="picker-field"><input value={selectorText(step.selector ?? '')} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label></> : null}
-    {step.type === 'type' ? <><label>输入选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label><label className="llm-switch"><input type="checkbox" checked={step.ai?.enabled === true} onChange={event => { patch(index, { ...step, ai: { enabled: event.target.checked, prompt: step.ai?.prompt ?? '', llmId: step.ai?.llmId } }) }} />使用 AI 生成输入内容</label>{step.ai?.enabled ? <div className="extract-ai-config"><label>使用的 AI<select value={step.ai.llmId ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, llmId: event.target.value || undefined } }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>生成提示词<textarea rows={3} value={step.ai.prompt} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, prompt: event.target.value } }) }} placeholder="例如：根据当前订单信息，生成一段礼貌的售后回复。可引用 {{item.title}} 等变量。" /></label><p className="properties-hint">AI 只会根据提示词及其中明确引用的变量生成文本，不会自动发送其他流程变量。</p></div> : <label>输入内容<input value={step.value.kind === 'literal' ? String(step.value.value ?? '') : step.value.kind === 'variable' ? `{{${step.value.name}}}` : step.value.kind === 'workflow-input' ? `{{inputs.${step.value.name}}}` : ''} onChange={event => { patch(index, { ...step, value: { kind: 'literal', value: event.target.value } }) }} placeholder="可写 {{变量名}}" /></label>}</> : null}
+    {step.type === 'type' ? <><label>输入选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label><label>输入方式<select value={step.inputMode ?? 'replace'} onChange={event => { patch(index, { ...step, inputMode: event.target.value === 'append' ? 'append' : 'replace' }) }}><option value="replace">替换原内容</option><option value="append">拼接到原内容后面</option></select></label><p className="properties-hint">替换会清空输入框原内容；拼接会保留原内容，并把新内容追加到末尾。</p><label className="llm-switch"><input type="checkbox" checked={step.ai?.enabled === true} onChange={event => { patch(index, { ...step, ai: { enabled: event.target.checked, prompt: step.ai?.prompt ?? '', llmId: step.ai?.llmId } }) }} />使用 AI 生成输入内容</label>{step.ai?.enabled ? <div className="extract-ai-config"><label>使用的 AI<select value={step.ai.llmId ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, llmId: event.target.value || undefined } }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>生成提示词<textarea rows={3} value={step.ai.prompt} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, prompt: event.target.value } }) }} placeholder="例如：根据当前订单信息，生成一段礼貌的售后回复。可引用 {{item.title}} 等变量。" /></label><p className="properties-hint">AI 只会根据提示词及其中明确引用的变量生成文本，不会自动发送其他流程变量。</p></div> : <label>输入内容<input value={step.value.kind === 'literal' ? String(step.value.value ?? '') : step.value.kind === 'variable' ? `{{${step.value.name}}}` : step.value.kind === 'workflow-input' ? `{{inputs.${step.value.name}}}` : ''} onChange={event => { patch(index, { ...step, value: { kind: 'literal', value: event.target.value } }) }} placeholder="可写 {{变量名}}" /></label>}</> : null}
     {step.type === 'extract' ? <><label>抽取选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label><label>产出名称（连线引用）<input value={step.outputName} onChange={event => { patch(index, { ...step, outputName: event.target.value }) }} placeholder="例如 detailText" /></label><OutputVariableMode graph={graph} mode={step.outputMode} target={step.updateVariable} onChange={(outputMode, updateVariable) => { patch(index, { ...step, outputMode, updateVariable }) }} /><label className="llm-switch"><input type="checkbox" checked={step.ai?.enabled === true} onChange={event => { patch(index, { ...step, ai: { enabled: event.target.checked, fields: step.ai?.fields ?? [], prompt: step.ai?.prompt ?? '', llmId: step.ai?.llmId } }) }} />使用 AI 抽取</label>{step.ai?.enabled ? <div className="extract-ai-config"><label>使用的 AI<select value={step.ai.llmId ?? graph.llms?.[0]?.id ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, llmId: event.target.value } }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>输出字段（每行一个）<textarea rows={3} value={step.ai.fields.join('\n')} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, fields: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) } }) }} placeholder="订单号\n状态\n详情链接" /></label><label>AI 提示词<textarea rows={2} value={step.ai.prompt ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, prompt: event.target.value } }) }} placeholder="说明需要如何提取和清洗字段" /></label></div> : null}</> : null}
   </div>)}</div><div className="page-action-add"><select defaultValue="" onChange={event => { if (event.target.value) { add(event.target.value as PageActionStep['type']); event.target.value = '' } }}><option value="">添加页面步骤…</option><option value="open">打开页面</option><option value="hover">Hover</option><option value="click">点击</option><option value="type">输入</option><option value="wait">等待</option><option value="extract">抽取</option></select></div></div>
 }
@@ -910,7 +912,7 @@ function BindingField({
       key: `${item.id}.${port.name}`,
       nodeId: item.id,
       port: port.name,
-      label: `${item.name} · ${port.name}${port.label ? `（${port.label}）` : ''}`,
+      label: `${item.name}.${port.name}`,
     }))
   })
   const inputOptions = (graph.context?.inputs ?? []).map(item => ({ key: `inputs.${item.name}`, nodeId: '', port: item.name, label: `开始输入 · ${item.name}`, inputName: item.name }))
@@ -919,7 +921,10 @@ function BindingField({
     return ['currentItem', 'currentIndex', item.config.itemVar || 'item', item.config.indexVar || 'index', ...(item.config.declaredVariables ?? [])]
   })
   const runtimeVariableNames = ['failureCount', 'successCount', ...before.filter(item => item.config.type === 'for-each').flatMap(item => [`failureCount_${item.id}`, `successCount_${item.id}`])]
-  const variableNames = [...(graph.context?.variables ?? []).map(item => item.name), ...before.flatMap(item => item.config.type === 'set-variable' ? [item.config.name] : []), ...before.flatMap(item => nodeDataOutputs(item).map(port => port.name)), ...declaredOutputVariableNames(before), ...declaredVariableNames, ...runtimeVariableNames, ...subflowVariableNames].filter((name, index, all) => name.trim() !== '' && all.indexOf(name) === index)
+  const nodeOutputNames = new Set(options.map(option => option.port))
+  const variableNames = [...(graph.context?.variables ?? []).map(item => item.name), ...before.flatMap(item => item.config.type === 'set-variable' ? [item.config.name] : []), ...declaredOutputVariableNames(before), ...declaredVariableNames, ...runtimeVariableNames, ...subflowVariableNames]
+    .filter(name => name.trim() !== '' && !nodeOutputNames.has(name))
+    .filter((name, index, all) => all.indexOf(name) === index)
   const variableOptions = variableNames.map(name => {
     const global = (graph.context?.variables ?? []).some(item => item.name === name)
     const loop = declaredVariableNames.includes(name)
@@ -937,12 +942,17 @@ function BindingField({
   const shownExpression = editableExpression ? displaySubflowReferences(expression, outputAliases) : expression
   const literalValue = binding.kind === 'literal' ? expression : ''
   const selectedExpression = editableExpression && binding.kind === 'literal' ? /^\{\{\s*([^}]+?)\s*\}\}$/.exec(expression.trim())?.[1] : undefined
-  const selected = binding.kind === 'node-output' ? `${binding.nodeId}.${binding.port}` : binding.kind === 'workflow-input' ? `inputs.${binding.name}` : binding.kind === 'variable' ? `variables.${binding.name}` : binding.kind === 'runtime' ? binding.path
+  const legacyVariableOutput = binding.kind === 'variable' && !variableOptions.some(option => option.variableName === binding.name)
+    ? options.filter(option => option.port === binding.name).at(-1)
+    : undefined
+  const selected = binding.kind === 'node-output' ? `${binding.nodeId}.${binding.port}` : binding.kind === 'workflow-input' ? `inputs.${binding.name}` : binding.kind === 'variable' ? legacyVariableOutput?.key ?? `variables.${binding.name}` : binding.kind === 'runtime' ? binding.path
     : selectedExpression === undefined ? 'literal'
       : [...inputOptions, ...variableOptions, ...runtimeOptions, ...options].find(option => ('key' in option && (option.key === selectedExpression || option.key === `variables.${selectedExpression}` || ('nodeId' in option && option.nodeId && `outputs.${option.key}` === selectedExpression))))?.key ?? 'literal'
   const unavailableSelection = selected !== 'literal' && ![...inputOptions, ...variableOptions, ...runtimeOptions, ...options].some(option => option.key === selected)
   const selectedSource = binding.kind === 'variable'
-    ? { label: subflowVariableNames.includes(binding.name) && !(graph.context?.variables ?? []).some(item => item.name === binding.name) ? '子流程变量' : '全局变量', field: binding.name }
+    ? legacyVariableOutput === undefined
+      ? { label: subflowVariableNames.includes(binding.name) && !(graph.context?.variables ?? []).some(item => item.name === binding.name) ? '子流程变量' : '全局变量', field: binding.name }
+      : { label: graph.nodes.find(item => item.id === legacyVariableOutput.nodeId)?.name ?? '节点产出', field: legacyVariableOutput.port }
     : binding.kind === 'workflow-input'
       ? { label: '开始输入', field: binding.name }
       : binding.kind === 'runtime'
@@ -1038,6 +1048,7 @@ function nodeDataOutputs(node: WorkflowNode): readonly DataPort[] {
   }
   if (node.config.type === 'agent') return (node.config.outputs ?? []).filter(output => output.name.trim()).map(output => ({ name: output.name, label: output.description || 'AI 结果' }))
   if (node.config.type === 'image-recognition') return [{ name: node.config.outputName || 'imageResult', label: '图片识别结果' }]
+  if (node.config.type === 'switch' && node.config.mode === 'ai') return [{ name: node.config.reasonOutputName?.trim() || 'reason', label: 'AI 判断依据' }]
   if (node.config.type === 'transform' || node.config.type === 'code') {
     return [{ name: node.config.outputName || 'result', label: '处理结果' }]
   }

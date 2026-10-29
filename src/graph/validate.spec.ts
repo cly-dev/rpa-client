@@ -61,6 +61,30 @@ describe('validateGraph', () => {
     expect(firstIssue({ ...graph, nodes })?.code).toBe('unknown-binding')
   })
 
+  it('allows downstream nodes to bind to the configured AI switch reason output', () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const aiSwitch = createNode('switch', { x: 120, y: 0 })
+    const condition = createNode('condition', { x: 240, y: 0 })
+    const end = createNode('end', { x: 360, y: 0 })
+    const graph = {
+      ...createDefaultTemplate(), entryNodeId: start.id,
+      nodes: [
+        start,
+        { ...aiSwitch, config: { ...aiSwitch.config, type: 'switch' as const, mode: 'ai' as const, cases: ['场景'], casePrompts: ['判断要求'], reasonOutputName: 'routeReason' } },
+        { ...condition, config: { ...condition.config, type: 'condition' as const, left: { kind: 'node-output' as const, nodeId: aiSwitch.id, port: 'routeReason' } } },
+        end,
+      ],
+      edges: [
+        createEdge(start.id, 'default', aiSwitch.id),
+        createEdge(aiSwitch.id, 'case-0', condition.id),
+        createEdge(aiSwitch.id, 'else', condition.id),
+        createEdge(condition.id, 'matched', end.id),
+        createEdge(condition.id, 'else', end.id),
+      ],
+    }
+    expect(validateGraph(graph)).toEqual([])
+  })
+
   it('allows a continue-loop node without an outgoing edge', () => {
     const graph = createDefaultTemplate()
     const start = graph.nodes.find(node => node.type === 'start')!
@@ -141,6 +165,23 @@ describe('parseWorkflow', () => {
       inputs: [{ name: 'account', type: 'string', required: true, defaultValue: undefined, secret: false, description: '执行时填写' }],
       variables: [{ name: 'baseUrl', type: 'string', required: false, defaultValue: 'https://example.com', secret: false, description: '测试环境地址' }],
     })
+  })
+
+  it('defaults legacy page-action input steps to replace mode', () => {
+    const graph = createDefaultTemplate()
+    const legacy = {
+      ...graph,
+      nodes: graph.nodes.map(node => node.type === 'page-action'
+        ? { ...node, config: { type: 'page-action' as const, steps: [{ type: 'type' as const, selector: '#name', value: { kind: 'literal' as const, value: 'Alice' } }] } }
+        : node),
+    }
+
+    const parsed = parseWorkflow(JSON.parse(JSON.stringify(legacy)))
+
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const action = parsed.graph.nodes.find(node => node.type === 'page-action')
+    expect(action?.config.type === 'page-action' ? action.config.steps[0] : undefined).toMatchObject({ inputMode: 'replace' })
   })
 
   it('rejects a file without nodes', () => {

@@ -94,7 +94,7 @@ export interface OpenPageConfig {
 export type PageActionStep =
   | { readonly type: 'open'; readonly url: string; readonly waitAfterMs?: number }
   | { readonly type: 'click'; readonly selector: string | ElementLocator; readonly beforeHover?: string | ElementLocator; readonly waitForVisible?: string | ElementLocator; readonly optionValue?: string; readonly waitAfterMs?: number }
-  | { readonly type: 'type'; readonly selector: string | ElementLocator; readonly value: ValueBinding; readonly ai?: GenerateTextConfig; readonly waitAfterMs?: number }
+  | { readonly type: 'type'; readonly selector: string | ElementLocator; readonly value: ValueBinding; readonly inputMode?: 'replace' | 'append'; readonly ai?: GenerateTextConfig; readonly waitAfterMs?: number }
   | { readonly type: 'hover'; readonly selector: string | ElementLocator; readonly waitAfterMs?: number }
   | { readonly type: 'wait'; readonly ms: number; readonly selector?: string | ElementLocator; readonly waitAfterMs?: number }
   | { readonly type: 'extract'; readonly selector: string | ElementLocator; readonly outputName: string; readonly outputMode?: OutputVariableMode; readonly updateVariable?: string; readonly mode: 'text' | 'value' | 'html'; readonly ai?: ExtractAiConfig; readonly waitAfterMs?: number }
@@ -221,6 +221,8 @@ export interface SwitchConfig {
   readonly aiSystemPrompt?: string
   /** Supplemental business data and context supplied to the AI classifier. */
   readonly aiContext?: string
+  /** Variable receiving the concise basis returned by the AI classifier. */
+  readonly reasonOutputName?: string
 }
 
 export interface ImageRecognitionCase {
@@ -467,6 +469,7 @@ export type ValidationCode =
   | 'switch-empty-case'
   | 'switch-invalid-case'
   | 'switch-duplicate-case'
+  | 'switch-ai-reason-output-invalid'
   | 'image-recognition-invalid'
   | 'missing-entry-workflow'
   | 'subflow-cycle'

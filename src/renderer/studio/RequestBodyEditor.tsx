@@ -20,6 +20,7 @@ export function availableVariables(graph: WorkflowGraph, nodeId: string, subflow
   for (const node of upstreamNodes(graph, nodeId)) {
     const config = node.config
     if (config.type === 'set-variable') names.push(config.name)
+    if (config.type === 'switch' && config.mode === 'ai') names.push(config.reasonOutputName?.trim() || 'reason')
     if (config.type === 'for-each') names.push('currentItem', 'currentIndex', config.itemVar, config.indexVar, ...(config.declaredVariables ?? []))
     if (config.type === 'page-action') {
       for (const step of config.steps) if (step.type === 'extract') names.push(step.outputName, step.updateVariable ?? '')

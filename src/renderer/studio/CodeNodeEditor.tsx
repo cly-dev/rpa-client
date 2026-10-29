@@ -14,6 +14,7 @@ export function variableOptions(graph: WorkflowGraph, nodeId: string, subflowVar
     const config = node.config
     if (config.type === 'for-each') names.push(config.itemVar || 'item', config.indexVar || 'index', ...(config.declaredVariables ?? []))
     if (config.type === 'set-variable' && config.name.trim()) names.push(config.name)
+    if (config.type === 'switch' && config.mode === 'ai') names.push(config.reasonOutputName?.trim() || 'reason')
     if (config.type === 'code') names.push(...(config.outputs ?? []).map(output => output.name))
     else if (config.type === 'agent') names.push(...(config.outputs ?? []).map(output => output.name))
     else if ((config.type === 'api-request' || config.type === 'api-listen') && config.outputName.trim()) names.push(config.outputName, ...(config.fields ?? []).map(field => field.name))

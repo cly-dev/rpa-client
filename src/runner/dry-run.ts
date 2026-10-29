@@ -102,7 +102,10 @@ function dryStep(
     }
   }
   if (node.config.type === 'switch') {
-    if (node.config.mode === 'ai') return { message: 'AI 场景判断仅在真实运行时调用模型；试运行进入否则分支', branch: 'else' }
+    if (node.config.mode === 'ai') {
+      const reasonOutputName = node.config.reasonOutputName?.trim() || 'reason'
+      return { message: 'AI 场景判断仅在真实运行时调用模型；试运行进入否则分支', branch: 'else', outputs: { [reasonOutputName]: '试运行未调用 AI 模型' } }
+    }
     const value = walkJsonPath(resolveBinding(outputs, node.config.left), node.config.path)
     const index = findSwitchCaseIndex(node.config, value)
     return { message: index >= 0 ? `走分支 ${index + 1}（${value}）（试运行）` : `走否则分支（${value}）（试运行）`, branch: index >= 0 ? `case-${index}` : 'else' }

@@ -8,6 +8,7 @@ it('lists declared, nested, response, code, and loop variables for request bodie
   const request = createNode('api-request', { x: 0, y: 0 })
   const loop = createNode('for-each', { x: 0, y: 0 })
   const code = createNode('code', { x: 0, y: 0 })
+  const aiSwitch = createNode('switch', { x: 0, y: 0 })
   const target = createNode('api-request', { x: 0, y: 0 })
   const later = createNode('api-request', { x: 0, y: 0 })
   const disconnected = createNode('api-request', { x: 0, y: 0 })
@@ -22,14 +23,15 @@ it('lists declared, nested, response, code, and loop variables for request bodie
       { ...request, config: { ...requestConfig, outputName: 'responseData', rawOutputName: 'rawResponseData', fields: [{ name: 'total', path: 'data.total' }] } },
       { ...loop, config: { ...loopConfig, itemVar: 'row', indexVar: 'rowIndex', declaredVariables: ['sku'] } },
       { ...code, config: { ...codeConfig, outputs: [{ name: 'normalized', valueType: 'object' }] } },
+      { ...aiSwitch, config: { type: 'switch', mode: 'ai', left: { kind: 'literal', value: '' }, path: '', cases: ['场景'], casePrompts: ['判断要求'], reasonOutputName: 'routeReason' } },
       target,
       { ...later, config: { ...requestConfig, outputName: 'laterResponse' } },
       { ...disconnected, config: { ...requestConfig, outputName: 'disconnectedResponse' } },
     ],
-    edges: [createEdge(start.id, 'default', request.id), createEdge(request.id, 'default', loop.id), createEdge(loop.id, 'body', code.id), createEdge(code.id, 'default', target.id), createEdge(target.id, 'default', later.id)],
+    edges: [createEdge(start.id, 'default', request.id), createEdge(request.id, 'default', loop.id), createEdge(loop.id, 'body', code.id), createEdge(code.id, 'default', aiSwitch.id), createEdge(aiSwitch.id, 'case-0', target.id), createEdge(target.id, 'default', later.id)],
   }, target.id, ['childPaymentTime'])
 
-  expect(names).toEqual(expect.arrayContaining(['inputs.order', 'inputs.order.customer.id', 'token', 'responseData', 'rawResponseData', 'total', 'row', 'rowIndex', 'sku', 'normalized', 'currentItem', 'childPaymentTime']))
+  expect(names).toEqual(expect.arrayContaining(['inputs.order', 'inputs.order.customer.id', 'token', 'responseData', 'rawResponseData', 'total', 'row', 'rowIndex', 'sku', 'normalized', 'routeReason', 'currentItem', 'childPaymentTime']))
   expect(names).not.toContain('laterResponse')
   expect(names).not.toContain('disconnectedResponse')
 })

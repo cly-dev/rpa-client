@@ -6,6 +6,7 @@ function variableNamesFromNode(node: WorkflowNode): string[] {
   const names: string[] = []
   if (config.type === 'set-variable') names.push(config.name)
   if (config.type === 'for-each') names.push('currentItem', 'currentIndex', config.itemVar || 'item', config.indexVar || 'index', ...(config.declaredVariables ?? []))
+  if (config.type === 'switch' && config.mode === 'ai') names.push(config.reasonOutputName?.trim() || 'reason')
   if (config.type === 'code') {
     names.push(...(config.outputs?.length ? config.outputs.map(item => item.name) : [config.outputName || 'result']))
     names.push(...(config.outputs ?? []).map(item => item.updateVariable ?? ''))

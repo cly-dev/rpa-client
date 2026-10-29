@@ -1027,9 +1027,38 @@ function createDriver(page: Page): BrowserDriver {
     async hover(selector: string, timeoutMs = 30_000): Promise<void> {
       await (await resolveTargetLocator(page, selector, timeoutMs)).hover({ timeout: timeoutMs })
     },
-    async type(selector: string, text: string, timeoutMs = 30_000): Promise<void> {
+    async type(selector: string, text: string, timeoutMs = 30_000, inputMode: 'replace' | 'append' = 'replace'): Promise<void> {
       const target = await resolveTargetLocator(page, selector, timeoutMs)
-      await target.fill(text, { timeout: timeoutMs })
+      if (inputMode === 'append') {
+        const caretPositioned = await target.evaluate(element => {
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+            element.focus()
+            try {
+              const end = element.value.length
+              element.setSelectionRange(end, end)
+              return true
+            } catch {
+              return false
+            }
+          }
+          if (element instanceof HTMLElement && element.isContentEditable) {
+            element.focus()
+            const selection = window.getSelection()
+            const range = document.createRange()
+            range.selectNodeContents(element)
+            range.collapse(false)
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+            return true
+          }
+          return false
+        })
+        if (!caretPositioned) {
+          await target.focus({ timeout: timeoutMs })
+          await target.press('End', { timeout: timeoutMs })
+        }
+        await target.pressSequentially(text, { timeout: timeoutMs })
+      } else await target.fill(text, { timeout: timeoutMs })
     },
     async extract(selector: string): Promise<string> {
       return (await (await resolveTargetLocator(page, selector, 30_000)).innerText()).trim()
