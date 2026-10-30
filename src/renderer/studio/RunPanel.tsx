@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ValidationIssue } from '@graph/types.ts'
 import type { DryRunState } from '@runner/dry-run.ts'
+import { copyTextToClipboard } from './clipboard.ts'
 
 interface Props {
   readonly issues: readonly ValidationIssue[]
@@ -21,8 +22,16 @@ function logLevel(message: string): 'error' | 'warning' | 'normal' {
   return 'normal'
 }
 
+export function formatRunLogs(run: DryRunState): string {
+  return run.logs.map(line => {
+    const time = new Date(line.at).toLocaleString('zh-CN', { hour12: false })
+    return `[${time}] [${line.nodeName || '运行'}] ${line.message}`
+  }).join('\n')
+}
+
 export function RunPanel({ issues, run, expandRequest = 0 }: Props): ReactNode {
   const [collapsed, setCollapsed] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const logRef = useRef<HTMLOListElement>(null)
   const followLogs = useRef(true)
   const statuses = Object.values(run?.nodes ?? {})
@@ -38,6 +47,8 @@ export function RunPanel({ issues, run, expandRequest = 0 }: Props): ReactNode {
   useEffect(() => {
     if (expandRequest > 0) setCollapsed(false)
   }, [expandRequest])
+
+  useEffect(() => { setCopyStatus('idle') }, [run?.logs.length])
 
   return (
     <section id="workflow-run-panel" className={`run-panel${collapsed ? ' is-collapsed' : ''}`} aria-label="流程执行面板">
@@ -68,7 +79,7 @@ export function RunPanel({ issues, run, expandRequest = 0 }: Props): ReactNode {
           </details> : null}
         </aside>
         <div className="run-panel-log-area">
-          <div className="run-panel-log-header"><h3>运行日志</h3><span>{run?.logs.length ?? 0} 条</span></div>
+          <div className="run-panel-log-header"><h3>运行日志</h3><div className="run-panel-log-actions"><span>{run?.logs.length ?? 0} 条</span><button type="button" disabled={run === undefined || run.logs.length === 0} onClick={() => { if (run !== undefined) void copyTextToClipboard(formatRunLogs(run)).then(() => { setCopyStatus('copied') }).catch(() => { setCopyStatus('failed') }) }}>{copyStatus === 'copied' ? '已复制' : copyStatus === 'failed' ? '复制失败' : '复制日志'}</button></div></div>
           {run === undefined || run.logs.length === 0 ? <div className="run-panel-empty">运行流程后，节点执行记录会显示在这里。</div> : <ol className="run-log" ref={logRef} onScroll={event => { const element = event.currentTarget; followLogs.current = element.scrollHeight - element.scrollTop - element.clientHeight < 32 }}>
             {run.logs.map((line, index) => <li key={`${line.at}-${index}`} className={`is-${logLevel(line.message)}`}>
               <time dateTime={new Date(line.at).toISOString()}>{new Date(line.at).toLocaleTimeString('zh-CN', { hour12: false })}</time>
