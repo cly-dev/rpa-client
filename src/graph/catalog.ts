@@ -235,7 +235,7 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'page-action':
       return { type: 'page-action', steps: [] }
     case 'list-row-action':
-      return { type: 'list-row-action', source: literalBinding([]), sourcePath: '', containerSelector: '', rowSelectorMode: 'css', rowSelector: '', matchFields: [{ selectorMode: 'css', rowSelector: '', dataPath: '', readMode: 'text', trim: true, ignoreCase: false }], matchedActions: [{ type: 'type', selector: '', value: '', dataPath: '', inputMode: 'replace' }], unmatchedMode: 'keep', deleteSelector: '', confirmSelector: '', waitAfterDeleteMs: 300, maxDeleteCount: 20, missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'stop', outputName: 'listOperationResult' }
+      return { type: 'list-row-action', source: literalBinding([]), sourcePath: '', containerSelector: '', rowSelectorMode: 'css', rowSelector: '', matchFields: [{ selectorMode: 'css', rowSelector: '', dataPath: '', matchMode: 'exact', readMode: 'text', trim: true, ignoreCase: false }], matchedActions: [{ type: 'type', selector: '', value: '', dataPath: '', inputMode: 'replace' }], unmatchedMode: 'keep', deleteSelector: '', confirmSelector: '', waitAfterDeleteMs: 300, maxDeleteCount: 20, missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'stop', outputName: 'listOperationResult' }
     case 'api-listen':
       return { type: 'api-listen', urlPattern: '', matchMode: 'contains', method: 'ANY', responseType: 'json', jsonPath: 'data.records', outputName: 'tableData', rawOutputName: 'responseData', fields: [], requestParams: [], timeoutMs: 10000 }
     case 'api-request':

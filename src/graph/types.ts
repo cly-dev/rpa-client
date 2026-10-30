@@ -105,6 +105,8 @@ export interface ListRowMatchField {
   readonly selectorMode?: 'css' | 'class-contains'
   readonly rowSelector: string
   readonly dataPath: string
+  /** exact: 页面字段与目标值相等；contains: 页面字段包含目标值。 */
+  readonly matchMode?: 'exact' | 'contains'
   readonly readMode: 'text' | 'value' | 'attribute'
   readonly attribute?: string
   readonly trim?: boolean

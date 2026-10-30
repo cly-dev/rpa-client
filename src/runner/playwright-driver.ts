@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type { BrowserDriver, ListRowOperationRequest, ListRowOperationResult, VisionImageInput, VisionRecognitionDecision } from './browser-run.ts'
 import { ApiResponseError } from './api-response-error.ts'
 import { browserExecutablePath, checkBrowserReadiness } from './browser-readiness.ts'
+import { listRowValuesMatch } from './list-row-match.ts'
 import type { AgentOutputField, JsonValue, WorkflowLlmConfig } from '@graph/types.ts'
 
 export interface PlaywrightSession {
@@ -1041,6 +1042,7 @@ function createDriver(page: Page): BrowserDriver {
       return result
     }
     const keyOf = (values: readonly string[]): string => JSON.stringify(values.map(normalize))
+    const valuesMatch = (pageValues: readonly string[], targetValues: readonly string[]): boolean => listRowValuesMatch(request.matchFields, pageValues, targetValues)
     const readRowValues = async (row: Locator, rowIndex: number): Promise<readonly string[]> => Promise.all(request.matchFields.map(async (field, fieldIndex) => {
       try {
         const candidates = field.selector.trim() === '' ? row : row.locator(field.selector)
@@ -1056,13 +1058,13 @@ function createDriver(page: Page): BrowserDriver {
         throw new Error(`读取页面第 ${rowIndex + 1} 行的匹配字段 ${fieldIndex + 1} 失败（${field.selector || '当前行'}）：${detail}`)
       }
     }))
-    const scan = async (reason?: string, includeRows = false): Promise<Array<{ index: number; key: string; label: string }>> => {
+    const scan = async (reason?: string, includeRows = false): Promise<Array<{ index: number; key: string; label: string; values: readonly string[] }>> => {
       const collection = rows()
       const count = await collection.count()
-      const result: Array<{ index: number; key: string; label: string }> = []
+      const result: Array<{ index: number; key: string; label: string; values: readonly string[] }> = []
       for (let index = 0; index < count; index += 1) {
         const values = await readRowValues(collection.nth(index), index)
-        result.push({ index, key: keyOf(values), label: values.join(' | ') })
+        result.push({ index, key: keyOf(values), label: values.join(' | '), values })
       }
       if (reason !== undefined) trace(`${reason}：找到 ${count} 个页面行`)
       if (includeRows) {
@@ -1073,7 +1075,7 @@ function createDriver(page: Page): BrowserDriver {
     }
 
     trace(`开始列表行操作：容器=${request.containerSelector.trim() || '整个页面'}；实际行选择器=${rowSelector}`)
-    request.matchFields.forEach((field, index) => { trace(`页面匹配字段 ${index + 1}：选择器=${field.selector || '当前行'}；读取方式=${field.readMode}${field.readMode === 'attribute' ? `(${field.attribute ?? ''})` : ''}；去空格=${field.trim}；忽略大小写=${field.ignoreCase}`) })
+    request.matchFields.forEach((field, index) => { trace(`页面匹配字段 ${index + 1}：选择器=${field.selector || '当前行'}；匹配方式=${field.matchMode === 'contains' ? '页面字段包含目标值' : '完全匹配'}；读取方式=${field.readMode}${field.readMode === 'attribute' ? `(${field.attribute ?? ''})` : ''}；去空格=${field.trim}；忽略大小写=${field.ignoreCase}`) })
     const initialRows = await scan('首次扫描页面', true)
     if (request.items.length === 0 && request.emptySourceAction === 'stop') throw new Error('目标数据为空，已按安全策略停止；如需保留或删除全部行，请修改“目标数据为空时”配置')
     const targetKeys = request.items.map(item => keyOf(item.matchValues))
@@ -1084,15 +1086,13 @@ function createDriver(page: Page): BrowserDriver {
       trace(`目标数据重复业务键数量：${new Set(duplicateSourceKeys).size}`)
       throw new Error('目标数据中存在重复业务键，无法确定同一页面行应使用哪条数据')
     }
-    const targetKeySet = new Set(targetKeys)
     const missingItems: number[] = []
     const duplicateItems: number[] = []
     let matchedCount = 0
     let updatedCount = 0
 
-    for (const [runtimeIndex, item] of request.items.entries()) {
-      const key = targetKeys[runtimeIndex]
-      let matches = (await scan()).filter(row => row.key === key)
+    for (const item of request.items) {
+      let matches = (await scan()).filter(row => valuesMatch(row.values, item.matchValues))
       trace(`匹配目标数据第 ${item.index + 1} 条：页面命中 ${matches.length} 行${matches.length > 0 ? `（第 ${matches.map(row => row.index + 1).join('、')} 行）` : ''}`)
       if (matches.length === 0) {
         missingItems.push(item.index)
@@ -1108,7 +1108,7 @@ function createDriver(page: Page): BrowserDriver {
       matchedCount += matches.length
       for (let occurrence = 0; occurrence < matches.length; occurrence += 1) {
         for (const [actionIndex, action] of request.actions.entries()) {
-          const currentMatches = (await scan()).filter(row => row.key === key)
+          const currentMatches = (await scan()).filter(row => valuesMatch(row.values, item.matchValues))
           const current = currentMatches[Math.min(occurrence, currentMatches.length - 1)]
           if (current === undefined) throw new Error(`操作过程中页面行已消失（目标数据第 ${item.index + 1} 条）`)
           const row = rows().nth(current.index)
@@ -1130,12 +1130,12 @@ function createDriver(page: Page): BrowserDriver {
     let deletedCount = 0
     const deletedKeys: string[] = []
     if (deleteEnabled) {
-      const unmatched = (await scan('删除前重新扫描页面')).filter(row => !targetKeySet.has(row.key))
+      const unmatched = (await scan('删除前重新扫描页面')).filter(row => !request.items.some(item => valuesMatch(row.values, item.matchValues)))
       trace(`删除预检：未匹配页面行 ${unmatched.length} 条；安全上限 ${request.maxDeleteCount} 条；删除按钮=${request.deleteSelector}${request.confirmSelector.trim() ? `；确认按钮=${request.confirmSelector}` : ''}`)
       if (unmatched.length > request.maxDeleteCount) throw new Error(`预计删除 ${unmatched.length} 行，超过最大允许数量 ${request.maxDeleteCount}，已停止执行`)
       while (true) {
         const currentRows = await scan()
-        const unwanted = currentRows.find(row => !targetKeySet.has(row.key))
+        const unwanted = currentRows.find(row => !request.items.some(item => valuesMatch(row.values, item.matchValues)))
         if (unwanted === undefined) break
         trace(`准备删除当前页面第 ${unwanted.index + 1} 行；匹配值=${preview(unwanted.label) || '（空）'}`)
         const row = rows().nth(unwanted.index)

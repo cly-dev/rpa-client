@@ -54,7 +54,7 @@ describe('lazy browser driver', () => {
 
     const result = await driver.operateListRows!({
       containerSelector: '#items', rowSelectorMode: 'class-contains', rowSelector: 'Item__row',
-      matchFields: [{ selector: '[class*="Item__sku"]', readMode: 'text', trim: true, ignoreCase: false }],
+      matchFields: [{ selector: '[class*="Item__sku"]', matchMode: 'exact', readMode: 'text', trim: true, ignoreCase: false }],
       items: [{ index: 0, matchValues: ['SKU-1'], actionValues: [] }], actions: [],
       unmatchedMode: 'keep', deleteSelector: '', confirmSelector: '', waitAfterDeleteMs: 0, maxDeleteCount: 1,
       missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'stop', timeoutMs: 5_000,

@@ -12,7 +12,7 @@ describe.skipIf(process.env.RPA_BROWSER_INTEGRATION !== '1' || !existsSync(chrom
     const session = await openPlaywrightSession({ headless: true })
     try {
       const html = `<!doctype html><meta charset="utf-8"><div class="GridContainer__GridContainer--empty"></div><div id="items" class="GridContainer__GridContainer--orders">
-        <div class="row ComplaintDetailListItem__listItem--hX9UYqj"><div class="ComplaintDetailListItem__listItemField--y9u06Pe"><span class="sku ComplaintDetailListItem__listingSku--dlA_w1W">SKU-A</span></div><input class="qty" value="1"><button class="commit" onclick="this.parentElement.querySelector('.out').textContent=this.parentElement.querySelector('.qty').value">保存</button><span class="out"></span><button class="delete" onclick="this.parentElement.remove()">删除</button></div>
+        <div class="row ComplaintDetailListItem__listItem--hX9UYqj"><div class="ComplaintDetailListItem__listItemField--y9u06Pe"><span class="sku ComplaintDetailListItem__listingSku--dlA_w1W">商品编码：SKU-A（套装）</span></div><input class="qty" value="1"><button class="commit" onclick="this.parentElement.querySelector('.out').textContent=this.parentElement.querySelector('.qty').value">保存</button><span class="out"></span><button class="delete" onclick="this.parentElement.remove()">删除</button></div>
         <div class="row ComplaintDetailListItem__listItem--hX9UYqj"><div class="ComplaintDetailListItem__listItemField--y9u06Pe"><span class="sku ComplaintDetailListItem__listingSku--dlA_w1W">SKU-B</span></div><input class="qty" value="1"><button class="commit" onclick="this.parentElement.querySelector('.out').textContent=this.parentElement.querySelector('.qty').value">保存</button><span class="out"></span><button class="delete" onclick="this.parentElement.remove()">删除</button></div>
         <div class="row ComplaintDetailListItem__listItem--hX9UYqj"><div class="ComplaintDetailListItem__listItemField--y9u06Pe"><span class="sku ComplaintDetailListItem__listingSku--dlA_w1W">SKU-C</span></div><input class="qty" value="1"><button class="commit" onclick="this.parentElement.querySelector('.out').textContent=this.parentElement.querySelector('.qty').value">保存</button><span class="out"></span><button class="delete" onclick="this.parentElement.remove()">删除</button></div>
       </div>`
@@ -59,7 +59,7 @@ describe.skipIf(process.env.RPA_BROWSER_INTEGRATION !== '1' || !existsSync(chrom
       const operationLogs: string[] = []
       const result = await session.driver.operateListRows!({
         containerSelector: '#items', rowSelectorMode: 'class-contains', rowSelector: 'ComplaintDetailListItem__listItem',
-        matchFields: [{ selector: '[class*="ComplaintDetailListItem__listingSku--"]', readMode: 'text', trim: true, ignoreCase: false }],
+        matchFields: [{ selector: '[class*="ComplaintDetailListItem__listingSku--"]', matchMode: 'contains', readMode: 'text', trim: true, ignoreCase: false }],
         items: [
           { index: 0, matchValues: ['SKU-A'], actionValues: ['2', ''] },
           { index: 1, matchValues: ['SKU-C'], actionValues: ['5', ''] },
@@ -84,7 +84,7 @@ describe.skipIf(process.env.RPA_BROWSER_INTEGRATION !== '1' || !existsSync(chrom
       await session.driver.openPage(`data:text/html,${encodeURIComponent(html)}`)
       const emptyResult = await session.driver.operateListRows!({
         containerSelector: '#items', rowSelectorMode: 'class-contains', rowSelector: 'ComplaintDetailListItem__listItem',
-        matchFields: [{ selector: '[class*="ComplaintDetailListItem__listingSku--"]', readMode: 'text', trim: true, ignoreCase: false }],
+        matchFields: [{ selector: '[class*="ComplaintDetailListItem__listingSku--"]', matchMode: 'exact', readMode: 'text', trim: true, ignoreCase: false }],
         items: [], actions: [], unmatchedMode: 'delete', deleteSelector: '.delete', confirmSelector: '', waitAfterDeleteMs: 0, maxDeleteCount: 3,
         missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'keep', timeoutMs: 5_000,
       })
