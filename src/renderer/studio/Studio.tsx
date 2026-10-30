@@ -183,7 +183,9 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [running, setRunning] = useState(false)
   const [bulkUpdatingSubflow, setBulkUpdatingSubflow] = useState(false)
   const [runtimeInputDialog, setRuntimeInputDialog] = useState(false)
-  const [runtimeRunRequest, setRuntimeRunRequest] = useState<{ type: 'workflow' } | { type: 'picker'; nodeId: string; field: 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField'; stepIndex?: number }>()
+  type PickerField = 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField'
+    | 'listContainerSelector' | 'listRowSelector' | 'listMatchField' | 'listMatchedAction' | 'listDeleteSelector' | 'listConfirmSelector'
+  const [runtimeRunRequest, setRuntimeRunRequest] = useState<{ type: 'workflow' } | { type: 'picker'; nodeId: string; field: PickerField; stepIndex?: number }>()
   const [runtimeInputValues, setRuntimeInputValues] = useState<Record<string, string>>({})
   const [runtimeInputError, setRuntimeInputError] = useState<string>()
   const [runHeadless, setRunHeadless] = useState(false)
@@ -883,7 +885,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
     }
   }
 
-  const pickElement = async (nodeId: string, field: 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField', stepIndex?: number): Promise<void> => {
+  const pickElement = async (nodeId: string, field: PickerField, stepIndex?: number): Promise<void> => {
     const needsRuntimeInputs = (graph.context?.inputs ?? []).length > 0 && !pickerInputsByWorkflow.current[graph.workflowId]
     if (needsRuntimeInputs) {
       prepareRuntimeInputs(graph.context?.inputs ?? [])
@@ -897,7 +899,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
     await performElementPick(nodeId, field, stepIndex, inputs)
   }
 
-  const performElementPick = async (nodeId: string, field: 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField', stepIndex: number | undefined, inputs: Readonly<Record<string, JsonValue>>): Promise<void> => {
+  const performElementPick = async (nodeId: string, field: PickerField, stepIndex: number | undefined, inputs: Readonly<Record<string, JsonValue>>): Promise<void> => {
     if (window.studio?.pickElement === undefined) { setNotice('当前窗口不支持元素拾取'); return }
     const pickerRunId = `picker:${crypto.randomUUID()}`
     const stopRunUpdates = window.studio.onRunUpdate(({ runId, state }) => {
@@ -937,9 +939,24 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         ? actionNode.config.steps.slice(0, stepIndex + 1).find(step => step.type === 'open')?.url
         : undefined
       const subflows = prep === undefined ? [] : await loadSubflowBundle(RPA_SERVICE_URL, prep)
+      const listConfig = actionNode?.config.type === 'list-row-action' ? actionNode.config : undefined
+      const pickMode = field === 'rowSelector'
+        ? 'list'
+        : field === 'listContainerSelector'
+          ? 'list-container'
+        : field === 'listRowSelector'
+          ? 'list-row'
+          : field === 'listMatchField' || field === 'listMatchedAction' || field === 'listDeleteSelector'
+            ? 'row-element'
+            : 'element'
+      const pickOptions = listConfig === undefined ? undefined : {
+        scopeSelector: listConfig.containerSelector,
+        rowSelectorMode: listConfig.rowSelectorMode,
+        rowSelector: listConfig.rowSelector,
+      }
       const picked = window.studio.prepareAndPickElement !== undefined
-        ? await window.studio.prepareAndPickElement(prep, prep === undefined ? (stepUrl || startUrl) : undefined, field === 'rowSelector' ? 'list' : 'element', subflows, inputs, shouldPrepareInsideAction ? { workflowId: graph.workflowId, nodeId, stepIndex } : undefined, pickerRunId)
-        : await window.studio.pickElement(prep === undefined ? (stepUrl || startUrl) : undefined, field === 'rowSelector' ? 'list' : 'element')
+        ? await window.studio.prepareAndPickElement(prep, prep === undefined ? (stepUrl || startUrl) : undefined, pickMode, subflows, inputs, shouldPrepareInsideAction ? { workflowId: graph.workflowId, nodeId, stepIndex } : undefined, pickerRunId, pickOptions)
+        : await window.studio.pickElement(prep === undefined ? (stepUrl || startUrl) : undefined, pickMode, pickOptions)
       if (picked.selector === '') { setNotice('已取消元素拾取'); return }
       const node = graph.nodes.find(item => item.id === nodeId)
       if (node === undefined) return
@@ -951,6 +968,14 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       const config = node.config
       if (config.type === 'extract' && field === 'rowSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, rowSelector: value } }))
       else if (config.type === 'extract' && field === 'extractField' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, fields: (config.fields ?? []).map((item, index) => index === stepIndex ? { ...item, selector: value } : item) } }))
+      else if (config.type === 'list-row-action') {
+        if (field === 'listContainerSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, containerSelector: value } }))
+        else if (field === 'listRowSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, rowSelectorMode: picked.rowSelectorMode ?? 'css', rowSelector: picked.rowSelectorValue ?? value } }))
+        else if (field === 'listMatchField' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, matchFields: config.matchFields.map((item, index) => index === stepIndex ? { ...item, selectorMode: picked.relativeSelectorMode ?? 'css', rowSelector: picked.relativeSelectorValue ?? value } : item) } }))
+        else if (field === 'listMatchedAction' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, matchedActions: config.matchedActions.map((item, index) => index === stepIndex ? { ...item, selector: value } : item) } }))
+        else if (field === 'listDeleteSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, deleteSelector: value } }))
+        else if (field === 'listConfirmSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, confirmSelector: value } }))
+      }
       else if (config.type === 'click') setGraph(current => patchNode(current, nodeId, { config: { ...config, [field]: value } }))
       else if (field === 'selector' && (config.type === 'type' || config.type === 'extract' || config.type === 'wait')) setGraph(current => patchNode(current, nodeId, { config: { ...config, selector: value } }))
       else if (config.type === 'page-action' && stepIndex !== undefined) {

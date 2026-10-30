@@ -28,6 +28,7 @@ function outputType(node: WorkflowNode, port: string): InferredType {
   if (config.type === 'switch' && config.mode === 'ai' && (config.reasonOutputName?.trim() || 'reason') === port) return 'string'
   if (config.type === 'extract' && (config.outputName || 'text') === port) return config.mode === 'list' ? 'array' : 'string'
   if (config.type === 'page-action' && config.steps.some(step => step.type === 'extract' && step.outputName === port)) return 'string'
+  if (config.type === 'list-row-action' && (config.outputName || 'listOperationResult') === port) return 'object'
   if (config.type === 'api-request' && config.responseType === 'text' && (config.outputName || 'responseData') === port) return 'string'
   return 'unknown'
 }

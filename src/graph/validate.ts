@@ -29,6 +29,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'switch-duplicate-case': '多路判断存在重复的精确匹配值，后续重复分支无法命中',
   'switch-ai-reason-output-invalid': 'AI 多路判断的判断依据变量名只能使用英文字母、数字和下划线，且不能以数字开头',
   'image-recognition-invalid': '图片识别需要图片来源、1～8 张的识别上限、结果变量名，以及至少一个填写完整且不重复的分支；启用图片对比后还需要上传参考图或选择参考图变量',
+  'list-row-action-invalid': '列表行操作需要数组数据源、行选择器、至少一个完整匹配字段和结果名称；删除未匹配行时还需要行内删除按钮选择器及大于 0 的最大删除数量',
   'missing-entry-workflow': '入口流程不存在',
   'subflow-cycle': '子流程调用存在循环',
   'declared-variable-empty': '声明流程变量时必须填写变量名',
@@ -72,6 +73,7 @@ function bindingsOf(graph: WorkflowGraph, nodeId: string): ValueBinding[] {
   if (node.config.type === 'agent') return []
   if (node.config.type === 'condition') return [...fromInputs, node.config.left]
   if (node.config.type === 'image-recognition') return [...fromInputs, node.config.image]
+  if (node.config.type === 'list-row-action') return [...fromInputs, node.config.source]
   if (node.config.type === 'call-subflow') return [...fromInputs, ...(node.config.inputMappings ?? []).map(mapping => mapping.source)]
   if (node.config.type === 'approval') return [...fromInputs, ...node.config.fields.map(field => field.value)]
   return fromInputs
@@ -95,6 +97,7 @@ function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
   if (node.config.type === 'api-request') return [node.config.outputName || 'responseData', ...(node.config.rawOutputName?.trim() ? [node.config.rawOutputName] : []), ...(node.config.fields ?? []).map(field => field.name).filter(Boolean)]
   if (node.config.type === 'api-listen') return [node.config.outputName || 'tableData', ...(node.config.rawOutputName?.trim() ? [node.config.rawOutputName] : []), ...(node.config.fields ?? []).map(field => field.name).filter(Boolean)]
   if (node.config.type === 'page-action') return node.config.steps.filter(step => step.type === 'extract').map(step => step.outputName).filter(Boolean)
+  if (node.config.type === 'list-row-action') return [node.config.outputName || 'listOperationResult']
   return fallback
 }
 
@@ -201,6 +204,14 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
       if ([...(config.queryParams ?? []), ...(config.headers ?? [])].some(item => item.name.trim() === '')) issues.push(issue('api-request-parameter-empty', { nodeId: node.id }))
       const bodyError = jsonRequestBodyTemplateError(config.body)
       if (bodyError !== undefined) issues.push({ ...issue('api-request-body-invalid', { nodeId: node.id }), message: bodyError })
+    }
+    if (node.config.type === 'list-row-action') {
+      const config = node.config
+      const matchFieldsValid = config.matchFields.length > 0 && config.matchFields.every(field => field.rowSelector.trim() !== '' && field.dataPath.trim() !== '' && (field.readMode !== 'attribute' || (field.attribute ?? '').trim() !== ''))
+      const actionsValid = config.matchedActions.every(action => action.selector.trim() !== '' && (action.type === 'click' || action.value.trim() !== '' || (action.dataPath ?? '').trim() !== ''))
+      const deleteEnabled = config.unmatchedMode === 'delete' || config.emptySourceAction === 'delete-all'
+      const deleteValid = !deleteEnabled || (config.deleteSelector.trim() !== '' && Number.isFinite(config.maxDeleteCount) && config.maxDeleteCount > 0)
+      if (config.rowSelector.trim() === '' || !matchFieldsValid || !actionsValid || !deleteValid || config.outputName.trim() === '') issues.push(issue('list-row-action-invalid', { nodeId: node.id }))
     }
     const declaredTargets = node.config.type === 'page-action'
       ? node.config.steps.filter(step => step.type === 'extract' && step.outputMode === 'declare').map(step => step.type === 'extract' ? step.updateVariable : '')

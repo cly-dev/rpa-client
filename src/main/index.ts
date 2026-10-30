@@ -319,14 +319,19 @@ app.whenReady().then(() => {
     const release = browserGate.begin('拾取元素')
     try {
     pickerProgress = undefined
-    const payload = typeof url === 'object' && url !== null ? url as { url?: unknown; mode?: unknown } : { url }
+    const payload = typeof url === 'object' && url !== null ? url as { url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown } : { url }
     const targetUrl = typeof payload.url === 'string' ? payload.url : undefined
-    const mode = payload.mode === 'list' ? 'list' : 'element'
+    const mode = payload.mode === 'list' || payload.mode === 'list-container' || payload.mode === 'list-row' || payload.mode === 'row-element' ? payload.mode : 'element'
+    const pickOptions = {
+      scopeSelector: typeof payload.scopeSelector === 'string' ? payload.scopeSelector : undefined,
+      rowSelectorMode: payload.rowSelectorMode === 'class-contains' ? 'class-contains' as const : 'css' as const,
+      rowSelector: typeof payload.rowSelector === 'string' ? payload.rowSelector : undefined,
+    }
     await discardClosedSession()
     if (session === undefined) session = await openPlaywrightSession({ packaged: app.isPackaged })
     const picker = session
     try {
-      const picked = await picker.pickElement(targetUrl, mode)
+      const picked = await picker.pickElement(targetUrl, mode, pickOptions)
       return picked
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
@@ -335,7 +340,7 @@ app.whenReady().then(() => {
       await picker.close().catch(() => undefined)
       session = await openPlaywrightSession({ packaged: app.isPackaged })
       const recovered = session
-      const picked = await recovered.pickElement(targetUrl, mode)
+      const picked = await recovered.pickElement(targetUrl, mode, pickOptions)
       return picked
     }
     } finally { release() }
@@ -343,14 +348,19 @@ app.whenReady().then(() => {
   ipcMain.handle('browser:prepare-and-pick', async (event, raw: unknown) => {
     const release = browserGate.begin('准备并拾取元素')
     try {
-    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; inputs?: unknown; pickerContext?: unknown; runId?: unknown } : {}
+    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown; inputs?: unknown; pickerContext?: unknown; runId?: unknown } : {}
     const serviceLlms = payload.preparedGraph === undefined ? undefined : await loadMainServiceLlms(event)
     const preparedGraph = payload.preparedGraph === undefined || serviceLlms === undefined
       ? undefined : withServiceLlms(admit(payload.preparedGraph), serviceLlms.configs, serviceLlms.token)
     const subflows = Array.isArray(payload.subflows) && serviceLlms !== undefined
       ? payload.subflows.map(flow => withServiceLlms(admit(flow), serviceLlms.configs, serviceLlms.token)) : []
     const targetUrl = typeof payload.url === 'string' ? payload.url : undefined
-    const mode = payload.mode === 'list' ? 'list' : 'element'
+    const mode = payload.mode === 'list' || payload.mode === 'list-container' || payload.mode === 'list-row' || payload.mode === 'row-element' ? payload.mode : 'element'
+    const pickOptions = {
+      scopeSelector: typeof payload.scopeSelector === 'string' ? payload.scopeSelector : undefined,
+      rowSelectorMode: payload.rowSelectorMode === 'class-contains' ? 'class-contains' as const : 'css' as const,
+      rowSelector: typeof payload.rowSelector === 'string' ? payload.rowSelector : undefined,
+    }
     const inputs = typeof payload.inputs === 'object' && payload.inputs !== null && !Array.isArray(payload.inputs)
       ? payload.inputs as Readonly<Record<string, JsonValue>>
       : undefined
@@ -526,7 +536,7 @@ app.whenReady().then(() => {
           logs: [{ at: Date.now(), nodeId: '__rpa_picker__', nodeName: '元素拾取', message: '无需执行前置节点，已进入元素拾取模式' }],
         })
       }
-      const picked = await picker.pickElement(targetUrl, mode)
+      const picked = await picker.pickElement(targetUrl, mode, pickOptions)
       return picked
     } catch (error) {
       if (!preservePickerProgressOnError) pickerProgress = undefined

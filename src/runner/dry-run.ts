@@ -62,6 +62,11 @@ function dryStep(
   if (node.config.type === 'extract') {
     return { message: `${NODE_CATALOG[node.type].title} → ${node.config.outputName || 'text'}（未操作网页）`, outputs: { [node.config.outputName || 'text']: '（试运行）示例文本' } }
   }
+  if (node.config.type === 'list-row-action') {
+    const source = walkPath(resolveBinding(outputs, node.config.source), node.config.sourcePath)
+    const count = Array.isArray(source) ? source.length : 0
+    return { message: `列表行操作试运行：目标数据 ${count} 条（未操作网页）`, outputs: { [node.config.outputName || 'listOperationResult']: { targetDataCount: count, dryRun: true } } }
+  }
   if (node.config.type === 'open-page') {
     return { message: `打开 ${node.config.url || '（空 URL）'}（试运行）`, outputs: { url: node.config.url } }
   }

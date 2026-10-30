@@ -41,6 +41,10 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinition> = {
     type: 'page-action', title: '页面操作', description: '打开、点击、输入、等待和抽取', kind: 'action', acceptsIncoming: true, palette: true,
     flowOutputs: DEFAULT_FLOW, dataInputs: [], dataOutputs: [{ name: 'result', label: '结果' }],
   },
+  'list-row-action': {
+    type: 'list-row-action', title: '列表行操作', description: '按业务字段匹配页面行，修改匹配行并清理无关行', kind: 'action', acceptsIncoming: true, palette: true,
+    flowOutputs: DEFAULT_FLOW, dataInputs: [{ name: 'source', label: '目标数据' }], dataOutputs: [{ name: 'listOperationResult', label: '列表操作结果' }],
+  },
   'api-listen': {
     type: 'api-listen', title: '接口监听', description: '等待并提取页面接口响应', kind: 'action', acceptsIncoming: true, palette: true,
     flowOutputs: DEFAULT_FLOW, dataInputs: [], dataOutputs: [{ name: 'data', label: '接口数据' }],
@@ -207,6 +211,8 @@ export function defaultBindings(type: NodeType): Record<string, ValueBinding> {
   switch (type) {
     case 'type':
       return { text: literalBinding('') }
+    case 'list-row-action':
+      return { source: literalBinding([]) }
     case 'condition':
       return { left: literalBinding('') }
     case 'image-recognition':
@@ -228,6 +234,8 @@ export function defaultConfig(type: NodeType): NodeConfig {
       return { type: 'start', url: 'https://example.com' }
     case 'page-action':
       return { type: 'page-action', steps: [] }
+    case 'list-row-action':
+      return { type: 'list-row-action', source: literalBinding([]), sourcePath: '', containerSelector: '', rowSelectorMode: 'css', rowSelector: '', matchFields: [{ selectorMode: 'css', rowSelector: '', dataPath: '', readMode: 'text', trim: true, ignoreCase: false }], matchedActions: [{ type: 'type', selector: '', value: '', dataPath: '', inputMode: 'replace' }], unmatchedMode: 'keep', deleteSelector: '', confirmSelector: '', waitAfterDeleteMs: 300, maxDeleteCount: 20, missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'stop', outputName: 'listOperationResult' }
     case 'api-listen':
       return { type: 'api-listen', urlPattern: '', matchMode: 'contains', method: 'ANY', responseType: 'json', jsonPath: 'data.records', outputName: 'tableData', rawOutputName: 'responseData', fields: [], requestParams: [], timeoutMs: 10000 }
     case 'api-request':

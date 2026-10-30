@@ -17,6 +17,7 @@ function nodeSetup(node: WorkflowNode): string {
     case 'start': return `初始 URL：${config.url.trim() ? '已配置' : '未配置'}`
     case 'open-page': return `目标 URL：${config.url.trim() ? '已配置' : '未配置'}`
     case 'page-action': return `页面步骤：${config.steps.length} 个（${config.steps.map(step => step.type).join(' → ') || '空'}）`
+    case 'list-row-action': return `行选择器：${config.rowSelector.trim() ? '已配置' : '未配置'}；匹配字段：${config.matchFields.length} 个；匹配后操作：${config.matchedActions.length} 个；未匹配行：${config.unmatchedMode === 'delete' ? '删除' : '保留'}`
     case 'click': return `选择器：${(typeof config.selector === 'string' ? config.selector : config.selector.value).trim() ? '已配置' : '未配置'}`
     case 'type': return `选择器：${(typeof config.selector === 'string' ? config.selector : config.selector.value).trim() ? '已配置' : '未配置'}；输入内容不记录`
     case 'api-request': return `请求方式：${config.method}；查询参数：${config.queryParams?.length ?? 0} 个；请求体：${config.body.trim() ? '已配置' : '无'}`

@@ -9,6 +9,7 @@ export function workflowNeedsBrowser(graphs: readonly WorkflowGraph[]): boolean 
     const type = node.config.type
     if (type === 'start' && node.config.url.trim() !== '') return true
     if (type === 'page-action') return node.config.steps.some(step => step.type !== 'wait' || hasSelector(step.selector))
+    if (type === 'list-row-action') return true
     if (type === 'wait') return hasSelector(node.config.selector)
     if (type === 'open-page' || type === 'click' || type === 'type' || type === 'extract' || type === 'api-listen') return true
     return type === 'condition' && (node.config.mode === 'url' || node.config.mode === 'element')

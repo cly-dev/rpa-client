@@ -3,7 +3,7 @@ import { chromium } from 'playwright'
 import { ChatOpenAI } from '@langchain/openai'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
-import type { BrowserDriver, VisionImageInput, VisionRecognitionDecision } from './browser-run.ts'
+import type { BrowserDriver, ListRowOperationRequest, ListRowOperationResult, VisionImageInput, VisionRecognitionDecision } from './browser-run.ts'
 import { ApiResponseError } from './api-response-error.ts'
 import { browserExecutablePath, checkBrowserReadiness } from './browser-readiness.ts'
 import type { AgentOutputField, JsonValue, WorkflowLlmConfig } from '@graph/types.ts'
@@ -11,9 +11,17 @@ import type { AgentOutputField, JsonValue, WorkflowLlmConfig } from '@graph/type
 export interface PlaywrightSession {
   readonly driver: BrowserDriver
   isUsable(): boolean
-  pickElement(url?: string, mode?: 'element' | 'list'): Promise<PickedElement>
+  pickElement(url?: string, mode?: ElementPickMode, options?: ElementPickOptions): Promise<PickedElement>
   openDebugCopy(): Promise<PlaywrightSession>
   close(): Promise<void>
+}
+
+export type ElementPickMode = 'element' | 'list' | 'list-container' | 'list-row' | 'row-element'
+
+export interface ElementPickOptions {
+  readonly scopeSelector?: string
+  readonly rowSelectorMode?: 'css' | 'class-contains'
+  readonly rowSelector?: string
 }
 
 export interface PickedElement {
@@ -30,6 +38,10 @@ export interface PickedElement {
   readonly optionValue?: string
   readonly triggerSelector?: string
   readonly optionSelector?: string
+  readonly rowSelectorMode?: 'css' | 'class-contains'
+  readonly rowSelectorValue?: string
+  readonly relativeSelectorMode?: 'css' | 'class-contains'
+  readonly relativeSelectorValue?: string
 }
 
 type ApiRequestOptions = Parameters<NonNullable<BrowserDriver['requestApi']>>[0]
@@ -46,6 +58,14 @@ type ExactTextPage = Pick<Page, 'getByText'> & Partial<Pick<Page, 'url' | 'title
 
 const ELEMENT_FINGERPRINT_PREFIX = 'rpa-fingerprint:'
 const SCOPED_TEXT_EXACT_PREFIX = 'text-exact:rpa-context:'
+
+const classContainsSelector = (value: string): string => {
+  const normalized = value.trim()
+  const selectorMatch = normalized.match(/^\[class\*=(["'])(.*?)\1\]$/)
+  const classValue = selectorMatch?.[2] ?? normalized
+  const boundaryValue = classValue.includes('__') && !classValue.includes('--') ? `${classValue}--` : classValue
+  return `[class*=${JSON.stringify(boundaryValue)}]`
+}
 
 export interface ElementFingerprintContext {
   readonly tag: string
@@ -838,13 +858,13 @@ async function recognizeImage(
   const branches = cases.map(item => `case-${item.id}：${item.name}\n判断要求：${item.prompt}`).join('\n\n')
   const comparisonSection = references.length === 0
     ? '\n\n本次没有参考图片。请直接观察全部待识别图片，并根据可见内容独立判断每个候选场景；comparisons 可以为空。'
-    : `\n\n本次共有 ${references.length} 张参考图片。参考图片是对比基准，待识别图片是需要判断的内容。请为每张待识别图片选择最适合的参考图片，按照“图片对比要求”提取相关可见差异。\n图片对比要求：${comparisonPrompt.trim() || '比较图片中可见的主体、结构、配件和差异，忽略无关背景。'}`
+    : `\n\n本次共有 ${references.length} 张参考图片。参考图片是对比基准，待识别图片是需要判断的内容。请为每张待识别图片至少返回 1 条 comparison。若有多张参考图，可以把同一张待识别图片分别与不同参考图对比；不要对同一张待识别图片和同一张参考图重复返回。\n图片对比要求：${comparisonPrompt.trim() || '比较图片中可见的主体、结构、配件和差异，忽略无关背景。'}`
   const imageContent = images.flatMap(image => [
     { type: 'text' as const, text: image.role === 'reference' ? `参考图片：${image.label}` : `待识别图片：${image.label}` },
     { type: 'image_url' as const, image_url: { url: image.dataUrl } },
   ])
   const messages = [
-    new SystemMessage('你是严格的图片对比和场景判断器。全部待识别图片共同描述同一个业务对象，必须综合判断，只能依据可见内容和用户要求，不得猜测。先逐张观察，再提取与图片对比要求有关的可见差异。必须对“每一张待识别图片 × 每一个候选场景”分别返回一条 imageCaseEvaluations，不能只给整组图片一个笼统结论；branch 必须原样使用完整分支 ID。matched=true 表示该图片提供支持场景的明确证据；contradicts=true 仅表示该图片存在足以排除整组图片属于该场景的明确反证。看不到相关内容、角度不同、只有包装或无法判断时，应将 matched 和 contradicts 都设为 false，不能把缺少证据当作反证。例如：产品本体图会反驳“仅包装”，但包装图不会反驳“产品损坏”，因为包装图只是无法观察产品。即使某张图片已提供支持，也不得跳过其他场景或图片。图片无法与参考图比较只影响 comparisons，不阻止依据自身可见内容判断场景。程序将按“至少一张支持且没有一张明确反驳”聚合整组结果，再按配置优先级选路。顶层必须且只能包含 comparisonStatus、comparisonSummary、comparisons、imageCaseEvaluations。comparisons 每项必须包含 inputImageIndex、referenceImageIndex、comparable、reason、differences；differences 每项必须包含 location、description、evidence。imageCaseEvaluations 每项必须包含 inputImageIndex、branch、matched、contradicts、confidence、evidence。禁止使用 image、selectedReferenceImage、subject、visibleSimilarities、visibleDifferences 等其他字段。必须返回完整闭合的 JSON，不要输出 Markdown、额外文字或思考过程。'),
+    new SystemMessage('你是严格的图片对比和场景判断器。全部待识别图片共同描述同一个业务对象，必须综合判断，只能依据可见内容和用户要求，不得猜测。先逐张观察，再提取与图片对比要求有关的可见差异。必须对“每一张待识别图片 × 每一个候选场景”分别返回一条 imageCaseEvaluations，不能只给整组图片一个笼统结论；branch 必须原样使用完整分支 ID。matched=true 表示该图片提供支持场景的明确证据；contradicts=true 仅表示该图片存在足以排除整组图片属于该场景的明确反证。看不到相关内容、角度不同、只有包装或无法判断时，应将 matched 和 contradicts 都设为 false，不能把缺少证据当作反证。例如：产品本体图会反驳“仅包装”，但包装图不会反驳“产品损坏”，因为包装图只是无法观察产品。即使某张图片已提供支持，也不得跳过其他场景或图片。图片无法与参考图比较只影响 comparisons，不阻止依据自身可见内容判断场景。程序将按“至少一张支持且没有一张明确反驳”聚合整组结果，再按配置优先级选路。顶层必须且只能包含 comparisonStatus、comparisonSummary、comparisons、imageCaseEvaluations。comparisons 每项必须包含 inputImageIndex、referenceImageIndex、comparable、reason、differences；同一张待识别图片可以对应多张参考图，但同一对图片不要重复。differences 每项必须包含 location、description、evidence。imageCaseEvaluations 每项必须包含 inputImageIndex、branch、matched、contradicts、confidence、evidence。禁止使用 image、selectedReferenceImage、subject、visibleSimilarities、visibleDifferences 等其他字段。必须返回完整闭合的 JSON，不要输出 Markdown、额外文字或思考过程。'),
     new HumanMessage({ content: [
       { type: 'text', text: `${instruction.trim() ? `统一要求：${instruction.trim()}\n\n` : ''}待识别图片共 ${inputs.length} 张。${comparisonSection}\n\n候选场景：\n${branches}\n\n请返回差异结果，并逐张判断全部 ${cases.length} 个候选场景，共返回 ${inputs.length * cases.length} 条 imageCaseEvaluations。` },
       ...imageContent,
@@ -972,6 +992,170 @@ function createDriver(page: Page): BrowserDriver {
     responseBuffer.push({ url: response.url(), method: response.request().method().toUpperCase(), status: response.status(), response })
     if (responseBuffer.length > 200) responseBuffer.shift()
   })
+  const typeIntoLocator = async (target: Locator, text: string, timeoutMs: number, inputMode: 'replace' | 'append'): Promise<void> => {
+    if (inputMode === 'append') {
+      const caretPositioned = await target.evaluate(element => {
+        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+          element.focus()
+          try {
+            const end = element.value.length
+            element.setSelectionRange(end, end)
+            return true
+          } catch { return false }
+        }
+        if (element instanceof HTMLElement && element.isContentEditable) {
+          element.focus()
+          const selection = window.getSelection()
+          const range = document.createRange()
+          range.selectNodeContents(element)
+          range.collapse(false)
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          return true
+        }
+        return false
+      })
+      if (!caretPositioned) {
+        await target.focus({ timeout: timeoutMs })
+        await target.press('End', { timeout: timeoutMs })
+      }
+      await target.pressSequentially(text, { timeout: timeoutMs })
+    } else await target.fill(text, { timeout: timeoutMs })
+  }
+  const operateListRows = async (request: ListRowOperationRequest): Promise<ListRowOperationResult> => {
+    const trace = (message: string): void => { request.trace?.(message) }
+    const preview = (value: string, limit = 120): string => {
+      const normalized = value.replace(/\s+/g, ' ').trim()
+      return normalized.length <= limit ? normalized : `${normalized.slice(0, limit)}…`
+    }
+    const rowSelector = request.rowSelectorMode === 'class-contains'
+      ? classContainsSelector(request.rowSelector)
+      : request.rowSelector
+    const rows = (): Locator => request.containerSelector.trim() === ''
+      ? page.locator(rowSelector)
+      : page.locator(request.containerSelector).locator(rowSelector)
+    const normalize = (value: string, fieldIndex: number): string => {
+      const field = request.matchFields[fieldIndex]
+      let result = field?.trim === false ? value : value.trim()
+      if (field?.ignoreCase === true) result = result.toLocaleLowerCase()
+      return result
+    }
+    const keyOf = (values: readonly string[]): string => JSON.stringify(values.map(normalize))
+    const readRowValues = async (row: Locator, rowIndex: number): Promise<readonly string[]> => Promise.all(request.matchFields.map(async (field, fieldIndex) => {
+      try {
+        const candidates = field.selector.trim() === '' ? row : row.locator(field.selector)
+        if (field.selector.trim() !== '' && await candidates.count() === 0) {
+          throw new Error('当前行中未找到该元素；行规则可能误匹配了行内子元素，或字段 class 已发生变化')
+        }
+        const target = candidates.first()
+        if (field.readMode === 'attribute') return (await target.getAttribute(field.attribute ?? '', { timeout: request.timeoutMs })) ?? ''
+        if (field.readMode === 'value') return target.inputValue({ timeout: request.timeoutMs })
+        return target.innerText({ timeout: request.timeoutMs })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message.split('\n')[0] : String(error)
+        throw new Error(`读取页面第 ${rowIndex + 1} 行的匹配字段 ${fieldIndex + 1} 失败（${field.selector || '当前行'}）：${detail}`)
+      }
+    }))
+    const scan = async (reason?: string, includeRows = false): Promise<Array<{ index: number; key: string; label: string }>> => {
+      const collection = rows()
+      const count = await collection.count()
+      const result: Array<{ index: number; key: string; label: string }> = []
+      for (let index = 0; index < count; index += 1) {
+        const values = await readRowValues(collection.nth(index), index)
+        result.push({ index, key: keyOf(values), label: values.join(' | ') })
+      }
+      if (reason !== undefined) trace(`${reason}：找到 ${count} 个页面行`)
+      if (includeRows) {
+        result.slice(0, 50).forEach(row => { trace(`页面第 ${row.index + 1} 行匹配值：${preview(row.label) || '（空）'}`) })
+        if (result.length > 50) trace(`页面行明细仅展示前 50 条，另有 ${result.length - 50} 条未展开`)
+      }
+      return result
+    }
+
+    trace(`开始列表行操作：容器=${request.containerSelector.trim() || '整个页面'}；实际行选择器=${rowSelector}`)
+    request.matchFields.forEach((field, index) => { trace(`页面匹配字段 ${index + 1}：选择器=${field.selector || '当前行'}；读取方式=${field.readMode}${field.readMode === 'attribute' ? `(${field.attribute ?? ''})` : ''}；去空格=${field.trim}；忽略大小写=${field.ignoreCase}`) })
+    const initialRows = await scan('首次扫描页面', true)
+    if (request.items.length === 0 && request.emptySourceAction === 'stop') throw new Error('目标数据为空，已按安全策略停止；如需保留或删除全部行，请修改“目标数据为空时”配置')
+    const targetKeys = request.items.map(item => keyOf(item.matchValues))
+    request.items.slice(0, 50).forEach(item => { trace(`目标数据第 ${item.index + 1} 条匹配值：${preview(item.matchValues.join(' | ')) || '（空）'}`) })
+    if (request.items.length > 50) trace(`目标数据明细仅展示前 50 条，另有 ${request.items.length - 50} 条未展开`)
+    const duplicateSourceKeys = targetKeys.filter((key, index) => targetKeys.indexOf(key) !== index)
+    if (duplicateSourceKeys.length > 0) {
+      trace(`目标数据重复业务键数量：${new Set(duplicateSourceKeys).size}`)
+      throw new Error('目标数据中存在重复业务键，无法确定同一页面行应使用哪条数据')
+    }
+    const targetKeySet = new Set(targetKeys)
+    const missingItems: number[] = []
+    const duplicateItems: number[] = []
+    let matchedCount = 0
+    let updatedCount = 0
+
+    for (const [runtimeIndex, item] of request.items.entries()) {
+      const key = targetKeys[runtimeIndex]
+      let matches = (await scan()).filter(row => row.key === key)
+      trace(`匹配目标数据第 ${item.index + 1} 条：页面命中 ${matches.length} 行${matches.length > 0 ? `（第 ${matches.map(row => row.index + 1).join('、')} 行）` : ''}`)
+      if (matches.length === 0) {
+        missingItems.push(item.index)
+        trace(`目标数据第 ${item.index + 1} 条未匹配；处理策略=${request.missingMatchAction}`)
+        if (request.missingMatchAction === 'stop') throw new Error(`目标数据第 ${item.index + 1} 条未匹配到页面行`)
+        continue
+      }
+      if (matches.length > 1) {
+        duplicateItems.push(item.index)
+        trace(`目标数据第 ${item.index + 1} 条存在重复页面行；处理策略=${request.duplicateMatchAction === 'first' ? 'first' : 'all'}`)
+        if (request.duplicateMatchAction === 'first') matches = matches.slice(0, 1)
+      }
+      matchedCount += matches.length
+      for (let occurrence = 0; occurrence < matches.length; occurrence += 1) {
+        for (const [actionIndex, action] of request.actions.entries()) {
+          const currentMatches = (await scan()).filter(row => row.key === key)
+          const current = currentMatches[Math.min(occurrence, currentMatches.length - 1)]
+          if (current === undefined) throw new Error(`操作过程中页面行已消失（目标数据第 ${item.index + 1} 条）`)
+          const row = rows().nth(current.index)
+          const target = action.selector.trim() === '' ? row : row.locator(action.selector).first()
+          const actionValue = item.actionValues[actionIndex] ?? ''
+          trace(`目标数据第 ${item.index + 1} 条 → 页面第 ${current.index + 1} 行：执行操作 ${actionIndex + 1}/${request.actions.length} ${action.type}（${action.selector || '当前行'}）${action.type === 'type' ? `，输入长度 ${actionValue.length}，方式=${action.inputMode}` : action.type === 'select' ? `，选项=${preview(actionValue, 60)}` : ''}`)
+          if (action.type === 'type') await typeIntoLocator(target, actionValue, request.timeoutMs, action.inputMode)
+          else if (action.type === 'select') await target.selectOption(actionValue, { timeout: request.timeoutMs })
+          else await clickResolvedLocator(target, request.timeoutMs)
+          trace(`目标数据第 ${item.index + 1} 条：操作 ${actionIndex + 1} 完成`)
+        }
+        if (request.actions.length > 0) updatedCount += 1
+      }
+    }
+
+    const deleteEnabled = request.items.length === 0
+      ? request.emptySourceAction === 'delete-all'
+      : request.unmatchedMode === 'delete'
+    let deletedCount = 0
+    const deletedKeys: string[] = []
+    if (deleteEnabled) {
+      const unmatched = (await scan('删除前重新扫描页面')).filter(row => !targetKeySet.has(row.key))
+      trace(`删除预检：未匹配页面行 ${unmatched.length} 条；安全上限 ${request.maxDeleteCount} 条；删除按钮=${request.deleteSelector}${request.confirmSelector.trim() ? `；确认按钮=${request.confirmSelector}` : ''}`)
+      if (unmatched.length > request.maxDeleteCount) throw new Error(`预计删除 ${unmatched.length} 行，超过最大允许数量 ${request.maxDeleteCount}，已停止执行`)
+      while (true) {
+        const currentRows = await scan()
+        const unwanted = currentRows.find(row => !targetKeySet.has(row.key))
+        if (unwanted === undefined) break
+        trace(`准备删除当前页面第 ${unwanted.index + 1} 行；匹配值=${preview(unwanted.label) || '（空）'}`)
+        const row = rows().nth(unwanted.index)
+        await clickResolvedLocator(row.locator(request.deleteSelector).first(), request.timeoutMs)
+        trace(`已点击第 ${unwanted.index + 1} 行删除按钮`)
+        if (request.confirmSelector.trim() !== '') {
+          await clickResolvedLocator(await resolveTargetLocator(page, request.confirmSelector, request.timeoutMs), request.timeoutMs)
+          trace('已点击全局删除确认按钮')
+        }
+        deletedCount += 1
+        deletedKeys.push(unwanted.label)
+        if (request.waitAfterDeleteMs > 0) await page.waitForTimeout(request.waitAfterDeleteMs)
+        trace(`删除完成 ${deletedCount}/${unmatched.length}；已重新扫描 DOM`)
+        if (deletedCount > request.maxDeleteCount) throw new Error(`删除数量超过安全上限 ${request.maxDeleteCount}`)
+      }
+    } else trace(`未启用删除：${request.items.length === 0 ? `空数据策略=${request.emptySourceAction}` : `未匹配页面行策略=${request.unmatchedMode}`}`)
+    const finalRows = await scan('最终扫描页面', true)
+    trace(`列表行操作汇总：目标 ${request.items.length} 条；初始页面行 ${initialRows.length}；匹配 ${matchedCount} 行；更新 ${updatedCount} 行；删除 ${deletedCount} 行；最终页面行 ${finalRows.length}；缺失 ${missingItems.length} 条；重复 ${duplicateItems.length} 条`)
+    return { totalPageRows: initialRows.length, targetDataCount: request.items.length, matchedCount, updatedCount, deletedCount, finalPageRows: finalRows.length, missingItems, duplicateItems, deletedKeys }
+  }
   return {
     async openPage(url: string, timeoutMs = 30_000): Promise<void> {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
@@ -986,6 +1170,7 @@ function createDriver(page: Page): BrowserDriver {
     generateCondition,
     generateSwitch,
     recognizeImage,
+    operateListRows,
     async waitForPageSettled(timeoutMs = 8_000): Promise<boolean> {
       const deadline = Date.now() + Math.max(400, timeoutMs)
       while (Date.now() < deadline) {
@@ -1029,36 +1214,7 @@ function createDriver(page: Page): BrowserDriver {
     },
     async type(selector: string, text: string, timeoutMs = 30_000, inputMode: 'replace' | 'append' = 'replace'): Promise<void> {
       const target = await resolveTargetLocator(page, selector, timeoutMs)
-      if (inputMode === 'append') {
-        const caretPositioned = await target.evaluate(element => {
-          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-            element.focus()
-            try {
-              const end = element.value.length
-              element.setSelectionRange(end, end)
-              return true
-            } catch {
-              return false
-            }
-          }
-          if (element instanceof HTMLElement && element.isContentEditable) {
-            element.focus()
-            const selection = window.getSelection()
-            const range = document.createRange()
-            range.selectNodeContents(element)
-            range.collapse(false)
-            selection?.removeAllRanges()
-            selection?.addRange(range)
-            return true
-          }
-          return false
-        })
-        if (!caretPositioned) {
-          await target.focus({ timeout: timeoutMs })
-          await target.press('End', { timeout: timeoutMs })
-        }
-        await target.pressSequentially(text, { timeout: timeoutMs })
-      } else await target.fill(text, { timeout: timeoutMs })
+      await typeIntoLocator(target, text, timeoutMs, inputMode)
     },
     async extract(selector: string): Promise<string> {
       return (await (await resolveTargetLocator(page, selector, 30_000)).innerText()).trim()
@@ -1199,11 +1355,30 @@ function createDriver(page: Page): BrowserDriver {
   }
 }
 
-async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 'element'): Promise<PickedElement> {
+async function pickElement(page: Page, url?: string, mode: ElementPickMode = 'element', options: ElementPickOptions = {}): Promise<PickedElement> {
   if (url !== undefined && url.trim() !== '') await page.goto(url, { waitUntil: 'domcontentloaded' })
   await page.waitForLoadState('domcontentloaded').catch(() => undefined)
   await page.bringToFront().catch(() => undefined)
   await page.waitForTimeout(250)
+  const scopeAttribute = 'data-rpa-picker-list-scope'
+  const rowAttribute = 'data-rpa-picker-list-row'
+  let scope: Locator | undefined
+  try {
+    if (mode === 'list-row' || mode === 'row-element') {
+      scope = options.scopeSelector?.trim()
+        ? await resolveTargetLocator(page, options.scopeSelector, 8_000)
+        : page.locator('body')
+      await scope.evaluateAll((elements, attribute) => { elements.forEach(element => { element.setAttribute(attribute, 'true') }) }, scopeAttribute)
+      if (mode === 'row-element') {
+        if (!options.rowSelector?.trim()) throw new Error('请先拾取或填写行选择器，再拾取行内元素')
+        const configuredRowSelector = options.rowSelectorMode === 'class-contains'
+          ? classContainsSelector(options.rowSelector)
+          : options.rowSelector
+        const rows = scope.locator(configuredRowSelector)
+        if (await rows.count() === 0) throw new Error(`当前页面没有找到列表行：${options.rowSelector}`)
+        await rows.evaluateAll((elements, attribute) => { elements.forEach(element => { element.setAttribute(attribute, 'true') }) }, rowAttribute)
+      }
+    }
   let validationMessage = ''
   while (true) {
     const picked = await page.evaluate(({ pickMode, validationMessage }) => new Promise<PickedElement>(resolve => {
@@ -1256,6 +1431,14 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       if (/^[a-f0-9]{12,}$/i.test(id) || /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id)) return false
       return true
     }
+    const cssString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+    const cssModuleClassFragment = (element: Element): string | undefined => {
+      for (const name of Array.from(element.classList)) {
+        const match = name.match(/([A-Za-z][A-Za-z0-9]*__[A-Za-z][A-Za-z0-9]*)--[A-Za-z0-9_-]+/)
+        if (match?.[1]) return match[1]
+      }
+      return undefined
+    }
     const structuralSelector = (element: Element): string => {
       if (element === document.documentElement) return 'html'
       const parts: string[] = []
@@ -1296,7 +1479,7 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
     const scopeForParentPath = (element: Element): Element | null => {
       let current: Element | null = element
       while (current !== null) {
-        const parent = current.parentElement
+        const parent: Element | null = current.parentElement
         if (parent !== null && isRepeatingContainer(parent)) return current
         current = parent
       }
@@ -1497,9 +1680,117 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       }
       return (best ?? element) as HTMLElement
     }
-    const targetForMode = (element: Element): HTMLElement => pickMode === 'list' ? listContainerTarget(element) : interactiveTarget(element)
+    const pickerScope = (element?: Element): Element | null => element?.closest('[data-rpa-picker-list-scope="true"]') ?? document.querySelector('[data-rpa-picker-list-scope="true"]')
+    const repeatedRowTarget = (element: Element): HTMLElement => {
+      const scope = pickerScope(element)
+      if (scope === null || !scope.contains(element)) return element as HTMLElement
+      const semantic = element.closest('tr,[role="row"],li,[role="listitem"]')
+      if (semantic !== null && semantic !== scope && scope.contains(semantic)) return semantic as HTMLElement
+      let current: Element | null = element
+      let fallback: Element = element
+      let repeated: Element | undefined
+      while (current !== null && current !== scope) {
+        fallback = current
+        const parent: Element | null = current.parentElement
+        if (parent !== null) {
+          const siblings: Element[] = Array.from(parent.children)
+          const currentTag = current.tagName
+          const sameTag = siblings.filter(item => item.tagName === currentTag)
+          const stableClasses = Array.from(current.classList).filter(stableClass)
+          const sameShape = stableClasses.length === 0 ? sameTag : sameTag.filter(item => stableClasses.every(name => item.classList.contains(name)))
+          // Keep walking towards the list root. Inner table cells and repeated
+          // controls may look alike too; the outermost repeated ancestor is
+          // normally the reusable business row.
+          if (sameShape.length >= 2) repeated = current
+        }
+        current = parent
+      }
+      return (repeated ?? fallback) as HTMLElement
+    }
+    const rowElementTarget = (element: Element): HTMLElement => {
+      const row = element.closest('[data-rpa-picker-list-row="true"]')
+      if (row === null) return element as HTMLElement
+      return interactiveTarget(element)
+    }
+    const relativeSelector = (element: Element, root: Element, repeated: boolean): string => {
+      const matches = (candidate: string): Element[] => {
+        try { return Array.from(root.querySelectorAll(candidate)) } catch { return [] }
+      }
+      const accepts = (candidate: string): boolean => {
+        const found = matches(candidate)
+        return found.includes(element) && (repeated ? found.length >= 2 : found.length === 1)
+      }
+      const tag = element.tagName.toLowerCase()
+      const attributes = ['data-testid', 'data-action', 'name', 'aria-label', 'placeholder', 'title', 'role']
+      for (const attribute of attributes) {
+        const value = element.getAttribute(attribute)
+        if (value !== null && value !== '') {
+          const candidate = `${tag}[${attribute}="${CSS.escape(value)}"]`
+          if (accepts(candidate)) return candidate
+        }
+      }
+      const classes = Array.from(element.classList).filter(stableClass).slice(0, 3)
+      for (let length = classes.length; length > 0; length -= 1) {
+        const candidate = `${tag}${classes.slice(0, length).map(name => `.${CSS.escape(name)}`).join('')}`
+        if (accepts(candidate)) return candidate
+      }
+      if (accepts(tag)) return tag
+      const parts: string[] = []
+      let current: Element | null = element
+      while (current !== null && current !== root) {
+        const currentTag = current.tagName.toLowerCase()
+        const currentClasses = Array.from(current.classList).filter(stableClass).slice(0, 2)
+        let part = `${currentTag}${currentClasses.map(name => `.${CSS.escape(name)}`).join('')}`
+        if (!repeated && current.parentElement !== null) {
+          const siblings = Array.from(current.parentElement.children).filter(item => item.tagName === current?.tagName)
+          if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`
+        }
+        parts.unshift(part)
+        const candidate = parts.join(' > ')
+        if (accepts(candidate)) return candidate
+        current = current.parentElement
+      }
+      return parts.join(' > ') || tag
+    }
+    const rowRule = (element: Element, root: Element): { mode: 'css' | 'class-contains'; value: string; selector: string } => {
+      const classFragment = cssModuleClassFragment(element)
+      if (classFragment !== undefined) {
+        const selector = `[class*="${cssString(`${classFragment}--`)}"]`
+        const matches = Array.from(root.querySelectorAll(selector))
+        // A business list may currently contain only one row. The CSS Modules
+        // component fragment is still a reusable rule even without a second
+        // rendered sibling to prove repetition.
+        if (matches.includes(element)) return { mode: 'class-contains', value: classFragment, selector }
+      }
+      const selector = relativeSelector(element, root, true)
+      return { mode: 'css', value: selector, selector }
+    }
+    const rowElementRule = (element: Element, root: Element): { mode: 'css' | 'class-contains'; value: string; selector: string } => {
+      const classFragment = cssModuleClassFragment(element)
+      if (classFragment !== undefined) {
+        const selector = `[class*="${cssString(`${classFragment}--`)}"]`
+        if (Array.from(root.querySelectorAll(selector)).includes(element)) return { mode: 'class-contains', value: classFragment, selector }
+      }
+      const selector = relativeSelector(element, root, false)
+      return { mode: 'css', value: selector, selector }
+    }
+    const listContainerSelector = (element: Element): string => {
+      const classFragment = cssModuleClassFragment(element)
+      if (classFragment !== undefined) {
+        const candidate = `[class*="${cssString(`${classFragment}--`)}"]`
+        try { if (document.querySelectorAll(candidate).length === 1) return candidate } catch { /* use structural selector */ }
+      }
+      return selector(element)
+    }
+    const targetForMode = (element: Element): HTMLElement => pickMode === 'list' || pickMode === 'list-container'
+      ? listContainerTarget(element)
+      : pickMode === 'list-row'
+        ? repeatedRowTarget(element)
+        : pickMode === 'row-element'
+          ? rowElementTarget(element)
+          : interactiveTarget(element)
     let highlighted: Element | undefined
-    const over = (event: Event): void => { const raw = event.target as Element | null; if (raw === null || panel.contains(raw)) return; const target = targetForMode(raw); if (highlighted !== undefined && highlighted !== target) highlighted.removeAttribute('data-rpa-picker-hover'); highlighted = target; target.setAttribute('data-rpa-picker-hover', 'true'); span.textContent = pickMode === 'list' ? '移动鼠标预览，系统会识别重复行所在的列表' : '移动鼠标预览，点击页面元素后确认'; hoverInfo.textContent = compactLabel(target) }
+    const over = (event: Event): void => { const raw = event.target as Element | null; if (raw === null || panel.contains(raw)) return; const target = targetForMode(raw); if (highlighted !== undefined && highlighted !== target) highlighted.removeAttribute('data-rpa-picker-hover'); highlighted = target; target.setAttribute('data-rpa-picker-hover', 'true'); span.textContent = pickMode === 'list' || pickMode === 'list-container' ? '移动鼠标预览，系统会识别重复行所在的列表父容器' : pickMode === 'list-row' ? '请选择一条样例行，系统会生成可复用的行规则' : pickMode === 'row-element' ? '请选择当前行内的字段、输入框或按钮' : '移动鼠标预览，点击页面元素后确认'; hoverInfo.textContent = compactLabel(target) }
     const out = (event: Event): void => { const target = event.target as Element | null; if (target !== null && !panel.contains(target)) target.removeAttribute('data-rpa-picker-hover') }
     let selected: HTMLElement | undefined
     let selectedOptionValue: string | undefined
@@ -1508,6 +1799,16 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
     const click = (event: Event): void => {
       const raw = event.target as Element | null
       if (raw === null || panel.contains(raw)) return
+      if (pickMode === 'list-row' && pickerScope(raw) === null) {
+        event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation()
+        status.textContent = '请选择列表容器内部的一条数据行'
+        return
+      }
+      if (pickMode === 'row-element' && raw.closest('[data-rpa-picker-list-row="true"]') === null) {
+        event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation()
+        status.textContent = '请选择已识别数据行内部的元素'
+        return
+      }
       const target = targetForMode(raw)
       event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation()
       selected = target
@@ -1517,7 +1818,15 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       status.textContent = '请点击“确认拾取”完成选择'
       const overlay = dropdownOverlay(target)
       const optionRoot = overlay === null ? null : target.closest('option,[role="option"],[role="menuitem"],[role="treeitem"],[data-select-option]')
-      selectedCopySelector = fingerprintPreview(optionRoot ?? target)
+      const row = target.closest('[data-rpa-picker-list-row="true"]')
+      const scope = pickerScope(target)
+      selectedCopySelector = pickMode === 'list-container'
+        ? listContainerSelector(target)
+        : pickMode === 'list-row' && scope !== null
+        ? rowRule(target, scope).selector
+        : pickMode === 'row-element' && row !== null
+          ? rowElementRule(optionRoot ?? target, row).selector
+          : fingerprintPreview(optionRoot ?? target)
       code.textContent = selectedCopySelector
       copy.disabled = false
       confirm.disabled = false
@@ -1558,6 +1867,10 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
         }
       }
       const picked = option ?? element
+      const pickedScope = pickerScope(picked)
+      const pickedRowRule = pickMode === 'list-row' && pickedScope !== null ? rowRule(picked, pickedScope) : undefined
+      const pickedRow = picked.closest('[data-rpa-picker-list-row="true"]')
+      const pickedElementRule = pickMode === 'row-element' && pickedRow !== null ? rowElementRule(picked, pickedRow) : undefined
       cleanup()
       resolve({
         tagName: picked.tagName.toLowerCase(),
@@ -1567,18 +1880,29 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
         ariaLabel: picked.getAttribute('aria-label') || '',
         role: picked.getAttribute('role') || '',
         placeholder: picked.getAttribute('placeholder') || '',
-        selector: fingerprint(picked),
+        selector: pickMode === 'list-container'
+          ? listContainerSelector(picked)
+          : pickedRowRule !== undefined
+          ? pickedRowRule.selector
+          : pickedElementRule !== undefined
+            ? pickedElementRule.selector
+            : fingerprint(picked),
         url: location.href,
         title: document.title,
         optionValue: selectedOptionValue,
         triggerSelector: trigger ? fingerprint(trigger) : undefined,
         optionSelector: option !== null && trigger !== null ? fingerprint(option) : undefined,
+        rowSelectorMode: pickedRowRule?.mode,
+        rowSelectorValue: pickedRowRule?.value,
+        relativeSelectorMode: pickedElementRule?.mode,
+        relativeSelectorValue: pickedElementRule?.value,
       })
     }, { once: true })
     cancel.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); cleanup(); resolve({ tagName: '', text: '', id: '', className: '', ariaLabel: '', role: '', placeholder: '', selector: '', url: location.href, title: document.title }) }, { once: true })
     document.addEventListener('mouseover', over, true); document.addEventListener('mouseout', out, true); document.addEventListener('pointerdown', click, true); document.addEventListener('mousedown', click, true); document.addEventListener('click', click, true)
     }), { pickMode: mode, validationMessage })
     if (picked.selector === '') return picked
+    if (mode === 'list-container' || mode === 'list-row' || mode === 'row-element') return picked
     try {
       await resolveTargetLocator(page, picked.selector, 500)
       if (picked.triggerSelector !== undefined) await resolveTargetLocator(page, picked.triggerSelector, 500)
@@ -1590,13 +1914,17 @@ async function pickElement(page: Page, url?: string, mode: 'element' | 'list' = 
       return picked
     }
   }
+  } finally {
+    await page.locator(`[${rowAttribute}]`).evaluateAll((elements, attribute) => { elements.forEach(element => { element.removeAttribute(attribute) }) }, rowAttribute).catch(() => undefined)
+    await page.locator(`[${scopeAttribute}]`).evaluateAll((elements, attribute) => { elements.forEach(element => { element.removeAttribute(attribute) }) }, scopeAttribute).catch(() => undefined)
+  }
 }
 
 function createPlaywrightSession(browser: Browser, context: BrowserContext, page: Page, executablePath: string): PlaywrightSession {
   return {
     driver: createDriver(page),
     isUsable(): boolean { return browser.isConnected() && !page.isClosed() },
-    pickElement: (url?: string, mode?: 'element' | 'list') => pickElement(page, url, mode),
+    pickElement: (url?: string, mode?: ElementPickMode, options?: ElementPickOptions) => pickElement(page, url, mode, options),
     async openDebugCopy(): Promise<PlaywrightSession> {
       const url = page.url()
       if (!/^https?:\/\//i.test(url)) throw new Error('失败时页面不是 HTTP(S) 地址，无法打开可交互的调试副本')

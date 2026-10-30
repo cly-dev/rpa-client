@@ -42,4 +42,26 @@ describe('lazy browser driver', () => {
     expect(onUrl).toHaveBeenCalledWith('https://example.com/next')
     stop?.()
   })
+
+  it('launches Chromium and forwards list row operations', async () => {
+    const operateListRows = vi.fn(async () => ({
+      totalPageRows: 1, targetDataCount: 1, matchedCount: 1, updatedCount: 1,
+      deletedCount: 0, finalPageRows: 1, missingItems: [], duplicateItems: [], deletedKeys: [],
+    }))
+    const page: BrowserDriver = { ...fakeDriver([]), operateListRows }
+    const openSession = vi.fn(async () => ({ driver: page }))
+    const { driver } = createLazyBrowserDriver(fakeDriver([]), openSession)
+
+    const result = await driver.operateListRows!({
+      containerSelector: '#items', rowSelectorMode: 'class-contains', rowSelector: 'Item__row',
+      matchFields: [{ selector: '[class*="Item__sku"]', readMode: 'text', trim: true, ignoreCase: false }],
+      items: [{ index: 0, matchValues: ['SKU-1'], actionValues: [] }], actions: [],
+      unmatchedMode: 'keep', deleteSelector: '', confirmSelector: '', waitAfterDeleteMs: 0, maxDeleteCount: 1,
+      missingMatchAction: 'stop', duplicateMatchAction: 'all', emptySourceAction: 'stop', timeoutMs: 5_000,
+    })
+
+    expect(openSession).toHaveBeenCalledOnce()
+    expect(operateListRows).toHaveBeenCalledOnce()
+    expect(result.matchedCount).toBe(1)
+  })
 })

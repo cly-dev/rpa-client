@@ -1,6 +1,6 @@
 {
   "name": "cs-rpa-studio",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Local Dify-style RPA studio for generic browser and agent workflows",
   "type": "module",

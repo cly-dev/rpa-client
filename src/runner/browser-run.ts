@@ -1,5 +1,5 @@
 import { NODE_CATALOG, newId } from '@graph/catalog.ts'
-import type { AgentOutputField, ElementLocator, JsonValue, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
+import type { AgentOutputField, ElementLocator, JsonValue, ListRowMatchedAction, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
 import { walkGraph, type RunHandlers, type RunState, type StepResult } from './walk.ts'
 import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, resolveRequestBodyPreview, runtimeInputValues, type WorkflowContext } from './context.ts'
@@ -54,6 +54,37 @@ export interface VisionRecognitionDecision {
   readonly caseEvaluations: readonly VisionCaseEvaluation[]
 }
 
+export interface ListRowOperationRequest {
+  readonly containerSelector: string
+  readonly rowSelectorMode: 'css' | 'class-contains'
+  readonly rowSelector: string
+  readonly matchFields: readonly { readonly selector: string; readonly readMode: 'text' | 'value' | 'attribute'; readonly attribute?: string; readonly trim: boolean; readonly ignoreCase: boolean }[]
+  readonly items: readonly { readonly index: number; readonly matchValues: readonly string[]; readonly actionValues: readonly string[] }[]
+  readonly actions: readonly ({ readonly type: 'type'; readonly selector: string; readonly inputMode: 'replace' | 'append' } | { readonly type: 'click'; readonly selector: string } | { readonly type: 'select'; readonly selector: string })[]
+  readonly unmatchedMode: 'keep' | 'delete'
+  readonly deleteSelector: string
+  readonly confirmSelector: string
+  readonly waitAfterDeleteMs: number
+  readonly maxDeleteCount: number
+  readonly missingMatchAction: 'skip' | 'stop'
+  readonly duplicateMatchAction: 'first' | 'all'
+  readonly emptySourceAction: 'keep' | 'delete-all' | 'stop'
+  readonly timeoutMs: number
+  readonly trace?: (message: string) => void
+}
+
+export interface ListRowOperationResult {
+  readonly totalPageRows: number
+  readonly targetDataCount: number
+  readonly matchedCount: number
+  readonly updatedCount: number
+  readonly deletedCount: number
+  readonly finalPageRows: number
+  readonly missingItems: readonly number[]
+  readonly duplicateItems: readonly number[]
+  readonly deletedKeys: readonly string[]
+}
+
 export interface BrowserDriver {
   openPage(url: string, timeoutMs?: number): Promise<void>
   hover?(selector: string, timeoutMs?: number): Promise<void>
@@ -69,6 +100,7 @@ export interface BrowserDriver {
   generateCondition?(content: string, requirement: string, llm: WorkflowLlmConfig): Promise<{ matched: boolean; reason: string }>
   generateSwitch?(content: string, cases: readonly { id: string; name: string; prompt: string }[], systemPrompt: string, llm: WorkflowLlmConfig, supplementalContext?: string): Promise<{ branch: string; reason: string }>
   recognizeImage?(images: readonly VisionImageInput[], instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig, comparisonPrompt?: string): Promise<VisionRecognitionDecision>
+  operateListRows?(request: ListRowOperationRequest): Promise<ListRowOperationResult>
   waitFor(ms: number, selector: string, state?: 'visible' | 'hidden'): Promise<void>
   waitForUrl?(pattern: string, timeoutMs: number): Promise<void>
   elementState?(selector: string): Promise<{ exists: boolean; visible: boolean; text: string }>
@@ -128,6 +160,51 @@ function redactLogUrl(url: string): string {
 
 function selectorText(selector: string | ElementLocator): string {
   return typeof selector === 'string' ? selector : selector.value
+}
+
+function rowTemplateText(value: JsonValue): string {
+  if (typeof value === 'string') return value
+  if (value === null) return ''
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function resolveRowTemplate(template: string, item: JsonValue, index: number, context: WorkflowContext): string {
+  const local = template
+    .replace(/\{\{\s*item(?:\.([^{}]+))?\s*\}\}/g, (_match, path: string | undefined) => rowTemplateText(path === undefined ? item : walkJsonPath(item, path.trim())))
+    .replace(/\{\{\s*(?:rowIndex|itemIndex)\s*\}\}/g, String(index))
+  return rowTemplateText(resolveExpression(local, context))
+}
+
+function resolveMatchedActionValue(action: ListRowMatchedAction, item: JsonValue, index: number, context: WorkflowContext): string {
+  if (action.type === 'click') return ''
+  const dataPath = action.dataPath?.trim() ?? ''
+  if (dataPath !== '') return rowTemplateText(walkJsonPath(item, dataPath))
+  return resolveRowTemplate(action.value, item, index, context)
+}
+
+function mergeVisionComparisons(comparisons: readonly VisionComparison[]): VisionComparison[] {
+  const merged: VisionComparison[] = []
+  const indexByKey = new Map<string, number>()
+  for (const item of comparisons) {
+    const key = `${item.inputImageIndex}:${item.referenceImageIndex ?? 'none'}`
+    const existingIndex = indexByKey.get(key)
+    if (existingIndex === undefined) {
+      indexByKey.set(key, merged.length)
+      merged.push(item)
+      continue
+    }
+    const existing = merged[existingIndex]
+    if (existing === undefined) continue
+    merged[existingIndex] = {
+      inputImageIndex: existing.inputImageIndex,
+      referenceImageIndex: existing.referenceImageIndex,
+      comparable: existing.comparable || item.comparable,
+      reason: existing.reason.trim() !== '' ? existing.reason : item.reason,
+      differences: [...existing.differences, ...item.differences].slice(0, 20),
+    }
+  }
+  return merged
 }
 
 function displaySelector(selector: string): string {
@@ -508,14 +585,14 @@ async function liveStep(
     const missingBranch = expectedBranches.find(branch => !evaluationBranches.includes(branch))
     if (missingBranch !== undefined) throw new Error(`视觉模型没有判断场景「${missingBranch}」`)
     if (decision.caseEvaluations.length !== cases.length) throw new Error('视觉模型返回的场景判断数量与节点配置不一致')
-    const invalidComparison = decision.comparisons.find(item => item.inputImageIndex > imageSources.length || item.referenceImageIndex !== null && item.referenceImageIndex > comparisonSources.length)
+    const comparisons = mergeVisionComparisons(decision.comparisons)
+    const invalidComparison = comparisons.find(item => item.inputImageIndex < 1 || item.inputImageIndex > imageSources.length || item.referenceImageIndex !== null && (item.referenceImageIndex < 1 || item.referenceImageIndex > comparisonSources.length))
     if (invalidComparison !== undefined) throw new Error('视觉模型返回了超出图片数量范围的对比序号')
     if (comparisonSources.length > 0) {
-      const comparedInputIndexes = decision.comparisons.map(item => item.inputImageIndex)
-      if (new Set(comparedInputIndexes).size !== comparedInputIndexes.length) throw new Error('视觉模型重复返回了同一张待识别图片的对比结果')
+      const comparedInputIndexes = comparisons.map(item => item.inputImageIndex)
       const missingInputIndex = imageSources.findIndex((_source, index) => !comparedInputIndexes.includes(index + 1))
       if (missingInputIndex >= 0) throw new Error(`视觉模型没有返回待识别图片 ${missingInputIndex + 1} 的对比结果`)
-      if (decision.comparisons.some(item => item.comparable && item.referenceImageIndex === null)) throw new Error('视觉模型将图片标记为可比较，但没有指定参考图片')
+      if (comparisons.some(item => item.comparable && item.referenceImageIndex === null)) throw new Error('视觉模型将图片标记为可比较，但没有指定参考图片')
     }
     const expectedImageEvaluationCount = imageSources.length * cases.length
     if (decision.imageCaseEvaluations.length !== expectedImageEvaluationCount) throw new Error(`视觉模型返回的逐图场景判断数量不完整，预期 ${expectedImageEvaluationCount} 条，实际 ${decision.imageCaseEvaluations.length} 条`)
@@ -536,7 +613,7 @@ async function liveStep(
     const label = chosen?.name ?? '否则'
     const reason = (chosenEvaluation?.evidence || decision.comparisonSummary).trim().slice(0, 500)
     const outputName = config.outputName.trim() || 'imageResult'
-    const result = { branch, label, reason, imageCount: imageSources.length, comparisonEnabled: comparisonSources.length > 0, comparisonImageCount: comparisonSources.length, comparisonStatus: decision.comparisonStatus, comparisonSummary: decision.comparisonSummary, comparisons: decision.comparisons, imageCaseEvaluations: decision.imageCaseEvaluations, caseEvaluations: decision.caseEvaluations, confidence: chosenEvaluation?.confidence ?? 0 }
+    const result = { branch, label, reason, imageCount: imageSources.length, comparisonEnabled: comparisonSources.length > 0, comparisonImageCount: comparisonSources.length, comparisonStatus: decision.comparisonStatus, comparisonSummary: decision.comparisonSummary, comparisons, imageCaseEvaluations: decision.imageCaseEvaluations, caseEvaluations: decision.caseEvaluations, confidence: chosenEvaluation?.confidence ?? 0 }
     const evaluationLogs = cases.map(item => {
       const evaluation = decision.caseEvaluations.find(candidate => candidate.branch === `case-${item.id}`)
       const matchedImages = decision.imageCaseEvaluations.filter(candidate => candidate.branch === `case-${item.id}` && candidate.matched).map(candidate => candidate.inputImageIndex)
@@ -634,6 +711,55 @@ async function liveStep(
     }
     const index = findSwitchCaseIndex(config, value)
     return { message: index >= 0 ? `走分支 ${index + 1}（${value}）` : `走否则分支（${value}）`, branch: index >= 0 ? `case-${index}` : 'else' }
+  }
+  if (node.config.type === 'list-row-action') {
+    const config = node.config
+    return attempt(node, async (trace): Promise<StepResult> => {
+      if (driver.operateListRows === undefined) throw new Error('当前浏览器驱动不支持列表行操作')
+      const bound = resolveBindingInContext(config.source, context)
+      const source = config.sourcePath.trim() === '' ? bound : walkJsonPath(bound, config.sourcePath)
+      if (!Array.isArray(source)) throw new Error('目标数据必须是数组；请检查数据源和字段路径')
+      const items = source.map((item, index) => ({
+        index,
+        matchValues: config.matchFields.map(field => rowTemplateText(walkJsonPath(item, field.dataPath))),
+        actionValues: config.matchedActions.map(action => resolveMatchedActionValue(action, item, index, context)),
+      }))
+      const classContainsSelector = (value: string): string => {
+        const normalized = value.trim()
+        const selectorMatch = normalized.match(/^\[class\*=(["'])(.*?)\1\]$/)
+        const classValue = selectorMatch?.[2] ?? normalized
+        const boundaryValue = classValue.includes('__') && !classValue.includes('--') ? `${classValue}--` : classValue
+        return `[class*=${JSON.stringify(boundaryValue)}]`
+      }
+      trace(`准备同步列表：目标数据 ${items.length} 条；匹配字段 ${config.matchFields.length} 个；匹配后操作 ${config.matchedActions.length} 个`)
+      trace(`列表作用域：容器=${config.containerSelector?.trim() || '整个页面'}；行规则=${config.rowSelectorMode === 'class-contains' ? `class 包含「${config.rowSelector}」` : config.rowSelector}`)
+      config.matchFields.forEach((field, index) => { trace(`匹配字段 ${index + 1}：页面=${field.selectorMode === 'class-contains' ? `class 包含「${field.rowSelector}」` : field.rowSelector}；数据路径=${field.dataPath}；读取=${field.readMode}`) })
+      config.matchedActions.forEach((action, index) => { trace(`匹配后操作 ${index + 1}：${action.type}；行内目标=${action.selector}${action.type !== 'click' && action.dataPath?.trim() ? `；数据字段=${action.dataPath.trim()}` : ''}`) })
+      trace(`异常策略：缺失=${config.missingMatchAction}；重复=${config.duplicateMatchAction}；空数据=${config.emptySourceAction}；未匹配页面行=${config.unmatchedMode}`)
+      const result = await driver.operateListRows({
+        containerSelector: String(resolveExpression(config.containerSelector ?? '', context)),
+        rowSelectorMode: config.rowSelectorMode === 'class-contains' ? 'class-contains' : 'css',
+        rowSelector: requireText(String(resolveExpression(config.rowSelector, context)), '行选择器'),
+        matchFields: config.matchFields.map(field => {
+          const selectorValue = String(resolveExpression(field.rowSelector, context))
+          return { selector: field.selectorMode === 'class-contains' ? classContainsSelector(selectorValue) : selectorValue, readMode: field.readMode, attribute: field.attribute, trim: field.trim !== false, ignoreCase: field.ignoreCase === true }
+        }),
+        items,
+        actions: config.matchedActions.map(action => action.type === 'type' ? { type: 'type', selector: String(resolveExpression(action.selector, context)), inputMode: action.inputMode ?? 'replace' } : action.type === 'select' ? { type: 'select', selector: String(resolveExpression(action.selector, context)) } : { type: 'click', selector: String(resolveExpression(action.selector, context)) }),
+        unmatchedMode: config.unmatchedMode,
+        deleteSelector: String(resolveExpression(config.deleteSelector, context)),
+        confirmSelector: String(resolveExpression(config.confirmSelector ?? '', context)),
+        waitAfterDeleteMs: config.waitAfterDeleteMs,
+        maxDeleteCount: config.maxDeleteCount,
+        missingMatchAction: config.missingMatchAction,
+        duplicateMatchAction: config.duplicateMatchAction,
+        emptySourceAction: config.emptySourceAction,
+        timeoutMs: node.execution.timeoutMs,
+        trace,
+      })
+      trace(`列表行操作完成：匹配 ${result.matchedCount} 行，更新 ${result.updatedCount} 行，删除 ${result.deletedCount} 行，剩余 ${result.finalPageRows} 行`)
+      return { message: `列表行操作完成：更新 ${result.updatedCount} 行，删除 ${result.deletedCount} 行`, outputs: { [config.outputName || 'listOperationResult']: result as unknown as JsonValue } }
+    }, driver, context, Math.max(node.execution.timeoutMs, node.execution.timeoutMs * Math.max(1, config.matchedActions.length + config.maxDeleteCount)))
   }
   if (node.config.type === 'page-action') {
     const config = node.config

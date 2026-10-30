@@ -66,6 +66,7 @@ function nodeOutputs(node: WorkflowNode, outputs?: Readonly<Record<string, NodeO
   }
   if (node.config.type === 'agent') configured.push(...(node.config.outputs ?? []).filter(output => output.name.trim() !== '').map(output => ({ name: output.name, type: output.valueType })))
   if (node.config.type === 'image-recognition') configured.push({ name: node.config.outputName || 'imageResult', type: '图片识别结果' })
+  if (node.config.type === 'list-row-action') configured.push({ name: node.config.outputName || 'listOperationResult', type: 'object' })
   if (node.config.type === 'switch' && node.config.mode === 'ai') configured.push({ name: node.config.reasonOutputName?.trim() || 'reason', type: 'AI 判断依据' })
   if (node.config.type === 'api-listen') {
     configured.push({ name: node.config.outputName, type: node.config.responseType === 'json' ? 'object/array' : 'string' })

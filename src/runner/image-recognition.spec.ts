@@ -241,4 +241,60 @@ describe('image recognition node', () => {
     expect(state.logs.some(line => line.message.includes('字段路径「missing.path」未读取到值'))).toBe(true)
   })
 
+  it('accepts one comparison per reference image for the same input image', async () => {
+    const { graph, nodeId, endings } = fixture()
+    const nodes = graph.nodes.map(node => node.id === nodeId && node.config.type === 'image-recognition'
+      ? { ...node, config: { ...node.config, comparisonEnabled: true, comparisonSourceMode: 'upload' as const, comparisonImages: [{ dataUrl: tinyPng, name: '参考一.png' }, { dataUrl: tinyPng, name: '参考二.png' }] } }
+      : node)
+    const comparisonDriver: BrowserDriver = {
+      ...driver('case-paid', []),
+      async recognizeImage(images, _instruction, cases) {
+        const inputCount = images.filter(item => item.role === 'input').length
+        const referenceCount = images.filter(item => item.role === 'reference').length
+        const caseEvaluations = cases.map(item => ({ branch: `case-${item.id}`, matched: item.id === 'paid', confidence: 0.9, evidence: '可见付款信息' }))
+        const imageCaseEvaluations = Array.from({ length: inputCount }, (_value, inputIndex) => caseEvaluations.map(item => ({ ...item, inputImageIndex: inputIndex + 1, contradicts: false }))).flat()
+        const comparisons = Array.from({ length: inputCount }, (_item, inputIndex) => Array.from({ length: referenceCount }, (_ref, refIndex) => ({
+          inputImageIndex: inputIndex + 1,
+          referenceImageIndex: refIndex + 1,
+          comparable: true,
+          reason: `对比参考图 ${refIndex + 1}`,
+          differences: [],
+        }))).flat()
+        return { comparisonStatus: 'completed', comparisonSummary: '已分别对比两张参考图', comparisons, imageCaseEvaluations, caseEvaluations }
+      },
+    }
+    const state = await runBrowser({ ...graph, nodes }, comparisonDriver, { onUpdate() {}, wait: async () => {} }, { variables: { photo: tinyPng } })
+    expect(state.status, JSON.stringify(state.logs)).toBe('succeeded')
+    expect(state.nodes[endings[0]]).toBe('succeeded')
+    expect(state.outputs[nodeId]?.imageResult).toMatchObject({ comparisonEnabled: true, comparisonImageCount: 2, comparisons: [{ inputImageIndex: 1, referenceImageIndex: 1 }, { inputImageIndex: 1, referenceImageIndex: 2 }] })
+  })
+
+  it('merges duplicate comparisons for the same input and reference pair', async () => {
+    const { graph, nodeId } = fixture()
+    const nodes = graph.nodes.map(node => node.id === nodeId && node.config.type === 'image-recognition'
+      ? { ...node, config: { ...node.config, comparisonEnabled: true, comparisonImage: tinyPng, comparisonImageName: '标准截图.png' } }
+      : node)
+    const duplicateDriver: BrowserDriver = {
+      ...driver('case-paid', []),
+      async recognizeImage(_images, _instruction, cases) {
+        const caseEvaluations = cases.map(item => ({ branch: `case-${item.id}`, matched: item.id === 'paid', confidence: 0.9, evidence: '可见付款信息' }))
+        return {
+          comparisonStatus: 'completed',
+          comparisonSummary: '重复返回了同一张图的对比',
+          comparisons: [
+            { inputImageIndex: 1, referenceImageIndex: 1, comparable: true, reason: '第一次', differences: [{ location: '主体', description: '颜色不同', evidence: '参考图更深' }] },
+            { inputImageIndex: 1, referenceImageIndex: 1, comparable: true, reason: '第二次', differences: [{ location: '文字', description: '文案不同', evidence: '待识别图多一行字' }] },
+          ],
+          imageCaseEvaluations: caseEvaluations.map(item => ({ ...item, inputImageIndex: 1, contradicts: false })),
+          caseEvaluations,
+        }
+      },
+    }
+    const state = await runBrowser({ ...graph, nodes }, duplicateDriver, { onUpdate() {}, wait: async () => {} }, { variables: { photo: tinyPng } })
+    expect(state.status, JSON.stringify(state.logs)).toBe('succeeded')
+    expect(state.outputs[nodeId]?.imageResult).toMatchObject({
+      comparisons: [{ inputImageIndex: 1, referenceImageIndex: 1, reason: '第一次', differences: [{ location: '主体' }, { location: '文字' }] }],
+    })
+  })
+
 })

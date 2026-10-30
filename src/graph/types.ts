@@ -18,6 +18,7 @@ export const NODE_TYPES = [
   'continue-loop',
   'end',
   'page-action',
+  'list-row-action',
   'for-each',
   'api-listen',
   'api-request',
@@ -100,6 +101,38 @@ export type PageActionStep =
   | { readonly type: 'extract'; readonly selector: string | ElementLocator; readonly outputName: string; readonly outputMode?: OutputVariableMode; readonly updateVariable?: string; readonly mode: 'text' | 'value' | 'html'; readonly ai?: ExtractAiConfig; readonly waitAfterMs?: number }
 
 export interface PageActionConfig { readonly type: 'page-action'; readonly steps: readonly PageActionStep[] }
+export interface ListRowMatchField {
+  readonly selectorMode?: 'css' | 'class-contains'
+  readonly rowSelector: string
+  readonly dataPath: string
+  readonly readMode: 'text' | 'value' | 'attribute'
+  readonly attribute?: string
+  readonly trim?: boolean
+  readonly ignoreCase?: boolean
+}
+export type ListRowMatchedAction =
+  | { readonly type: 'type'; readonly selector: string; readonly value: string; readonly dataPath?: string; readonly inputMode?: 'replace' | 'append' }
+  | { readonly type: 'click'; readonly selector: string }
+  | { readonly type: 'select'; readonly selector: string; readonly value: string; readonly dataPath?: string }
+export interface ListRowActionConfig {
+  readonly type: 'list-row-action'
+  readonly source: ValueBinding
+  readonly sourcePath: string
+  readonly containerSelector?: string
+  readonly rowSelectorMode?: 'css' | 'class-contains'
+  readonly rowSelector: string
+  readonly matchFields: readonly ListRowMatchField[]
+  readonly matchedActions: readonly ListRowMatchedAction[]
+  readonly unmatchedMode: 'keep' | 'delete'
+  readonly deleteSelector: string
+  readonly confirmSelector?: string
+  readonly waitAfterDeleteMs: number
+  readonly maxDeleteCount: number
+  readonly missingMatchAction: 'skip' | 'stop'
+  readonly duplicateMatchAction: 'first' | 'all'
+  readonly emptySourceAction: 'keep' | 'delete-all' | 'stop'
+  readonly outputName: string
+}
 export interface ApiListenField { readonly name: string; readonly path: string }
 export interface ApiRequestParam { readonly name: string; readonly value: string }
 export interface ApiListenConfig { readonly type: 'api-listen'; readonly urlPattern: string; readonly matchMode: 'contains' | 'equals' | 'regex'; readonly method: string; readonly responseType: 'json' | 'text'; readonly jsonPath: string; readonly outputName: string; readonly outputMode?: OutputVariableMode; readonly updateVariable?: string; readonly rawOutputName?: string; readonly fields?: readonly ApiListenField[]; readonly requestParams?: readonly ApiRequestParam[]; readonly timeoutMs: number }
@@ -359,6 +392,7 @@ export interface ContinueLoopConfig {
 export type NodeConfig =
   | StartConfig
   | PageActionConfig
+  | ListRowActionConfig
   | ApiListenConfig
   | ApiRequestConfig
   | ForEachConfig
@@ -471,6 +505,7 @@ export type ValidationCode =
   | 'switch-duplicate-case'
   | 'switch-ai-reason-output-invalid'
   | 'image-recognition-invalid'
+  | 'list-row-action-invalid'
   | 'missing-entry-workflow'
   | 'subflow-cycle'
   | 'declared-variable-empty'

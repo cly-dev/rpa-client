@@ -1,4 +1,4 @@
-import { NODE_TYPES, type JsonValue, type NodeConfig, type NodeType, type OutputVariableMode, type ValueBinding, type WorkflowGraph } from './types.ts'
+import { NODE_TYPES, type JsonValue, type ListRowMatchedAction, type NodeConfig, type NodeType, type OutputVariableMode, type ValueBinding, type WorkflowGraph } from './types.ts'
 import { normalizeImageRecognitionMaxImages } from './image-recognition-limits.ts'
 
 export type ParseResult = { readonly ok: true; readonly graph: WorkflowGraph } | { readonly ok: false; readonly error: string }
@@ -55,6 +55,26 @@ function parseConfig(type: NodeType, value: unknown, path: string): NodeConfig {
         if (!isRecord(step.ai)) return normalized as any
         return { ...normalized, ai: { enabled: step.ai.enabled === true, prompt: typeof step.ai.prompt === 'string' ? step.ai.prompt : '', llmId: typeof step.ai.llmId === 'string' ? step.ai.llmId : undefined } }
       }) as any : [] }
+    case 'list-row-action':
+      return {
+        type: 'list-row-action',
+        source: parseOptionalBinding(value.source, `${path}.source`, { kind: 'literal', value: [] }),
+        sourcePath: typeof value.sourcePath === 'string' ? value.sourcePath : '',
+        containerSelector: typeof value.containerSelector === 'string' ? value.containerSelector : '',
+        rowSelectorMode: value.rowSelectorMode === 'class-contains' ? 'class-contains' : 'css',
+        rowSelector: typeof value.rowSelector === 'string' ? value.rowSelector : '',
+        matchFields: Array.isArray(value.matchFields) ? value.matchFields.filter(isRecord).map(field => ({ selectorMode: field.selectorMode === 'class-contains' ? 'class-contains' : 'css', rowSelector: typeof field.rowSelector === 'string' ? field.rowSelector : '', dataPath: typeof field.dataPath === 'string' ? field.dataPath : '', readMode: field.readMode === 'value' || field.readMode === 'attribute' ? field.readMode : 'text', attribute: typeof field.attribute === 'string' ? field.attribute : '', trim: field.trim !== false, ignoreCase: field.ignoreCase === true })) : [],
+        matchedActions: Array.isArray(value.matchedActions) ? value.matchedActions.filter(isRecord).map((action): ListRowMatchedAction | undefined => action.type === 'click' ? { type: 'click', selector: typeof action.selector === 'string' ? action.selector : '' } : action.type === 'select' ? { type: 'select', selector: typeof action.selector === 'string' ? action.selector : '', value: typeof action.value === 'string' ? action.value : '', dataPath: typeof action.dataPath === 'string' ? action.dataPath : '' } : action.type === 'type' ? { type: 'type', selector: typeof action.selector === 'string' ? action.selector : '', value: typeof action.value === 'string' ? action.value : '', dataPath: typeof action.dataPath === 'string' ? action.dataPath : '', inputMode: action.inputMode === 'append' ? 'append' : 'replace' } : undefined).filter((action): action is ListRowMatchedAction => action !== undefined) : [],
+        unmatchedMode: value.unmatchedMode === 'delete' ? 'delete' : 'keep',
+        deleteSelector: typeof value.deleteSelector === 'string' ? value.deleteSelector : '',
+        confirmSelector: typeof value.confirmSelector === 'string' ? value.confirmSelector : '',
+        waitAfterDeleteMs: typeof value.waitAfterDeleteMs === 'number' ? Math.max(0, value.waitAfterDeleteMs) : 300,
+        maxDeleteCount: typeof value.maxDeleteCount === 'number' ? Math.max(0, Math.floor(value.maxDeleteCount)) : 20,
+        missingMatchAction: value.missingMatchAction === 'skip' ? 'skip' : 'stop',
+        duplicateMatchAction: value.duplicateMatchAction === 'first' ? 'first' : 'all',
+        emptySourceAction: value.emptySourceAction === 'keep' || value.emptySourceAction === 'delete-all' ? value.emptySourceAction : 'stop',
+        outputName: typeof value.outputName === 'string' && value.outputName.trim() ? value.outputName : 'listOperationResult',
+      }
     case 'api-listen':
       return { type: 'api-listen', urlPattern: typeof value.urlPattern === 'string' ? value.urlPattern : '', matchMode: value.matchMode === 'equals' || value.matchMode === 'regex' ? value.matchMode : 'contains', method: typeof value.method === 'string' ? value.method : 'ANY', responseType: value.responseType === 'text' ? 'text' : 'json', jsonPath: typeof value.jsonPath === 'string' ? value.jsonPath : '', outputName: typeof value.outputName === 'string' && value.outputName.trim() !== '' ? value.outputName : 'tableData', outputMode: parseOutputMode(value.outputMode), updateVariable: typeof value.updateVariable === 'string' ? value.updateVariable : '', rawOutputName: typeof value.rawOutputName === 'string' ? value.rawOutputName : 'responseData', fields: Array.isArray(value.fields) ? value.fields.filter(item => isRecord(item) && typeof item.name === 'string' && typeof item.path === 'string').map(item => ({ name: item.name as string, path: item.path as string })) : [], requestParams: Array.isArray(value.requestParams) ? value.requestParams.filter(item => isRecord(item) && typeof item.name === 'string' && typeof item.value === 'string').map(item => ({ name: item.name as string, value: item.value as string })) : [], timeoutMs: typeof value.timeoutMs === 'number' ? value.timeoutMs : 10000 }
     case 'api-request':
