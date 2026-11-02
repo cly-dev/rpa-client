@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { firstIssue, missingStartUrl } from "@graph/validate.ts";
 import type {
   ApprovalPrompt,
@@ -52,6 +52,8 @@ interface LiveRun {
 }
 interface ExecutionCenterProps {
   readonly initialTab?: Tab;
+  readonly initialRecordId?: string;
+  readonly initialScope?: string;
   readonly approvalOnly?: boolean;
   readonly workspaceId?: string;
   readonly workspaces?: readonly WorkspaceItem[];
@@ -164,6 +166,8 @@ function occurrenceStatus(item: ScheduleOccurrence): { css: string; label: strin
 
 export function ExecutionCenter({
   initialTab = "flows",
+  initialRecordId,
+  initialScope,
   approvalOnly = false,
   workspaceId = 'default',
   workspaces = [],
@@ -172,11 +176,16 @@ export function ExecutionCenter({
   onRunActivityChange,
 }: ExecutionCenterProps = {}): ReactNode {
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [scope, setScope] = useState(approvalOnly ? 'all' : workspaceId);
+  const [scope, setScope] = useState(initialScope ?? (approvalOnly ? 'all' : workspaceId));
   const [flows, setFlows] = useState<WorkflowListItem[]>([]);
   const [records, setRecords] = useState<ExecutionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [appliedHistoryQuery, setAppliedHistoryQuery] = useState("");
+  const refreshRequestId = useRef(0);
+  const metadataRequestId = useRef(0);
+  const lastRefreshInputs = useRef({ page, scope, showDeletedSchedules: false, appliedHistoryQuery: '' });
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
@@ -226,20 +235,31 @@ export function ExecutionCenter({
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
-  useEffect(() => { setScope(approvalOnly ? 'all' : workspaceId); setPage(1); }, [workspaceId, approvalOnly]);
+  useEffect(() => { setScope(initialScope ?? (approvalOnly ? 'all' : workspaceId)); setPage(1); }, [workspaceId, approvalOnly, initialScope]);
   useEffect(() => {
     onApprovalTotalChange?.(approvalTotal);
   }, [approvalTotal, onApprovalTotalChange]);
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (recordsOnly = false): Promise<void> => {
+    const requestId = ++refreshRequestId.current;
+    const metadataId = recordsOnly ? undefined : ++metadataRequestId.current;
     setLoading(true);
     try {
+      if (recordsOnly) {
+        const runResult = await listExecutions(RPA_SERVICE_URL, page, pageSize, scope === 'all' ? undefined : scope, appliedHistoryQuery);
+        if (requestId !== refreshRequestId.current) return;
+        setRecords(runResult.items);
+        setTotal(runResult.total);
+        setPage(runResult.page);
+        setNotice("");
+        return;
+      }
       const device = await window.studio
         ?.getDeviceInfo()
         .catch(() => undefined);
       const [flowResult, runResult, approvalResult, scheduleResult] = await Promise.all([
         listWorkflows(RPA_SERVICE_URL, 1, 100, '', scope === 'all' ? undefined : scope),
-        listExecutions(RPA_SERVICE_URL, page, pageSize, scope === 'all' ? undefined : scope),
+        listExecutions(RPA_SERVICE_URL, page, pageSize, scope === 'all' ? undefined : scope, appliedHistoryQuery),
         listApprovals(
           RPA_SERVICE_URL,
           1,
@@ -250,32 +270,51 @@ export function ExecutionCenter({
         ).catch(() => ({ items: [], total: 0, page: 1, pageSize: 50 })),
         listSchedules(RPA_SERVICE_URL, undefined, scope === 'all' ? undefined : scope, showDeletedSchedules),
       ]);
-      setFlows(flowResult.items);
-      setRecords(runResult.items);
-      setTotal(runResult.total);
-      setPage(runResult.page);
-      setApprovals(approvalResult.items);
-      setApprovalTotal(approvalResult.total);
-      setSchedules(scheduleResult.items);
-      setNotice("");
+      if (metadataId === metadataRequestId.current) {
+        setFlows(flowResult.items);
+        setApprovals(approvalResult.items);
+        setApprovalTotal(approvalResult.total);
+        setSchedules(scheduleResult.items);
+      }
+      if (requestId === refreshRequestId.current) {
+        setRecords(runResult.items);
+        setTotal(runResult.total);
+        setPage(runResult.page);
+        setNotice("");
+      }
     } catch (error) {
+      if (requestId !== refreshRequestId.current && metadataId !== metadataRequestId.current) return;
       setNotice(
         error instanceof Error ? error.message : "读取执行中心数据失败",
       );
     } finally {
-      setLoading(false);
+      if (requestId === refreshRequestId.current) setLoading(false);
     }
   };
 
   useEffect(() => {
-    void refresh();
-  }, [page, scope, showDeletedSchedules]);
+    const timer = window.setTimeout(() => {
+      const nextQuery = historyQuery.trim();
+      if (nextQuery !== appliedHistoryQuery) {
+        setPage(1);
+        setAppliedHistoryQuery(nextQuery);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [historyQuery, appliedHistoryQuery]);
+
+  useEffect(() => {
+    const previous = lastRefreshInputs.current;
+    const recordsOnly = previous.scope === scope && previous.showDeletedSchedules === showDeletedSchedules && (previous.page !== page || previous.appliedHistoryQuery !== appliedHistoryQuery);
+    lastRefreshInputs.current = { page, scope, showDeletedSchedules, appliedHistoryQuery };
+    void refresh(recordsOnly);
+  }, [page, scope, showDeletedSchedules, appliedHistoryQuery]);
 
   useEffect(() => {
     const onFinished = (): void => { void refresh(); };
     window.addEventListener('rpa:schedule-updated', onFinished);
     return () => window.removeEventListener('rpa:schedule-updated', onFinished);
-  }, [page, scope, showDeletedSchedules]);
+  }, [page, scope, showDeletedSchedules, appliedHistoryQuery]);
 
   useEffect(() => {
     const studio = window.studio;
@@ -719,6 +758,10 @@ export function ExecutionCenter({
   };
 
   useEffect(() => {
+    if (initialRecordId) void openDetail({ id: initialRecordId });
+  }, [initialRecordId]);
+
+  useEffect(() => {
     if (!scheduleHistory) return;
     const timer = window.setInterval(() => { void loadScheduleHistory(scheduleHistory, occurrencePage); }, 5_000);
     return () => window.clearInterval(timer);
@@ -909,6 +952,14 @@ export function ExecutionCenter({
         </>
       ) : (
         <>
+          <div className="execution-history-toolbar">
+            <label className="execution-history-search">
+              <span aria-hidden="true">⌕</span>
+              <input type="search" maxLength={100} value={historyQuery} onChange={event => setHistoryQuery(event.target.value)} placeholder="搜索流程名称、执行 ID、执行人或设备" aria-label="搜索执行记录" />
+            </label>
+            {historyQuery ? <button type="button" className="execution-history-clear" onClick={() => setHistoryQuery("")}>清空</button> : null}
+            <span className="execution-history-count">共 {total} 条记录</span>
+          </div>
           {loading ? (
             <div className="workbench-empty">
               <span className="workbench-spinner" />
@@ -916,8 +967,8 @@ export function ExecutionCenter({
             </div>
           ) : records.length === 0 ? (
             <div className="workbench-empty">
-              <strong>还没有执行记录</strong>
-              <p>选择一个流程并在本机启动，记录会出现在这里。</p>
+              <strong>{appliedHistoryQuery ? "没有匹配的执行记录" : "还没有执行记录"}</strong>
+              <p>{appliedHistoryQuery ? "试试其他流程名称、执行 ID、执行人或设备名称。" : "选择一个流程并在本机启动，记录会出现在这里。"}</p>
             </div>
           ) : (
             <div className="execution-record-list">

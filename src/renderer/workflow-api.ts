@@ -148,6 +148,32 @@ export interface ApprovalRecord extends ApprovalPrompt {
   readonly decidedAt?: string
 }
 
+export interface DashboardSummary {
+  readonly period: { readonly from: string; readonly to: string }
+  readonly executions: {
+    readonly total: number
+    readonly succeeded: number
+    readonly failed: number
+    readonly running: number
+    readonly waitingApproval: number
+    readonly cancelled: number
+    readonly interrupted: number
+    /** Percentage of succeeded executions among succeeded and failed executions. */
+    readonly successRate: number | null
+  }
+  readonly pendingApprovals: number
+  readonly schedules: { readonly active: number; readonly paused: number }
+  readonly publishedWorkflows: number
+  readonly recentFailures: readonly {
+    readonly id: string
+    readonly workflowName: string
+    readonly workflowVersion: number
+    readonly error: string | null
+    readonly startedAt: string
+    readonly executorName: string | null
+  }[]
+}
+
 interface ApiEnvelope<T> {
   readonly code: number
   readonly message: string
@@ -164,11 +190,11 @@ export interface WorkspaceItem {
   readonly updatedAt: string
 }
 
-function endpoint(baseUrl: string, resource: 'workflows' | 'workspaces' | 'llm-configs' | 'lists' | 'executions' | 'approvals' | 'webhooks' | 'schedules', path: string): string {
+function endpoint(baseUrl: string, resource: 'workflows' | 'workspaces' | 'llm-configs' | 'lists' | 'executions' | 'approvals' | 'webhooks' | 'schedules' | 'dashboard', path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/${resource}${path}`
 }
 
-async function request<T>(baseUrl: string, resource: 'workflows' | 'workspaces' | 'llm-configs' | 'lists' | 'executions' | 'approvals' | 'webhooks' | 'schedules', path: string, init?: RequestInit): Promise<T> {
+async function request<T>(baseUrl: string, resource: 'workflows' | 'workspaces' | 'llm-configs' | 'lists' | 'executions' | 'approvals' | 'webhooks' | 'schedules' | 'dashboard', path: string, init?: RequestInit): Promise<T> {
   let response: Response
   const token = authToken()
   if (!token) {
@@ -195,6 +221,11 @@ async function request<T>(baseUrl: string, resource: 'workflows' | 'workspaces' 
   }
   if (!response.ok || body.code !== 0) throw new Error(body.message || `请求失败（HTTP ${response.status}）`)
   return body.data
+}
+
+export function getDashboardSummary(baseUrl: string, workspaceId: string, from: Date, to: Date): Promise<DashboardSummary> {
+  const query = new URLSearchParams({ workspaceId, from: from.toISOString(), to: to.toISOString() })
+  return request(baseUrl, 'dashboard', `?${query.toString()}`)
 }
 
 /** The editor loads model metadata through the same authenticated client as other business APIs. */
@@ -400,9 +431,10 @@ export function testLlmConfig(baseUrl: string, id: string): Promise<{ ok: true; 
   return request(baseUrl, 'llm-configs', `/${encodeURIComponent(id)}/test`, { method: 'POST' })
 }
 
-export function listExecutions(baseUrl: string, page = 1, pageSize = 20, workspaceId?: string): Promise<{ items: ExecutionRecord[]; total: number; page: number; pageSize: number }> {
+export function listExecutions(baseUrl: string, page = 1, pageSize = 20, workspaceId?: string, query?: string): Promise<{ items: ExecutionRecord[]; total: number; page: number; pageSize: number }> {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), sort: 'startedAt', order: 'desc' })
   if (workspaceId) params.set('workspaceId', workspaceId)
+  if (query?.trim()) params.set('q', query.trim())
   return request(baseUrl, 'executions', `?${params}`)
 }
 

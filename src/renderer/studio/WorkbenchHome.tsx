@@ -3,6 +3,7 @@ import type { WorkflowLlmConfig } from "@graph/types.ts";
 import type { AuthUser } from "../auth.ts";
 import { firstPublishIssue } from "@graph/validate.ts";
 import { ExecutionCenter } from "./ExecutionCenter.tsx";
+import { DashboardView } from "./DashboardView.tsx";
 import { Pagination } from "./Pagination.tsx";
 import { ClearableNumberInput } from "./ClearableNumberInput.tsx";
 import type { DryRunState } from "@runner/dry-run.ts";
@@ -34,7 +35,6 @@ import {
   testLlmConfig,
   updateLlmConfig,
   updateWorkspace,
-  updateWorkflow,
   type LlmConfigItem,
   type WorkflowListItem,
   type WorkflowPackage,
@@ -49,7 +49,7 @@ interface DependencyBulkPreview {
   readonly rows: readonly (ParentVersionUpdate & { readonly publishIssue?: string; readonly parentStatus: string })[];
 }
 
-type Module = "workflows" | "executions" | "approvals" | "ai";
+type Module = "dashboard" | "workflows" | "executions" | "approvals" | "ai";
 export interface WorkflowListViewState {
   readonly page: number;
   readonly query: string;
@@ -117,6 +117,8 @@ export function WorkbenchHome({
   onRunActivityChange?: (activity: { readonly runId: string; readonly workflowName: string; readonly state?: DryRunState } | undefined) => void;
 }): ReactNode {
   const [active, setActive] = useState<Module>("workflows");
+  const [executionEntry, setExecutionEntry] = useState<{ tab: 'flows' | 'history' | 'schedules'; recordId?: string }>({ tab: 'flows' });
+  const [approvalScopeFromDashboard, setApprovalScopeFromDashboard] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowListItem[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -759,6 +761,12 @@ export function WorkbenchHome({
         </div>
         <nav aria-label="工作台模块">
           <button
+            className={active === "dashboard" ? "active" : ""}
+            onClick={() => { setActive("dashboard"); }}
+          >
+            <i>▦</i>运行看板
+          </button>
+          <button
             className={active === "workflows" ? "active" : ""}
             onClick={() => {
               setActive("workflows");
@@ -769,6 +777,7 @@ export function WorkbenchHome({
           <button
             className={active === "executions" ? "active" : ""}
             onClick={() => {
+              setExecutionEntry({ tab: 'flows' });
               setActive("executions");
             }}
           >
@@ -777,6 +786,7 @@ export function WorkbenchHome({
           <button
             className={active === "approvals" ? "active" : ""}
             onClick={() => {
+              setApprovalScopeFromDashboard(false);
               setActive("approvals");
             }}
           >
@@ -870,6 +880,8 @@ export function WorkbenchHome({
             <strong>
               {active === "workflows"
                 ? "流程管理"
+                : active === "dashboard"
+                  ? "运行看板"
                 : active === "executions"
                   ? "执行中心"
                   : active === "approvals"
@@ -886,6 +898,14 @@ export function WorkbenchHome({
             {notice}
           </div>
         ) : null}
+        {active === "dashboard" ? <DashboardView
+          workspaceId={selectedWorkspaceId}
+          workspaceName={workspaces.find(item => item.id === selectedWorkspaceId)?.name ?? '默认空间'}
+          onOpenHistory={recordId => { setExecutionEntry({ tab: 'history', recordId }); setActive('executions'); }}
+          onOpenApprovals={() => { setApprovalScopeFromDashboard(true); setActive('approvals'); }}
+          onOpenSchedules={() => { setExecutionEntry({ tab: 'schedules' }); setActive('executions'); }}
+          onOpenWorkflows={() => { onWorkflowListViewChange(current => ({ ...current, page: 1, scope: 'active' })); setActive('workflows'); }}
+        /> : null}
         {active === "workflows" ? (
           <section className="workbench-content workbench-flow-content">
             <div className="workbench-page-heading">
@@ -1032,7 +1052,9 @@ export function WorkbenchHome({
         ) : null}
         {active === "executions" || active === "approvals" ? (
           <ExecutionCenter
-            initialTab={active === "approvals" ? "approvals" : "flows"}
+            initialTab={active === "approvals" ? "approvals" : executionEntry.tab}
+            initialRecordId={active === "executions" ? executionEntry.recordId : undefined}
+            initialScope={active === "approvals" && approvalScopeFromDashboard ? selectedWorkspaceId : undefined}
             approvalOnly={active === "approvals"}
             workspaceId={selectedWorkspaceId}
             workspaces={workspaces}
