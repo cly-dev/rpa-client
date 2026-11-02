@@ -11,6 +11,51 @@ function handlers() {
 }
 
 describe('walkGraph loop control', () => {
+  it('notifies the loop once for the first failed item while skip continues the run', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = { ...createNode('for-each', { x: 100, y: 0 }), notifications: { enabled: true, onFailure: true } }
+    const action = createNode('set-variable', { x: 200, y: 0 })
+    const end = createNode('end', { x: 300, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: 'loop-notification-skip', name: 'Loop notification', version: 1, entryNodeId: start.id,
+      nodes: [start, loop, action, end],
+      edges: [createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', action.id), createEdge(loop.id, 'done', end.id)],
+    }
+    let iteration = 0
+    const state = await walkGraph(graph, handlers(), async node => {
+      if (node.id === loop.id) {
+        const index = iteration++
+        return index < 3 ? { message: '下一项', branch: 'body', outputs: { index } } : { message: '完成', branch: 'done' }
+      }
+      if (node.id === action.id) return { message: '处理失败', halt: 'failed' }
+      return { message: node.name }
+    })
+    expect(state.status).toBe('succeeded')
+    const notifications = state.logs.filter(line => line.nodeId === loop.id && line.notificationEvent === 'node.failed')
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0]?.message).toContain('第 1 轮执行失败')
+    expect(state.logs.filter(line => line.nodeId === loop.id && line.message.includes('执行失败：节点')).length).toBe(3)
+  })
+
+  it('notifies the loop when an item throws and the run stops', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = { ...createNode('for-each', { x: 100, y: 0 }), notifications: { enabled: true, onFailure: true } }
+    const action = createNode('set-variable', { x: 200, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: 'loop-notification-stop', name: 'Loop notification', version: 1, entryNodeId: start.id,
+      nodes: [start, loop, action],
+      edges: [createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', action.id)],
+    }
+    const state = await walkGraph(graph, handlers(), async node => {
+      if (node.id === loop.id) return { message: '下一项', branch: 'body', outputs: { index: 2 } }
+      if (node.id === action.id) throw new Error('页面按钮不存在')
+      return { message: node.name }
+    })
+    expect(state.status).toBe('failed')
+    expect(state.logs.filter(line => line.nodeId === loop.id && line.notificationEvent === 'node.failed')).toHaveLength(1)
+    expect(state.logs.some(line => line.nodeId === loop.id && line.message.includes('第 3 轮执行失败：节点'))).toBe(true)
+  })
+
   it('stops after the selected node without executing its successor', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const target = createNode('set-variable', { x: 100, y: 0 })

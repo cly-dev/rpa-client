@@ -11,6 +11,7 @@ export function createNode(type: NodeType, position: NodePosition): WorkflowNode
     inputBindings: defaultBindings(type),
     config: defaultConfig(type),
     execution: defaultExecution(),
+    ...(type === 'handoff' ? { notifications: { enabled: true, onSuccess: true, messageTemplate: '' } } : {}),
   }
 }
 

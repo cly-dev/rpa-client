@@ -353,6 +353,8 @@ export interface SetVariableConfig {
   readonly name: string
   readonly value: ValueBinding
   readonly path: string
+  /** Unset keeps the historical behavior of preserving the resolved value's type. */
+  readonly valueType?: 'string' | 'number' | 'boolean' | 'object' | 'array'
   /** Evaluate template text for a runtime-injected subflow input. */
   readonly interpolate?: boolean
   /** Internal guard used by runtime-injected subflow inputs. */

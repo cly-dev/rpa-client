@@ -14,6 +14,8 @@ import { BrowserModePicker } from './BrowserModePicker.tsx';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
 import { ApprovalRichText } from './ApprovalRichText.tsx';
 import { Pagination } from './Pagination.tsx';
+import { ClearableNumberInput } from './ClearableNumberInput.tsx';
+import { isScheduledExecutionActive } from './scheduled-executions.ts';
 import {
   RPA_SERVICE_URL,
   appendExecutionEvents,
@@ -58,6 +60,17 @@ interface ExecutionCenterProps {
   readonly onRunActivityChange?: (activity: { readonly runId: string; readonly workflowName: string; readonly state?: DryRunState } | undefined) => void;
 }
 
+function ScheduleActionIcon({ kind }: { readonly kind: 'history' | 'pause' | 'play' | 'delete' | 'clock' }): ReactNode {
+  const paths: Record<typeof kind, ReactNode> = {
+    history: <><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" /><path d="M12 7v5l3 2" /></>,
+    pause: <><path d="M8 5v14" /><path d="M16 5v14" /></>,
+    play: <path d="m8 5 11 7-11 7V5Z" />,
+    delete: <><path d="M4 7h16" /><path d="M10 4h4" /><path d="m6 7 1 13h10l1-13" /><path d="M10 11v5" /><path d="M14 11v5" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  };
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>;
+}
+
 function stringValue(value: JsonValue | undefined): string {
   if (value === undefined) return "";
   return typeof value === "object" && value !== null
@@ -69,6 +82,7 @@ function parseInput(
   value: string,
   definition: WorkflowContextVariable,
 ): JsonValue | undefined {
+  if (definition.type === 'number' && value.trim() === '') return 1;
   if (value === "")
     return definition.defaultValue === undefined ||
       definition.defaultValue === "******"
@@ -175,6 +189,7 @@ export function ExecutionCenter({
   const [scheduleTime, setScheduleTime] = useState('09:00');
   const [scheduleWeekday, setScheduleWeekday] = useState(1);
   const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
+  const [scheduleActionId, setScheduleActionId] = useState<string>();
   const [showDeletedSchedules, setShowDeletedSchedules] = useState(false);
   const [scheduleHistory, setScheduleHistory] = useState<WorkflowSchedule>();
   const [occurrences, setOccurrences] = useState<ScheduleOccurrence[]>([]);
@@ -266,6 +281,7 @@ export function ExecutionCenter({
     const studio = window.studio;
     if (studio === undefined) return;
     return studio.onApprovalRequest((prompt: ApprovalPrompt) => {
+      if (isScheduledExecutionActive(prompt.executionId)) return;
       void (async () => {
         try {
           const device = await studio.getDeviceInfo();
@@ -308,7 +324,7 @@ export function ExecutionCenter({
     decision: "approved" | "rejected",
   ): Promise<void> => {
     if (activeApproval === undefined || window.studio === undefined) return;
-    if (live?.record.id !== activeApproval.executionId) {
+    if (live?.record.id !== activeApproval.executionId && !isScheduledExecutionActive(activeApproval.executionId)) {
       setNotice(
         "这条审批对应的本机执行已经不在运行，当前版本无法恢复，请重新执行流程",
       );
@@ -402,12 +418,11 @@ export function ExecutionCenter({
     if (!launchFlow || !launchGraph || launchFlow.publishedVersion === null || launching) return;
     setRunMessage('');
     try {
-      if ([...(launchGraph.context?.inputs ?? []), ...(launchGraph.context?.variables ?? [])].some(item => item.secret)) throw new Error('含敏感输入或固定变量的流程暂不能定时执行');
       const inputs: Record<string, JsonValue> = {};
       for (const definition of definitions) {
         const value = parseInput(inputText[definition.name] ?? '', definition);
         if (value === undefined) {
-          if (definition.required) throw new Error(`请填写必填项「${definition.description || definition.name}」`);
+          if (definition.required && definition.defaultValue !== '******') throw new Error(`请填写必填项「${definition.description || definition.name}」`);
           continue;
         }
         inputs[definition.name] = value;
@@ -443,22 +458,28 @@ export function ExecutionCenter({
   };
 
   const changeScheduleState = async (schedule: WorkflowSchedule): Promise<void> => {
+    if (scheduleActionId !== undefined) return;
+    setScheduleActionId(schedule.id);
     try {
       await toggleSchedule(RPA_SERVICE_URL, schedule.id, !schedule.enabled);
       await refresh();
       window.dispatchEvent(new Event('rpa:schedules-changed'));
       setNotice(schedule.enabled ? '定时任务已暂停' : '定时任务已恢复');
     } catch (error) { setNotice(error instanceof Error ? error.message : '更新定时任务失败'); }
+    finally { setScheduleActionId(undefined); }
   };
 
   const removeSchedule = async (schedule: WorkflowSchedule): Promise<void> => {
     if (!window.confirm(`确定删除「${schedule.workflowName ?? schedule.workflowId}」的定时任务吗？历史执行记录会保留。`)) return;
+    if (scheduleActionId !== undefined) return;
+    setScheduleActionId(schedule.id);
     try {
       await deleteSchedule(RPA_SERVICE_URL, schedule.id);
       await refresh();
       window.dispatchEvent(new Event('rpa:schedules-changed'));
       setNotice('定时任务已删除');
     } catch (error) { setNotice(error instanceof Error ? error.message : '删除定时任务失败'); }
+    finally { setScheduleActionId(undefined); }
   };
 
   const runSelected = async (): Promise<void> => {
@@ -820,7 +841,7 @@ export function ExecutionCenter({
                       >
                         选择并执行
                       </button>
-                      <button type="button" className="execution-schedule-create" disabled={launching} onClick={() => { void openLaunch(flow, 'schedule'); }}>定时执行</button>
+                      <button type="button" className="execution-schedule-create" disabled={launching} onClick={() => { void openLaunch(flow, 'schedule'); }}><ScheduleActionIcon kind="clock" />定时执行</button>
                     </div>
                   </div>
                 </article>
@@ -839,9 +860,9 @@ export function ExecutionCenter({
                 {schedule.lastOccurrence ? ` · 最近触发：${new Date(schedule.lastOccurrence.scheduledAt).toLocaleString()}（${schedule.lastOccurrence.status}）` : ''}
               </small></span>
               <div className="execution-schedule-actions">
-                <button type="button" className="execution-schedule-toggle" onClick={() => openScheduleHistory(schedule)}>执行记录</button>
-                {!schedule.deletedAt ? <><button type="button" className="execution-schedule-toggle" onClick={() => { void changeScheduleState(schedule); }}>{schedule.enabled ? '暂停' : '恢复'}</button>
-                <button type="button" className="execution-schedule-delete" onClick={() => { void removeSchedule(schedule); }}>删除</button></> : null}
+                <button type="button" className="execution-schedule-toggle execution-schedule-history" onClick={() => openScheduleHistory(schedule)}><ScheduleActionIcon kind="history" />执行记录</button>
+                {!schedule.deletedAt ? <><button type="button" className={`execution-schedule-toggle ${schedule.enabled ? 'execution-schedule-pause' : 'execution-schedule-resume'}`} disabled={scheduleActionId !== undefined} onClick={() => { void changeScheduleState(schedule); }}><ScheduleActionIcon kind={schedule.enabled ? 'pause' : 'play'} />{scheduleActionId === schedule.id ? '处理中…' : schedule.enabled ? '暂停任务' : '恢复任务'}</button>
+                <button type="button" className="execution-schedule-delete" disabled={scheduleActionId !== undefined} onClick={() => { void removeSchedule(schedule); }}><ScheduleActionIcon kind="delete" />删除</button></> : null}
               </div>
             </div>
           ))}
@@ -1051,6 +1072,9 @@ export function ExecutionCenter({
                             [item.name]: event.target.value,
                           }));
                         }}
+                        onBlur={(event) => {
+                          if (item.type === 'number' && event.currentTarget.value.trim() === '') setInputText(current => ({ ...current, [item.name]: '1' }));
+                        }}
                         placeholder={
                           item.defaultValue === undefined
                             ? `请输入${item.type === "number" ? "数字" : "内容"}`
@@ -1062,7 +1086,7 @@ export function ExecutionCenter({
                 ))
               )}
               {secretDefinitions.length > 0 ? (
-                launchMode === 'schedule' ? <p className="execution-local-note">此流程含敏感固定变量，暂不支持定时运行；请使用手动执行。</p> :
+                launchMode === 'schedule' ? <p className="execution-local-note">敏感固定变量将在定时触发时，从已发布版本安全读取；无需在此重复填写。</p> :
                 <div className="execution-secret-section">
                   <strong>本次运行的敏感固定值</strong>
                   <p>
@@ -1118,6 +1142,9 @@ export function ExecutionCenter({
                             }));
                           }}
                           placeholder="仅用于本次本机运行"
+                          onBlur={(event) => {
+                            if (item.type === 'number' && event.currentTarget.value.trim() === '') setSecretText(current => ({ ...current, [item.name]: '1' }));
+                          }}
                         />
                       )}
                     </label>
@@ -1126,7 +1153,7 @@ export function ExecutionCenter({
               ) : null}
               {launchMode === 'schedule' ? <div className="execution-schedule-settings">
                 <label>执行频率<select value={scheduleKind} onChange={event => setScheduleKind(event.target.value as WorkflowSchedule['kind'])}><option value="daily">每天</option><option value="weekly">每周</option><option value="interval">固定间隔</option></select></label>
-                {scheduleKind === 'interval' ? <label>间隔分钟<input type="number" min={1} max={10080} value={scheduleInterval} onChange={event => setScheduleInterval(Number(event.target.value))} /></label> : <>
+                {scheduleKind === 'interval' ? <label>间隔分钟<ClearableNumberInput min={1} max={10080} value={scheduleInterval} onChange={event => setScheduleInterval(Number(event.target.value))} /></label> : <>
                   {scheduleKind === 'weekly' ? <label>星期<select value={scheduleWeekday} onChange={event => setScheduleWeekday(Number(event.target.value))}>{['日', '一', '二', '三', '四', '五', '六'].map((label, index) => <option key={index} value={index}>星期{label}</option>)}</select></label> : null}
                   <label>执行时间<input type="time" value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} /></label>
                 </>}

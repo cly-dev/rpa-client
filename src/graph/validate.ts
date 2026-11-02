@@ -109,7 +109,7 @@ function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
 export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowGraph[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const webhookUrl = graph.webhook?.url.trim() ?? ''
-  const hasNotifications = graph.webhook?.onFinished === true || graph.nodes.some(node => node.notifications?.enabled !== false && (node.notifications?.onSuccess || node.notifications?.onFailure || node.notifications?.onApprovalPending || node.notifications?.onApprovalApproved || node.notifications?.onApprovalRejected || node.notifications?.onApprovalTimeout))
+  const hasNotifications = graph.webhook?.onFinished === true || graph.nodes.some(node => node.type === 'handoff' || node.notifications?.enabled !== false && (node.notifications?.onSuccess || node.notifications?.onFailure || node.notifications?.onApprovalPending || node.notifications?.onApprovalApproved || node.notifications?.onApprovalRejected || node.notifications?.onApprovalTimeout))
   if (hasNotifications && webhookUrl === '') issues.push(issue('webhook-url-missing'))
   if (webhookUrl !== '') {
     try {
@@ -129,10 +129,12 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
   const notificationTriggers: readonly NodeNotificationTrigger[] = ['onSuccess', 'onFailure', 'onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout']
 
   for (const node of graph.nodes) {
-    const notificationTemplates = node.notifications === undefined ? [] : notificationTriggers
+    const notificationTemplates = node.type === 'handoff'
+      ? [node.notifications?.messageTemplate || node.notifications?.messageTemplates?.onSuccess || (node.config.type === 'handoff' ? node.config.note : '')]
+      : node.notifications === undefined ? [] : notificationTriggers
       .filter(trigger => node.notifications?.[trigger] === true)
       .map(trigger => node.notifications?.messageTemplates?.[trigger] ?? node.notifications?.messageTemplate ?? '')
-    const notificationError = node.notifications?.enabled === false ? undefined : notificationTemplates.map(notificationContentError).find(error => error !== undefined)
+    const notificationError = node.type !== 'handoff' && node.notifications?.enabled === false ? undefined : notificationTemplates.map(notificationContentError).find(error => error !== undefined)
     if (notificationError !== undefined) issues.push({ ...issue('webhook-body-invalid', { nodeId: node.id }), message: notificationError })
     if (nodeIds.has(node.id)) issues.push(issue('duplicate-id', { nodeId: node.id }))
     nodeIds.add(node.id)

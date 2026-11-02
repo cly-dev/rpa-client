@@ -11,8 +11,8 @@ describe('pagination page input', () => {
     expect(normalizePageInput('99', 20, 3)).toBe(20);
   });
 
-  it('keeps the current page for empty or invalid input', () => {
-    expect(normalizePageInput('', 20, 3)).toBe(3);
+  it('defaults empty input to page one and keeps the current page for invalid input', () => {
+    expect(normalizePageInput('', 20, 3)).toBe(1);
     expect(normalizePageInput('1.5', 20, 3)).toBe(3);
     expect(normalizePageInput('abc', 20, 3)).toBe(3);
   });

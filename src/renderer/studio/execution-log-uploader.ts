@@ -1,6 +1,6 @@
 import type { RunLogLine } from '@runner/dry-run.ts'
 import type { ExecutionEvent } from '../workflow-api.ts'
-import { safeEventMessage } from './execution-log.ts'
+import { redactExecutionJson, safeEventMessage } from './execution-log.ts'
 
 /** Incrementally persists one run's cumulative log snapshots. */
 export class ExecutionLogUploader {
@@ -21,7 +21,9 @@ export class ExecutionLogUploader {
       this.pending.push({
         sequence: ++this.sequence, nodeId: log.nodeId, nodeName: log.nodeName.slice(0, 200),
         message: safeEventMessage(log.message, this.secrets), at: log.at,
-        notificationEvent: log.notificationEvent, notificationValues: log.notificationValues,
+        notificationEvent: log.notificationEvent, notificationValues: log.notificationValues
+          ? redactExecutionJson(log.notificationValues, this.secrets) as Readonly<Record<string, import('@graph/types.ts').JsonValue>>
+          : undefined,
       })
     }
     this.seen = logs.length

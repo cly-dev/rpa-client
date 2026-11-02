@@ -9,6 +9,7 @@ import { DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES, MAX_IMAGE_RECOGNITION_MAX_IMAGES,
 import { reorderPageActionStep } from '@graph/page-action-steps.ts'
 import { getWorkflowRevision, listWorkflowRevisions, listWorkflows, listWorkspaces, RPA_SERVICE_URL, type WorkflowListItem, type WorkflowRevisionItem } from '../workflow-api.ts'
 import { CodeNodeEditor } from './CodeNodeEditor.tsx'
+import { ClearableNumberInput } from './ClearableNumberInput.tsx'
 import { RequestBodyEditor, availableVariables } from './RequestBodyEditor.tsx'
 import { WebhookTestButton } from './WebhookTestButton.tsx'
 import { notificationContentError } from '@graph/webhook-body-template.ts'
@@ -81,7 +82,7 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
   const notificationEnabled = node.notifications?.enabled ?? hasNotificationTrigger
   const notificationOptions: readonly { readonly trigger: NodeNotificationTrigger; readonly label: string }[] = [
     { trigger: 'onSuccess', label: '节点成功' },
-    { trigger: 'onFailure', label: '节点失败' },
+    { trigger: 'onFailure', label: node.type === 'for-each' ? '任意一轮执行失败（首次通知）' : '节点失败' },
     ...(node.type === 'approval' ? [
       { trigger: 'onApprovalPending' as const, label: '待审批' },
       { trigger: 'onApprovalApproved' as const, label: '审批通过' },
@@ -104,21 +105,25 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
         名称
         <input value={node.name} onChange={event => { onChange(node.id, { name: event.target.value }) }} />
       </label>
-      <ConfigFields
+      {node.type === 'handoff' ? null : <ConfigFields
         graph={graph}
         node={node}
         onChange={(config, inputBindings) => { onChange(node.id, { config, inputBindings }) }}
         onBatchSubflowVersion={onBatchSubflowVersion}
         batchSubflowBusy={batchSubflowBusy}
         onPick={(field, stepIndex) => { onPick(node.id, field, stepIndex) }}
-      />
-      <section className="node-notification-config">
+      />}
+      {node.type === 'handoff' ? <section className="node-notification-config">
+        <div className="node-notification-header"><h3>Webhook 通知</h3></div>
+        <NotificationNodeSettings graph={graph} node={node} subflowVariableNames={subflowVariableNames} onChange={onChange} />
+      </section> : <section className="node-notification-config">
         <div className="node-notification-header"><h3>Webhook 通知</h3><label className="node-notification-option"><input type="checkbox" checked={notificationEnabled} onChange={event => {
           const enabled = event.target.checked
           onChange(node.id, { notifications: { ...node.notifications, enabled, ...(enabled && !hasNotificationTrigger ? node.type === 'approval' ? { onApprovalPending: true } : { onSuccess: true } : {}) } })
         }} />启用 Webhook</label></div>
         {notificationEnabled ? <>
           <p className="properties-hint">发送到流程设置中的钉钉机器人地址；仅执行中心运行已发布版本时发送。</p>
+          {node.type === 'for-each' ? <p className="properties-hint">开启“任意一轮执行失败”后，循环体首次失败立即触发一次通知；无论失败策略是跳过还是停止，后续失败仍会记录在运行日志中。通知内容可使用 {'{{event.message}}'} 获取轮次、失败节点和原因。</p> : null}
           {hasNotificationTrigger && !graph.webhook?.url.trim() ? <p className="properties-hint node-notification-warning">已启用节点通知，请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
           {notificationOptions.map(({ trigger, label }) => {
             const checked = node.notifications?.[trigger] === true
@@ -127,13 +132,12 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
             return <div key={trigger} className="node-notification-status"><label className="node-notification-option"><input type="checkbox" checked={checked} onChange={event => { onChange(node.id, { notifications: { ...node.notifications, [trigger]: event.target.checked } }) }} />{label}</label>{checked && (graph.webhook?.provider ?? 'dingtalk') === 'dingtalk' ? <div className="node-notification-message"><label>{label}通知内容<textarea spellCheck={false} value={template} placeholder="留空则使用流程默认文案" onChange={event => { onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: event.target.value } } }) }} /></label><p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。仅在“{label}”状态下使用，留空则继承流程默认文案。</p><select aria-label={`插入${label}通知变量`} value="" onChange={event => { if (event.target.value) onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: `${template}{{${event.target.value}}}` } } }) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>{templateError ? <p className="webhook-body-error">{templateError}</p> : null}<WebhookTestButton url={graph.webhook?.url ?? ''} messageTemplate={template || graph.webhook?.messageTemplate || ''} workflowName={graph.name} nodeName={node.name} /></div> : null}</div>
           })}
         </> : <p className="properties-hint">开启后可设置通知时机和内容。</p>}
-      </section>
-      {node.type !== 'start' && node.type !== 'end' ? (
+      </section>}
+      {node.type !== 'start' && node.type !== 'end' && node.type !== 'handoff' ? (
         <>
           <label>
             超时（毫秒）
-            <input
-              type="number"
+            <ClearableNumberInput
               min={1}
               value={node.execution.timeoutMs}
               onChange={event => {
@@ -143,8 +147,7 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
           </label>
           <label>
             重试次数
-            <input
-              type="number"
+            <ClearableNumberInput
               min={1}
               max={20}
               value={node.execution.maxAttempts}
@@ -175,6 +178,39 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
     </SubflowVariableContext.Provider>
     </CurrentNodeIdContext.Provider>
   )
+}
+
+function NotificationNodeSettings({ graph, node, subflowVariableNames, onChange }: {
+  readonly graph: WorkflowGraph
+  readonly node: WorkflowNode
+  readonly subflowVariableNames: readonly string[]
+  readonly onChange: Props['onChange']
+}): ReactNode {
+  const content = node.notifications?.messageTemplate ?? (node.config.type === 'handoff' ? node.config.note : '')
+  const contentError = notificationContentError(content)
+  const setContent = (value: string): void => {
+    onChange(node.id, {
+      ...(node.config.type === 'handoff' ? { config: { ...node.config, note: value } } : {}),
+      notifications: {
+        ...node.notifications,
+        enabled: true,
+        onSuccess: true,
+        onFailure: false,
+        messageTemplate: value,
+        messageTemplates: undefined,
+      },
+    })
+  }
+  return <>
+    <p className="properties-hint">流程运行到这里时会触发一次通知，服务端异步发送到流程共用的钉钉机器人地址；流程不等待发送结果。仅执行中心运行已发布版本时投递。</p>
+    {!graph.webhook?.url.trim() ? <p className="properties-hint node-notification-warning">请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
+    <label>通知内容<textarea spellCheck={false} rows={5} value={content} placeholder="例如：订单 {{inputs.orderId}} 需要人工处理" onChange={event => { setContent(event.target.value) }} /></label>
+    <p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。留空则使用流程默认文案。</p>
+    <select aria-label="插入通知变量" value="" onChange={event => { if (event.target.value) setContent(`${content}{{${event.target.value}}}`) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>
+    {contentError ? <p className="webhook-body-error" role="alert">{contentError}</p> : null}
+    <WebhookTestButton url={graph.webhook?.url ?? ''} messageTemplate={content || graph.webhook?.messageTemplate || ''} workflowName={graph.name} nodeName={node.name} />
+    <p className="properties-hint">测试发送只验证 Webhook 地址；运行时变量会在实际执行时解析。</p>
+  </>
 }
 
 function ConfigFields({
@@ -244,9 +280,9 @@ function ConfigFields({
             const nextMode = event.target.value as 'duration' | 'visible' | 'hidden'
             onChange({ ...config, mode: nextMode, ms: nextMode === 'duration' ? Math.min(config.ms, 5000) : Math.max(config.ms, 10000) })
           }}><option value="visible">元素出现并可见</option><option value="hidden">元素消失或隐藏</option><option value="duration">固定等待时长</option></select></label>
-          {mode === 'duration' ? <label>等待时长（毫秒）<input type="number" min={0} value={config.ms} onChange={event => { onChange({ ...config, ms: Math.max(0, Number(event.target.value)) }) }} /></label> : <>
+          {mode === 'duration' ? <label>等待时长（毫秒）<ClearableNumberInput min={0} value={config.ms} onChange={event => { onChange({ ...config, ms: Math.max(0, Number(event.target.value)) }) }} /></label> : <>
             <label>目标元素<div className="picker-field"><input value={selectorText(config.selector)} onChange={event => { onChange({ ...config, selector: event.target.value }) }} placeholder="点击拾取，或填写 CSS 选择器" /><button type="button" onClick={() => { onPick('selector') }}>拾取元素</button></div></label>
-            <label>最大等待时间（毫秒）<input type="number" min={1} value={config.ms} onChange={event => { onChange({ ...config, ms: Math.max(1, Number(event.target.value)) }) }} /></label>
+            <label>最大等待时间（毫秒）<ClearableNumberInput min={1} value={config.ms} onChange={event => { onChange({ ...config, ms: Math.max(1, Number(event.target.value)) }) }} /></label>
             <p className="properties-hint">流程会停在此节点，直到元素{mode === 'visible' ? '出现且可见' : '隐藏或从页面移除'}；超过最大等待时间后按节点失败策略处理。</p>
           </>}
         </div>
@@ -299,7 +335,7 @@ function ConfigFields({
       return <div className="switch-config image-recognition-config">
         <BindingField graph={graph} nodeId={node.id} label="图片来源变量" binding={config.image} onChange={image => { onChange({ ...config, image }, { ...node.inputBindings, image }) }} />
         <label>字段路径（可选）<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="例如 data.imageUrl" /></label>
-        <label>最多识别图片数<input type="number" min={1} max={MAX_IMAGE_RECOGNITION_MAX_IMAGES} step={1} value={config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES} onChange={event => { onChange({ ...config, maxImages: normalizeImageRecognitionMaxImages(event.currentTarget.valueAsNumber) }) }} /></label>
+        <label>最多识别图片数<ClearableNumberInput min={1} max={MAX_IMAGE_RECOGNITION_MAX_IMAGES} step={1} value={config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES} onChange={event => { onChange({ ...config, maxImages: normalizeImageRecognitionMaxImages(event.currentTarget.valueAsNumber) }) }} /></label>
         <p className="properties-hint">支持单张图片或图片数组，本节点会按原顺序最多识别 {config.maxImages ?? DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES} 张（系统上限 {MAX_IMAGE_RECOGNITION_MAX_IMAGES} 张）；超出的图片不会传给 AI。每项可为图片 URL、data:image/...;base64、Base64 字符串，或包含 url、imageUrl、base64 字段的对象。全部入选图片会在一次 AI 调用中综合判断，最终只进入一条支路。</p>
         <label>使用的视觉 AI<select value={config.llmId ?? ''} onChange={event => { onChange({ ...config, llmId: event.target.value || undefined }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>统一判断要求（可选）<textarea rows={3} value={config.instruction} onChange={event => { onChange({ ...config, instruction: event.target.value }) }} placeholder="例如只依据图片可见内容判断，不推测图片之外的信息" /></label>
@@ -341,19 +377,20 @@ function ConfigFields({
     case 'approval':
       return <ApprovalEditor graph={graph} node={node} config={config} onChange={onChange} />
     case 'handoff':
-      return <label>人工处理说明<textarea rows={5} value={config.note} onChange={event => { onChange({ ...config, note: event.target.value }) }} placeholder="告诉操作人员需要检查什么" /></label>
+      return null
     case 'set-variable':
       {
         const valueText = bindingTemplateText(config.value)
         return (
         <>
           <label>变量名<input value={config.name} onChange={event => { onChange({ ...config, name: event.target.value }) }} placeholder="例如 order.currentId" /></label>
+          <label>变量类型<select value={config.valueType ?? 'auto'} onChange={event => { const valueType = event.target.value; onChange({ ...config, valueType: valueType === 'auto' ? undefined : valueType as NonNullable<typeof config.valueType> }) }}><option value="auto">自动（保持原值类型）</option><option value="string">文本 string</option><option value="number">数字 number</option><option value="boolean">布尔 boolean</option><option value="object">对象 object</option><option value="array">数组 array</option></select></label>
           <VariableReferencePicker graph={graph} />
           <label>变量值<textarea rows={6} value={valueText} onChange={event => {
             const value = { kind: 'literal' as const, value: event.target.value }
             onChange({ ...config, value, interpolate: true }, { ...node.inputBindings, value })
           }} placeholder={'支持多行文本，例如：\n订单号：{{orderId}}\n处理结果：{{result}}'} /></label>
-          <p className="properties-hint">支持多行内容和变量引用，例如 <code>{'{{变量名}}'}</code>、<code>{'{{inputs.输入名}}'}</code>、<code>{'{{order.id}}'}</code>；运行时会替换为实际值。</p>
+          <p className="properties-hint">支持多行内容和变量引用，例如 <code>{'{{变量名}}'}</code>、<code>{'{{inputs.输入名}}'}</code>、<code>{'{{order.id}}'}</code>；运行时会替换为实际值。对象和数组可填写 JSON，布尔值填写 true 或 false；类型不匹配会提示错误。</p>
           <label>字段路径<input value={config.path} onChange={event => { onChange({ ...config, path: event.target.value }) }} placeholder="可选，例如 data.id" /></label>
         </>
         )
@@ -408,8 +445,8 @@ function ConfigFields({
           <p className="properties-hint">声明字段名后，会把当前项的同名字段作为独立变量。例如声明 <code>id</code> 后，可直接使用 <code>{'{{id}}'}</code>；仍可用 <code>{`{{${config.itemVar || 'item'}.id}}`}</code> 读取原始当前项。</p>
         </section>
         <details className="loop-advanced"><summary>高级设置</summary><div className="loop-advanced-grid">
-          <label>最大处理条数<input type="number" min={1} value={config.maxItems} onChange={event => { onChange({ ...config, maxItems: Number(event.target.value) }) }} /></label>
-          <label>单项重试次数<input type="number" min={0} value={config.retryCount} onChange={event => { onChange({ ...config, retryCount: Number(event.target.value) }) }} /></label>
+          <label>最大处理条数<ClearableNumberInput min={1} value={config.maxItems} onChange={event => { onChange({ ...config, maxItems: Number(event.target.value) }) }} /></label>
+          <label>单项重试次数<ClearableNumberInput min={0} value={config.retryCount} onChange={event => { onChange({ ...config, retryCount: Number(event.target.value) }) }} /></label>
           <label>单项失败策略<select value={config.onItemError} onChange={event => { onChange({ ...config, onItemError: event.target.value === 'stop' ? 'stop' : 'skip' }) }}><option value="skip">跳过当前项</option><option value="stop">停止整个流程</option></select></label>
           <label>当前项变量<input value={config.itemVar} onChange={event => { onChange({ ...config, itemVar: event.target.value }) }} placeholder="item" /></label>
           <label>当前索引变量<input value={config.indexVar} onChange={event => { onChange({ ...config, indexVar: event.target.value }) }} placeholder="index" /></label>
@@ -421,7 +458,7 @@ function ConfigFields({
     case 'list-row-action':
       return <ListRowActionEditor graph={graph} node={node} config={config} onChange={(next, source) => { onChange(next, source === undefined ? undefined : { ...node.inputBindings, source }) }} onPick={onPick} />
     case 'api-listen':
-      return <div className="api-listen-form"><p className="properties-hint">监听页面已经发出的接口响应。通常将此节点放在触发查询的页面操作之后。</p><label>接口 URL 匹配<input value={config.urlPattern} onChange={event => { onChange({ ...config, urlPattern: event.target.value }) }} placeholder="例如 /api/orders" /></label><div className="api-listen-grid"><label>匹配方式<select value={config.matchMode} onChange={event => { onChange({ ...config, matchMode: event.target.value as typeof config.matchMode }) }}><option value="contains">包含</option><option value="equals">完全匹配</option><option value="regex">正则</option></select></label><label>请求方法<select value={config.method} onChange={event => { onChange({ ...config, method: event.target.value }) }}><option value="ANY">全部方法</option><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option></select></label></div><div className="api-fields-editor"><div className="ai-field-editor-title"><strong>请求参数匹配（可选）</strong><button type="button" onClick={() => { onChange({ ...config, requestParams: [...(config.requestParams ?? []), { name: '', value: '' }] }) }}>＋添加参数</button></div>{(config.requestParams ?? []).map((param, index) => <div className="api-field-row" key={`api-param-${index}`}><input value={param.name} placeholder="参数名，例如 page" onChange={event => { onChange({ ...config, requestParams: (config.requestParams ?? []).map((item, i) => i === index ? { ...item, name: event.target.value } : item) }) }} /><input value={param.value} placeholder="参数值，例如 1 或 {{page}}" onChange={event => { onChange({ ...config, requestParams: (config.requestParams ?? []).map((item, i) => i === index ? { ...item, value: event.target.value } : item) }) }} /><button type="button" onClick={() => { onChange({ ...config, requestParams: (config.requestParams ?? []).filter((_, i) => i !== index) }) }}>删除</button></div>)}</div><div className="api-listen-grid"><label>响应类型<select value={config.responseType} onChange={event => { onChange({ ...config, responseType: event.target.value === 'text' ? 'text' : 'json' }) }}><option value="json">JSON</option><option value="text">文本</option></select></label><label>超时（毫秒）<input type="number" min={100} value={config.timeoutMs} onChange={event => { onChange({ ...config, timeoutMs: Number(event.target.value) }) }} /></label></div><label>主变量路径（可选）<input value={config.jsonPath} onChange={event => { onChange({ ...config, jsonPath: event.target.value }) }} placeholder="例如 data.records" /></label><label>主产出变量名<input value={config.outputName} onChange={event => { onChange({ ...config, outputName: event.target.value }) }} placeholder="例如 tableData" /></label><OutputVariableMode graph={graph} mode={config.outputMode} target={config.updateVariable} onChange={(outputMode, updateVariable) => { onChange({ ...config, outputMode, updateVariable }) }} /><label>原始响应变量名<input value={config.rawOutputName ?? 'responseData'} onChange={event => { onChange({ ...config, rawOutputName: event.target.value }) }} placeholder="例如 responseData" /></label><div className="api-fields-editor"><div className="ai-field-editor-title"><strong>额外字段变量</strong><button type="button" onClick={() => { onChange({ ...config, fields: [...(config.fields ?? []), { name: '', path: '' }] }) }}>＋添加字段</button></div>{(config.fields ?? []).map((field, index) => <div className="api-field-row" key={`api-field-${index}`}><input value={field.name} placeholder="变量名，例如 total" onChange={event => { onChange({ ...config, fields: (config.fields ?? []).map((item, i) => i === index ? { ...item, name: event.target.value } : item) }) }} /><input value={field.path} placeholder="路径，例如 data.total" onChange={event => { onChange({ ...config, fields: (config.fields ?? []).map((item, i) => i === index ? { ...item, path: event.target.value } : item) }) }} /><button type="button" onClick={() => { onChange({ ...config, fields: (config.fields ?? []).filter((_, i) => i !== index) }) }}>删除</button></div>)}</div><p className="properties-hint">支持嵌套路径和数组下标，例如 <code>data.records</code>、<code>data.orders[0].id</code>。</p></div>
+      return <div className="api-listen-form"><p className="properties-hint">监听页面已经发出的接口响应。通常将此节点放在触发查询的页面操作之后。</p><label>接口 URL 匹配<input value={config.urlPattern} onChange={event => { onChange({ ...config, urlPattern: event.target.value }) }} placeholder="例如 /api/orders" /></label><div className="api-listen-grid"><label>匹配方式<select value={config.matchMode} onChange={event => { onChange({ ...config, matchMode: event.target.value as typeof config.matchMode }) }}><option value="contains">包含</option><option value="equals">完全匹配</option><option value="regex">正则</option></select></label><label>请求方法<select value={config.method} onChange={event => { onChange({ ...config, method: event.target.value }) }}><option value="ANY">全部方法</option><option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option></select></label></div><div className="api-fields-editor"><div className="ai-field-editor-title"><strong>请求参数匹配（可选）</strong><button type="button" onClick={() => { onChange({ ...config, requestParams: [...(config.requestParams ?? []), { name: '', value: '' }] }) }}>＋添加参数</button></div>{(config.requestParams ?? []).map((param, index) => <div className="api-field-row" key={`api-param-${index}`}><input value={param.name} placeholder="参数名，例如 page" onChange={event => { onChange({ ...config, requestParams: (config.requestParams ?? []).map((item, i) => i === index ? { ...item, name: event.target.value } : item) }) }} /><input value={param.value} placeholder="参数值，例如 1 或 {{page}}" onChange={event => { onChange({ ...config, requestParams: (config.requestParams ?? []).map((item, i) => i === index ? { ...item, value: event.target.value } : item) }) }} /><button type="button" onClick={() => { onChange({ ...config, requestParams: (config.requestParams ?? []).filter((_, i) => i !== index) }) }}>删除</button></div>)}</div><div className="api-listen-grid"><label>响应类型<select value={config.responseType} onChange={event => { onChange({ ...config, responseType: event.target.value === 'text' ? 'text' : 'json' }) }}><option value="json">JSON</option><option value="text">文本</option></select></label><label>超时（毫秒）<ClearableNumberInput min={100} value={config.timeoutMs} onChange={event => { onChange({ ...config, timeoutMs: Number(event.target.value) }) }} /></label></div><label>主变量路径（可选）<input value={config.jsonPath} onChange={event => { onChange({ ...config, jsonPath: event.target.value }) }} placeholder="例如 data.records" /></label><label>主产出变量名<input value={config.outputName} onChange={event => { onChange({ ...config, outputName: event.target.value }) }} placeholder="例如 tableData" /></label><OutputVariableMode graph={graph} mode={config.outputMode} target={config.updateVariable} onChange={(outputMode, updateVariable) => { onChange({ ...config, outputMode, updateVariable }) }} /><label>原始响应变量名<input value={config.rawOutputName ?? 'responseData'} onChange={event => { onChange({ ...config, rawOutputName: event.target.value }) }} placeholder="例如 responseData" /></label><div className="api-fields-editor"><div className="ai-field-editor-title"><strong>额外字段变量</strong><button type="button" onClick={() => { onChange({ ...config, fields: [...(config.fields ?? []), { name: '', path: '' }] }) }}>＋添加字段</button></div>{(config.fields ?? []).map((field, index) => <div className="api-field-row" key={`api-field-${index}`}><input value={field.name} placeholder="变量名，例如 total" onChange={event => { onChange({ ...config, fields: (config.fields ?? []).map((item, i) => i === index ? { ...item, name: event.target.value } : item) }) }} /><input value={field.path} placeholder="路径，例如 data.total" onChange={event => { onChange({ ...config, fields: (config.fields ?? []).map((item, i) => i === index ? { ...item, path: event.target.value } : item) }) }} /><button type="button" onClick={() => { onChange({ ...config, fields: (config.fields ?? []).filter((_, i) => i !== index) }) }}>删除</button></div>)}</div><p className="properties-hint">支持嵌套路径和数组下标，例如 <code>data.records</code>、<code>data.orders[0].id</code>。</p></div>
     case 'api-request':
       return <ApiRequestEditor graph={graph} config={config} onChange={next => { onChange(next) }} />
   }
@@ -473,7 +510,7 @@ function ApiRequestEditor({ graph, config, onChange }: { graph: WorkflowGraph; c
     <div className="api-form-section"><div className="api-form-heading"><strong>基础请求</strong><span>Node HTTP 直接请求</span></div>
       <label>请求 URL<input value={config.url} onChange={event => { patch({ url: event.target.value }) }} placeholder="https://example.com/api/orders/{{orderId}}" /></label>
       <p className="properties-hint">路径参数可直接引用变量，例如 <code>https://example.com/api/orders/{'{{orderId}}'}</code>；运行时会先替换变量，再发送请求。</p>
-      <div className="api-listen-grid"><label>请求方法<select value={config.method} onChange={event => { patch({ method: event.target.value }) }}><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></label><label>超时（毫秒）<input type="number" min={100} value={config.timeoutMs} onChange={event => { patch({ timeoutMs: Number(event.target.value) }) }} /></label></div>
+      <div className="api-listen-grid"><label>请求方法<select value={config.method} onChange={event => { patch({ method: event.target.value }) }}><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></label><label>超时（毫秒）<ClearableNumberInput min={100} value={config.timeoutMs} onChange={event => { patch({ timeoutMs: Number(event.target.value) }) }} /></label></div>
       <p className="properties-hint">请求不会自动继承浏览器登录态；需要认证时，请在请求头中配置 Authorization、Cookie 等信息。</p>
     </div>
     <ApiPairSection title="查询参数" items={config.queryParams ?? []} add={() => { addPair('queryParams') }} edit={(index, value) => { editPairs('queryParams', index, value) }} remove={index => { removePair('queryParams', index) }} />
@@ -560,11 +597,11 @@ function PageActionEditor({ graph, steps, onChange, onPick }: { graph: WorkflowG
     onChange([...steps, next])
   }
   const patch = (index: number, value: PageActionStep): void => { onChange(steps.map((step, i) => i === index ? value : step)) }
-  return <div className="page-actions"><VariableReferencePicker graph={graph} /><div className="page-actions-list">{steps.map((step, index) => <div className="page-action-step" key={`${step.type}-${index}`}><div className="page-action-heading"><strong>{index + 1}. {step.type}</strong><div className="page-action-heading-actions"><button type="button" className="step-order-button" title="上移步骤" aria-label={`上移步骤 ${index + 1}`} disabled={index === 0} onClick={() => { onChange(reorderPageActionStep(steps, index, index - 1)) }}>↑</button><button type="button" className="step-order-button" title="下移步骤" aria-label={`下移步骤 ${index + 1}`} disabled={index === steps.length - 1} onClick={() => { onChange(reorderPageActionStep(steps, index, index + 1)) }}>↓</button><button type="button" onClick={() => { onChange(steps.filter((_, i) => i !== index)) }}>删除</button></div></div><label className="step-wait-field">操作后等待（毫秒）<input type="number" min={0} value={step.waitAfterMs ?? 0} onChange={event => { patch(index, { ...step, waitAfterMs: Number(event.target.value) }) }} /></label>
+  return <div className="page-actions"><VariableReferencePicker graph={graph} /><div className="page-actions-list">{steps.map((step, index) => <div className="page-action-step" key={`${step.type}-${index}`}><div className="page-action-heading"><strong>{index + 1}. {step.type}</strong><div className="page-action-heading-actions"><button type="button" className="step-order-button" title="上移步骤" aria-label={`上移步骤 ${index + 1}`} disabled={index === 0} onClick={() => { onChange(reorderPageActionStep(steps, index, index - 1)) }}>↑</button><button type="button" className="step-order-button" title="下移步骤" aria-label={`下移步骤 ${index + 1}`} disabled={index === steps.length - 1} onClick={() => { onChange(reorderPageActionStep(steps, index, index + 1)) }}>↓</button><button type="button" onClick={() => { onChange(steps.filter((_, i) => i !== index)) }}>删除</button></div></div><label className="step-wait-field">操作后等待（毫秒）<ClearableNumberInput min={0} value={step.waitAfterMs ?? 0} onChange={event => { patch(index, { ...step, waitAfterMs: Number(event.target.value) }) }} /></label>
     {step.type === 'open' ? <label>URL<input value={step.url} onChange={event => { patch(index, { ...step, url: event.target.value }) }} placeholder="可写 {{变量名}}" /></label> : null}
     {step.type === 'click' ? <label>点击选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label> : null}
     {step.type === 'hover' ? <label>Hover 选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label> : null}
-    {step.type === 'wait' ? <><label>等待毫秒<input type="number" value={step.ms} onChange={event => { patch(index, { ...step, ms: Number(event.target.value) }) }} /></label><label>等待选择器（可选）<div className="picker-field"><input value={selectorText(step.selector ?? '')} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label></> : null}
+    {step.type === 'wait' ? <><label>等待毫秒<ClearableNumberInput value={step.ms} onChange={event => { patch(index, { ...step, ms: Number(event.target.value) }) }} /></label><label>等待选择器（可选）<div className="picker-field"><input value={selectorText(step.selector ?? '')} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label></> : null}
     {step.type === 'type' ? <><label>输入选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label><label>输入方式<select value={step.inputMode ?? 'replace'} onChange={event => { patch(index, { ...step, inputMode: event.target.value === 'append' ? 'append' : 'replace' }) }}><option value="replace">替换原内容</option><option value="append">拼接到原内容后面</option></select></label><p className="properties-hint">替换会清空输入框原内容；拼接会保留原内容，并把新内容追加到末尾。</p><label className="llm-switch"><input type="checkbox" checked={step.ai?.enabled === true} onChange={event => { patch(index, { ...step, ai: { enabled: event.target.checked, prompt: step.ai?.prompt ?? '', llmId: step.ai?.llmId } }) }} />使用 AI 生成输入内容</label>{step.ai?.enabled ? <div className="extract-ai-config"><label>使用的 AI<select value={step.ai.llmId ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, llmId: event.target.value || undefined } }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>生成提示词<textarea rows={3} value={step.ai.prompt} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, prompt: event.target.value } }) }} placeholder="例如：根据当前订单信息，生成一段礼貌的售后回复。可引用 {{item.title}} 等变量。" /></label><p className="properties-hint">AI 只会根据提示词及其中明确引用的变量生成文本，不会自动发送其他流程变量。</p></div> : <label>输入内容<input value={step.value.kind === 'literal' ? String(step.value.value ?? '') : step.value.kind === 'variable' ? `{{${step.value.name}}}` : step.value.kind === 'workflow-input' ? `{{inputs.${step.value.name}}}` : ''} onChange={event => { patch(index, { ...step, value: { kind: 'literal', value: event.target.value } }) }} placeholder="可写 {{变量名}}" /></label>}</> : null}
     {step.type === 'extract' ? <><label>抽取选择器<div className="picker-field"><input value={selectorText(step.selector)} onChange={event => { patch(index, { ...step, selector: event.target.value }) }} placeholder="可写 {{变量名}}" /><button type="button" onClick={() => { onPick('selector', index) }}>拾取</button></div></label><label>产出名称（连线引用）<input value={step.outputName} onChange={event => { patch(index, { ...step, outputName: event.target.value }) }} placeholder="例如 detailText" /></label><OutputVariableMode graph={graph} mode={step.outputMode} target={step.updateVariable} onChange={(outputMode, updateVariable) => { patch(index, { ...step, outputMode, updateVariable }) }} /><label className="llm-switch"><input type="checkbox" checked={step.ai?.enabled === true} onChange={event => { patch(index, { ...step, ai: { enabled: event.target.checked, fields: step.ai?.fields ?? [], prompt: step.ai?.prompt ?? '', llmId: step.ai?.llmId } }) }} />使用 AI 抽取</label>{step.ai?.enabled ? <div className="extract-ai-config"><label>使用的 AI<select value={step.ai.llmId ?? graph.llms?.[0]?.id ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, llmId: event.target.value } }) }}><option value="">默认 AI</option>{(graph.llms ?? []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>输出字段（每行一个）<textarea rows={3} value={step.ai.fields.join('\n')} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, fields: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) } }) }} placeholder="订单号\n状态\n详情链接" /></label><label>AI 提示词<textarea rows={2} value={step.ai.prompt ?? ''} onChange={event => { patch(index, { ...step, ai: { ...step.ai!, prompt: event.target.value } }) }} placeholder="说明需要如何提取和清洗字段" /></label></div> : null}</> : null}
   </div>)}</div><div className="page-action-add"><select defaultValue="" onChange={event => { if (event.target.value) { add(event.target.value as PageActionStep['type']); event.target.value = '' } }}><option value="">添加页面步骤…</option><option value="open">打开页面</option><option value="hover">Hover</option><option value="click">点击</option><option value="type">输入</option><option value="wait">等待</option><option value="extract">抽取</option></select></div></div>
@@ -595,7 +632,7 @@ function ListRowActionEditor({ graph, node, config, onChange, onPick }: { graph:
     </div>
 
     <label>未匹配页面行<select value={config.unmatchedMode} onChange={event => { onChange({ ...config, unmatchedMode: event.target.value === 'delete' ? 'delete' : 'keep' }) }}><option value="keep">保留</option><option value="delete">点击删除</option></select></label>
-    {config.unmatchedMode === 'delete' || config.emptySourceAction === 'delete-all' ? <div className="extract-ai-config"><label>行内删除按钮<div className="picker-field"><input value={config.deleteSelector} onChange={event => { onChange({ ...config, deleteSelector: event.target.value }) }} placeholder="button.delete" /><button type="button" onClick={() => { onPick('listDeleteSelector') }}>拾取按钮</button></div></label><label>确认按钮（可选，全局选择器）<div className="picker-field"><input value={config.confirmSelector ?? ''} onChange={event => { onChange({ ...config, confirmSelector: event.target.value }) }} placeholder=".confirm-dialog .confirm" /><button type="button" onClick={() => { onPick('listConfirmSelector') }}>拾取确认按钮</button></div></label><label>删除后等待（毫秒）<input type="number" min={0} value={config.waitAfterDeleteMs} onChange={event => { onChange({ ...config, waitAfterDeleteMs: Math.max(0, Number(event.target.value)) }) }} /></label><label>最大删除数量<input type="number" min={1} value={config.maxDeleteCount} onChange={event => { onChange({ ...config, maxDeleteCount: Math.max(1, Number(event.target.value)) }) }} /></label></div> : null}
+    {config.unmatchedMode === 'delete' || config.emptySourceAction === 'delete-all' ? <div className="extract-ai-config"><label>行内删除按钮<div className="picker-field"><input value={config.deleteSelector} onChange={event => { onChange({ ...config, deleteSelector: event.target.value }) }} placeholder="button.delete" /><button type="button" onClick={() => { onPick('listDeleteSelector') }}>拾取按钮</button></div></label><label>确认按钮（可选，全局选择器）<div className="picker-field"><input value={config.confirmSelector ?? ''} onChange={event => { onChange({ ...config, confirmSelector: event.target.value }) }} placeholder=".confirm-dialog .confirm" /><button type="button" onClick={() => { onPick('listConfirmSelector') }}>拾取确认按钮</button></div></label><label>删除后等待（毫秒）<ClearableNumberInput min={0} value={config.waitAfterDeleteMs} onChange={event => { onChange({ ...config, waitAfterDeleteMs: Math.max(0, Number(event.target.value)) }) }} /></label><label>最大删除数量<ClearableNumberInput min={1} value={config.maxDeleteCount} onChange={event => { onChange({ ...config, maxDeleteCount: Math.max(1, Number(event.target.value)) }) }} /></label></div> : null}
     <label>目标数据未匹配页面行<select value={config.missingMatchAction} onChange={event => { onChange({ ...config, missingMatchAction: event.target.value === 'skip' ? 'skip' : 'stop' }) }}><option value="stop">停止运行</option><option value="skip">跳过并记录</option></select></label>
     <label>页面存在重复匹配行<select value={config.duplicateMatchAction === 'first' ? 'first' : 'all'} onChange={event => { onChange({ ...config, duplicateMatchAction: event.target.value === 'first' ? 'first' : 'all' }) }}><option value="all">操作所有匹配行</option><option value="first">只操作第一行</option></select></label>
     <label>目标数据为空时<select value={config.emptySourceAction} onChange={event => { const value = event.target.value; onChange({ ...config, emptySourceAction: value === 'keep' || value === 'delete-all' ? value : 'stop' }) }}><option value="stop">停止运行</option><option value="keep">保留所有行</option><option value="delete-all">删除所有行</option></select></label>
@@ -667,7 +704,7 @@ function ApprovalEditor({ graph, node, config, onChange }: { graph: WorkflowGrap
     {config.fields.map((field, index) => <div className="approval-field-row" key={`approval-field-${index}`}><input value={field.label} onChange={event => { onChange({ ...config, fields: config.fields.map((item, i) => i === index ? { ...item, label: event.target.value } : item) }) }} placeholder="字段名称，例如订单金额" /><BindingField graph={graph} nodeId={node.id} label={`字段值 ${index + 1}`} binding={field.value} onChange={value => { onChange({ ...config, fields: config.fields.map((item, i) => i === index ? { ...item, value } : item) }) }} /><input value={field.path ?? ''} onChange={event => { onChange({ ...config, fields: config.fields.map((item, i) => i === index ? { ...item, path: event.target.value } : item) }) }} placeholder="字段路径（可选）" /><button type="button" onClick={() => { onChange({ ...config, fields: config.fields.filter((_, i) => i !== index) }) }}>删除</button></div>)}
     {config.fields.length === 0 ? <p className="properties-hint">可以添加订单号、金额等需要审批人核对的信息。</p> : null}
     <label className="checkbox-label"><input type="checkbox" checked={config.requireCommentOnReject} onChange={event => { onChange({ ...config, requireCommentOnReject: event.target.checked }) }} />拒绝时必须填写意见</label>
-    <label>审批超时（分钟）<input type="number" min={1} value={config.timeoutMinutes} onChange={event => { onChange({ ...config, timeoutMinutes: Math.max(1, Number(event.target.value) || 1) }) }} /></label>
+    <label>审批超时（分钟）<ClearableNumberInput min={1} value={config.timeoutMinutes} onChange={event => { onChange({ ...config, timeoutMinutes: Math.max(1, Number(event.target.value) || 1) }) }} /></label>
     <p className="properties-hint">当前执行人审批。通过、拒绝和超时分别从对应出口继续。</p>
   </div>
 }
@@ -920,7 +957,7 @@ function ConditionAiFields({ graph, node, config, onChange }: { graph: WorkflowG
 }
 
 function ConditionWaitFields({ config, onChange }: { config: Extract<NodeConfig, { type: 'condition' }>; onChange: (config: NodeConfig) => void }): ReactNode {
-  return <div className="condition-wait-fields"><label className="checkbox-label"><input type="checkbox" checked={config.waitForCondition === true} onChange={event => { onChange({ ...config, waitForCondition: event.target.checked }) }} />等待条件满足</label>{config.waitForCondition === true ? <div className="condition-wait-options"><label>最大等待（毫秒）<input type="number" min={0} value={config.waitTimeoutMs ?? 10000} onChange={event => { onChange({ ...config, waitTimeoutMs: Number(event.target.value) }) }} /></label><label>轮询间隔（毫秒）<input type="number" min={50} value={config.pollIntervalMs ?? 500} onChange={event => { onChange({ ...config, pollIntervalMs: Number(event.target.value) }) }} /></label><p className="properties-hint">超时后进入“否则”分支。</p></div> : null}</div>
+  return <div className="condition-wait-fields"><label className="checkbox-label"><input type="checkbox" checked={config.waitForCondition === true} onChange={event => { onChange({ ...config, waitForCondition: event.target.checked }) }} />等待条件满足</label>{config.waitForCondition === true ? <div className="condition-wait-options"><label>最大等待（毫秒）<ClearableNumberInput min={0} value={config.waitTimeoutMs ?? 10000} onChange={event => { onChange({ ...config, waitTimeoutMs: Number(event.target.value) }) }} /></label><label>轮询间隔（毫秒）<ClearableNumberInput min={50} value={config.pollIntervalMs ?? 500} onChange={event => { onChange({ ...config, pollIntervalMs: Number(event.target.value) }) }} /></label><p className="properties-hint">超时后进入“否则”分支。</p></div> : null}</div>
 }
 
 function BindingField({

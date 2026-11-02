@@ -35,6 +35,7 @@ import {
 } from '@graph/index.ts'
 import type { ApprovalPrompt, JsonValue, NodeConfig, NodeType, ValueBinding, WorkflowContextVariable, WorkflowGraph, WorkflowLlmConfig, WorkflowNode } from '@graph/types.ts'
 import { NODE_CATALOG, PALETTE_TYPES } from '@graph/catalog.ts'
+import { normalizeNotificationNodes } from '@graph/notification-node.ts'
 import { runDry, type DryRunState } from '@runner/dry-run.ts'
 import { workflowNeedsBrowser } from '@runner/page-requirement.ts'
 import { FlowNode } from './FlowNode.tsx'
@@ -54,6 +55,7 @@ import { planBulkSubflowVersionUpdate } from './subflow-version.ts'
 import { WebhookSettings } from './WebhookSettings.tsx'
 import { WorkflowRunningBubble } from './WorkflowRunningBubble.tsx'
 import { ApprovalRichText } from './ApprovalRichText.tsx'
+import { isScheduledExecutionActive } from './scheduled-executions.ts'
 import type { AuthUser } from '../auth.ts'
 import { shouldInsertPickedDropdownSteps } from '@graph/picked-selector.ts'
 import { displayPickedSelector } from './selector-display.ts'
@@ -76,7 +78,8 @@ function parseRuntimeInputs(definitions: readonly WorkflowContextVariable[], val
   for (const definition of definitions) {
     const text = values[definition.name] ?? ''
     if (text.trim() === '') {
-      if (definition.defaultValue !== undefined && definition.defaultValue !== '******') result[definition.name] = definition.defaultValue
+      if (definition.type === 'number') result[definition.name] = 1
+      else if (definition.defaultValue !== undefined && definition.defaultValue !== '******') result[definition.name] = definition.defaultValue
       else if (definition.required && requireAll) throw new Error(`请填写必填变量「${definition.description || definition.name}」`)
       continue
     }
@@ -579,6 +582,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   useEffect(() => {
     if (view !== 'editor' || window.studio === undefined) return
     return window.studio.onApprovalRequest(prompt => {
+      if (isScheduledExecutionActive(prompt.executionId)) return
       setEditorApproval(prompt)
       setEditorApprovalComment('')
       setNotice('流程正在等待审批，请选择通过或拒绝')
@@ -638,8 +642,8 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const openServiceWorkflow = async (id: string): Promise<void> => {
     try {
       const result = await getWorkflow(RPA_SERVICE_URL, id)
-      const nextGraph = result.graph
-      savedGraphSnapshot.current = JSON.stringify(nextGraph)
+      const nextGraph = normalizeNotificationNodes(result.graph)
+      savedGraphSnapshot.current = JSON.stringify(result.graph)
       setSaveState('saved')
       setGraph(nextGraph)
       setSelectedWorkspaceId(result.workspaceId)
@@ -652,7 +656,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       setEdgeMenu(undefined)
       setRun(undefined)
       setView('editor')
-      setNotice(`已打开「${result.graph.name}」`)
+      setNotice(nextGraph === result.graph ? `已打开「${result.graph.name}」` : `已打开「${result.graph.name}」；旧人工接管节点已改为通知，请配置 Webhook 并重新发布`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '打开 RPA 流程失败')
     }
@@ -1169,14 +1173,14 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
               <label className={nodeRunDialog.mode === 'direct' ? 'is-selected' : ''}><input type="radio" name="node-run-mode" checked={nodeRunDialog.mode === 'direct'} onChange={() => { setNodeRunDialog({ ...nodeRunDialog, mode: 'direct' }); setNodeRunError(undefined) }} /><span><strong>注入变量，只执行该节点</strong><small>{graph.nodes.find(node => node.id === nodeRunDialog.nodeId)?.type === 'call-subflow' ? '只执行子流程；子流程开始 URL 留空时沿用当前浏览器页面。' : '跳过前置节点；可填写流程输入、变量和上游节点输出。'}</small></span></label>
             </div>
             <BrowserModePicker name="node-run-browser-mode" headless={runHeadless} onChange={setRunHeadless} />
-            {(graph.context?.inputs ?? []).length > 0 ? <div className="node-run-section"><h3>流程输入</h3>{(graph.context?.inputs ?? []).map(input => <label className="execution-input-field" key={input.name}><span>{input.description || input.name}{input.required && nodeRunDialog.mode === 'flow' ? <em>必填</em> : null}</span>{input.type === 'boolean' ? <select value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select> : input.type === 'object' || input.type === 'array' ? <textarea rows={3} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={input.type === 'object' ? '{"key":"value"}' : '["value"]'} /> : <input type={input.secret ? 'password' : input.type === 'number' ? 'number' : 'text'} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={`请输入${input.type === 'number' ? '数字' : '内容'}`} />}</label>)}</div> : null}
+            {(graph.context?.inputs ?? []).length > 0 ? <div className="node-run-section"><h3>流程输入</h3>{(graph.context?.inputs ?? []).map(input => <label className="execution-input-field" key={input.name}><span>{input.description || input.name}{input.required && nodeRunDialog.mode === 'flow' ? <em>必填</em> : null}</span>{input.type === 'boolean' ? <select value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select> : input.type === 'object' || input.type === 'array' ? <textarea rows={3} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={input.type === 'object' ? '{"key":"value"}' : '["value"]'} /> : <input type={input.secret ? 'password' : input.type === 'number' ? 'number' : 'text'} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} onBlur={event => { if (input.type === 'number' && event.currentTarget.value.trim() === '') updateRuntimeInput(input.name, '1') }} placeholder={`请输入${input.type === 'number' ? '数字' : '内容'}`} />}</label>)}</div> : null}
             {nodeRunDialog.mode === 'direct' ? <div className="node-run-section"><div className="node-run-section-title"><h3>注入数据</h3><button type="button" onClick={() => { setNodeRunRows(rows => [...rows, { key: `custom:${crypto.randomUUID()}`, name: '', type: 'string', value: '' }]) }}>＋ 添加变量</button></div><p>自动列出当前节点引用的变量和上游输出；留空则不注入。</p>{nodeRunRows.map(row => <div className="node-run-row" key={row.key}><label className="execution-input-field"><span>{row.source === 'output' ? '上游输出' : '变量名'}</span><input aria-label={row.source === 'output' ? '上游输出' : '变量名'} value={row.source === 'output' ? `${graph.nodes.find(node => node.id === row.nodeId)?.name ?? row.nodeId}.${row.port}` : row.name} readOnly={row.source === 'output'} onChange={event => { setNodeRunRows(rows => rows.map(item => item.key === row.key ? { ...item, name: event.target.value } : item)) }} placeholder="例如 orderId" /></label><label className="execution-input-field"><span>类型</span><select value={row.type} onChange={event => { setNodeRunRows(rows => rows.map(item => item.key === row.key ? { ...item, type: event.target.value as InjectionType } : item)) }}><option value="string">文本</option><option value="number">数字</option><option value="boolean">布尔值</option><option value="json">JSON</option></select></label><label className="execution-input-field"><span>值</span>{row.type === 'boolean' ? <select value={row.value} onChange={event => { setNodeRunRows(rows => rows.map(item => item.key === row.key ? { ...item, value: event.target.value } : item)) }}><option value="">不注入</option><option value="true">true</option><option value="false">false</option></select> : <input value={row.value} onChange={event => { setNodeRunRows(rows => rows.map(item => item.key === row.key ? { ...item, value: event.target.value } : item)) }} placeholder={row.type === 'json' ? '{"key":"value"}' : '填写值'} />}</label><button type="button" className="node-run-remove" aria-label={`移除 ${row.name}`} onClick={() => { setNodeRunRows(rows => rows.filter(item => item.key !== row.key)) }}>×</button></div>)}{nodeRunRows.length === 0 ? <p className="execution-no-inputs">当前节点未直接引用变量；仍可手动添加。</p> : null}</div> : null}
             {nodeRunError ? <p className="execution-error" role="alert">{nodeRunError}</p> : null}
           </div>
           <footer><button type="button" onClick={() => { setNodeRunDialog(undefined); setNodeRunError(undefined) }}>取消</button><button type="button" className="workbench-primary" onClick={() => { void confirmNodeRun() }}>▶ 开始运行</button></footer>
         </section>
       </div> : null}
-      {runtimeInputDialog ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}><section className="execution-dialog" role="dialog" aria-modal="true" aria-label={runtimeRunRequest?.type === 'picker' ? '填写运行时变量' : '开始运行'} onClick={event => { event.stopPropagation() }}><header><div><h2>{runtimeRunRequest?.type === 'picker' ? '填写运行时变量' : '开始运行'}</h2><p>{runtimeRunRequest?.type === 'picker' ? '拾取前请填写本次流程需要的输入。' : (graph.context?.inputs ?? []).length > 0 ? '选择浏览器方式，并填写本次流程需要的输入。' : '选择本次运行是否弹出浏览器窗口。'}</p></div><button type="button" aria-label="关闭" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}>×</button></header><div className="execution-dialog-body">{runtimeRunRequest?.type === 'picker' ? null : <BrowserModePicker name="editor-run-browser-mode" headless={runHeadless} onChange={setRunHeadless} />}{(graph.context?.inputs ?? []).map(input => <label className="execution-input-field" key={input.name}><span>{input.description || input.name}{input.required ? <em>必填</em> : null}</span>{input.type === 'boolean' ? <select value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select> : input.type === 'object' || input.type === 'array' ? <textarea rows={4} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={input.type === 'object' ? '{"key":"value"}' : '["value"]'} /> : <input type={input.secret ? 'password' : input.type === 'number' ? 'number' : 'text'} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={input.defaultValue === undefined ? `请输入${input.type === 'number' ? '数字' : '内容'}` : formatRuntimeInput(input.defaultValue)} />}</label>)}{runtimeInputError ? <p className="execution-error" role="alert">{runtimeInputError}</p> : null}</div><footer><button type="button" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}>取消</button><button type="button" className="workbench-primary" onClick={() => { void confirmRuntimeRun() }}>▶ 开始运行</button></footer></section></div> : null}
+      {runtimeInputDialog ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}><section className="execution-dialog" role="dialog" aria-modal="true" aria-label={runtimeRunRequest?.type === 'picker' ? '填写运行时变量' : '开始运行'} onClick={event => { event.stopPropagation() }}><header><div><h2>{runtimeRunRequest?.type === 'picker' ? '填写运行时变量' : '开始运行'}</h2><p>{runtimeRunRequest?.type === 'picker' ? '拾取前请填写本次流程需要的输入。' : (graph.context?.inputs ?? []).length > 0 ? '选择浏览器方式，并填写本次流程需要的输入。' : '选择本次运行是否弹出浏览器窗口。'}</p></div><button type="button" aria-label="关闭" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}>×</button></header><div className="execution-dialog-body">{runtimeRunRequest?.type === 'picker' ? null : <BrowserModePicker name="editor-run-browser-mode" headless={runHeadless} onChange={setRunHeadless} />}{(graph.context?.inputs ?? []).map(input => <label className="execution-input-field" key={input.name}><span>{input.description || input.name}{input.required ? <em>必填</em> : null}</span>{input.type === 'boolean' ? <select value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }}><option value="">请选择</option><option value="true">是</option><option value="false">否</option></select> : input.type === 'object' || input.type === 'array' ? <textarea rows={4} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} placeholder={input.type === 'object' ? '{"key":"value"}' : '["value"]'} /> : <input type={input.secret ? 'password' : input.type === 'number' ? 'number' : 'text'} value={runtimeInputValues[input.name] ?? ''} onChange={event => { updateRuntimeInput(input.name, event.target.value) }} onBlur={event => { if (input.type === 'number' && event.currentTarget.value.trim() === '') updateRuntimeInput(input.name, '1') }} placeholder={input.defaultValue === undefined ? `请输入${input.type === 'number' ? '数字' : '内容'}` : formatRuntimeInput(input.defaultValue)} />}</label>)}{runtimeInputError ? <p className="execution-error" role="alert">{runtimeInputError}</p> : null}</div><footer><button type="button" onClick={() => { setRuntimeInputDialog(false); setRuntimeInputError(undefined) }}>取消</button><button type="button" className="workbench-primary" onClick={() => { void confirmRuntimeRun() }}>▶ 开始运行</button></footer></section></div> : null}
     </div>
   )
 }

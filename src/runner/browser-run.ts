@@ -3,6 +3,7 @@ import type { AgentOutputField, ElementLocator, JsonValue, ListRowMatchedAction,
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
 import { walkGraph, type RunHandlers, type RunState, type StepResult } from './walk.ts'
 import { assignVariable, initialContextValues, resolveBindingInContext, resolveExpression, resolveRequestBody, resolveRequestBodyPreview, runtimeInputValues, type WorkflowContext } from './context.ts'
+import { convertSetVariableValue } from './set-variable-type.ts'
 import { expandSubflows } from '@graph/expand-subflows.ts'
 import { notificationContentReferences } from '@graph/webhook-body-template.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from './page-requirement.ts'
@@ -886,6 +887,7 @@ async function liveStep(
           throw new Error(`子流程必填输入「${config.requiredInput.name}」需要${type}类型的值`)
         }
       }
+      value = convertSetVariableValue(value, config.valueType, config.name)
       assignVariable(context, config.name, value)
       return { message: `已设置变量 ${config.name}`, logs: [`变量值概要：${config.name} = ${value === null ? 'null' : Array.isArray(value) ? `数组(${value.length}项)` : typeof value === 'object' ? `对象(${Object.keys(value).length}字段)` : typeof value === 'string' ? `文本(${value.length}字)` : typeof value}（具体值不记录）`] }
     }
@@ -966,6 +968,7 @@ async function liveStep(
       if (mode === 'duration') return { message: `已等待 ${config.ms}ms` }
       return { message: `元素已${mode === 'visible' ? '出现' : '消失'}：${displaySelector(selector)}（等待 ${elapsed}ms）` }
     }
+    if (config.type === 'handoff') return { message: '通知节点已执行；Webhook 由服务端异步投递' }
     return { message: `${NODE_CATALOG[node.type].title}` }
   }, driver, context)
 }
@@ -1006,7 +1009,7 @@ export async function runBrowser(
     const defaultTemplate = owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
     const templateFor = (trigger: import('@graph/types.ts').NodeNotificationTrigger): string => {
       const statusTemplate = node?.notifications?.messageTemplates?.[trigger]
-      return (statusTemplate === undefined ? node?.notifications?.messageTemplate : statusTemplate)?.trim() || defaultTemplate
+      return statusTemplate?.trim() || node?.notifications?.messageTemplate?.trim() || defaultTemplate
     }
     const template = event === undefined
       ? (['onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout'] as const)
@@ -1041,7 +1044,9 @@ export async function runBrowser(
     ...handlers,
     onUpdate: next => {
       Object.assign(context.outputs, next.outputs)
-      const logs = next.logs.map(log => log.notificationEvent ? { ...log, notificationValues: notificationValuesFor(log.nodeId, log.notificationEvent) } : log)
+      const logs = next.logs.map((log, index) => log.notificationEvent
+        ? { ...log, notificationValues: latestState?.logs[index]?.notificationValues ?? notificationValuesFor(log.nodeId, log.notificationEvent) }
+        : log)
       latestState = { ...next, logs, inputs: { ...context.inputs }, variables: { ...context.variables }, page: { ...context.page } }
       handlers.onUpdate(latestState)
     },

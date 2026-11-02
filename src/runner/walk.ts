@@ -28,7 +28,7 @@ function nodeSetup(node: WorkflowNode): string {
     case 'image-recognition': return `图片来源：${config.image.kind}；场景数：${config.cases.length}`
     case 'call-subflow': return `子流程：${config.workflowId || '未选择'}${config.workflowVersion === undefined ? '' : ` v${config.workflowVersion}`}`
     case 'approval': return `审批字段：${config.fields.length} 个；超时：${config.timeoutMinutes} 分钟`
-    case 'handoff': return '等待人工接管'
+    case 'handoff': return `Webhook 通知：${node.notifications?.enabled === false ? '未启用' : '已启用'}`
     case 'set-variable': return `目标变量：${config.name || '未命名'}；取值路径：${config.path.trim() ? '已配置' : '无'}`
     case 'agent': return `AI 配置：${config.llmId || '使用默认配置'}；提示词变量引用；结构化输出：${config.outputs?.length ?? 0} 个`
     case 'code': return `代码输入：${config.inputs?.length ?? 1} 个；声明输出：${config.outputs?.length ?? 1} 个`
@@ -117,11 +117,24 @@ export async function walkGraph(
     return event
   }
 
+  const logLoopItemFailure = (failedNode: WorkflowNode, reason: string): void => {
+    for (const loopId of activeLoopIds) {
+      const loop = graph.nodes.find(item => item.id === loopId)
+      if (loop?.type !== 'for-each') continue
+      const currentIndex = outputs[loop.id]?.index
+      const iteration = typeof currentIndex === 'number' && Number.isInteger(currentIndex) && currentIndex >= 0
+        ? `第 ${currentIndex + 1} 轮`
+        : '当前轮'
+      log(loop.id, loop.name, `${iteration}执行失败：节点「${failedNode.name}」：${reason}`, notifyOnce(loop, 'node.failed'))
+    }
+  }
+
   while (current !== undefined) {
     const node = current
     if (visited.has(node.id) && node.type !== 'for-each') {
       log(node.id, node.name, '检测到环，已停止')
       nodes[node.id] = 'failed'
+      logLoopItemFailure(node, '检测到环，已停止')
       return emit('failed', node.id)
     }
     if (node.type === 'for-each' && visited.has(node.id)) visited.clear()
@@ -162,6 +175,7 @@ export async function walkGraph(
       log(node.id, node.name, `执行耗时：${Date.now() - startedAt}ms`)
       log(node.id, node.name, detail, notifyOnce(node, 'node.failed'))
       nodes[node.id] = 'failed'
+      logLoopItemFailure(node, reason)
       return emit('failed', node.id)
     }
     log(node.id, node.name, result.message)
@@ -175,6 +189,7 @@ export async function walkGraph(
     const notificationEvent = nodes[node.id] === 'succeeded' ? notifyOnce(node, 'node.succeeded')
       : nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user' ? notifyOnce(node, 'node.failed') : undefined
     log(node.id, node.name, `执行耗时：${Date.now() - startedAt}ms；状态：${nodes[node.id]}`, notificationEvent)
+    if (result.halt === 'failed' || nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user') logLoopItemFailure(node, result.message)
     if (result.halt !== undefined) {
       const activeLoopId = activeLoopIds.at(-1)
       const loop = activeLoopId === undefined ? undefined : graph.nodes.find(item => item.id === activeLoopId)
@@ -222,6 +237,7 @@ export async function walkGraph(
     const next = edge === undefined ? undefined : graph.nodes.find(item => item.id === edge.targetNodeId)
     if (next === undefined) {
       log(node.id, node.name, `出口「${port}」没有有效的后续连线，流程中断`)
+      logLoopItemFailure(node, `出口「${port}」没有有效的后续连线，流程中断`)
       return emit('failed', node.id)
     }
     log(node.id, node.name, `出口「${port}」→ 下一节点「${next.name}」（${next.type}）`)

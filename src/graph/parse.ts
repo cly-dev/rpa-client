@@ -1,5 +1,6 @@
 import { NODE_TYPES, type JsonValue, type ListRowMatchedAction, type NodeConfig, type NodeType, type OutputVariableMode, type ValueBinding, type WorkflowGraph } from './types.ts'
 import { normalizeImageRecognitionMaxImages } from './image-recognition-limits.ts'
+import { normalizeNotificationNode } from './notification-node.ts'
 
 export type ParseResult = { readonly ok: true; readonly graph: WorkflowGraph } | { readonly ok: false; readonly error: string }
 
@@ -142,7 +143,7 @@ function parseConfig(type: NodeType, value: unknown, path: string): NodeConfig {
     case 'handoff':
       return { type: 'handoff', note: typeof value.note === 'string' ? value.note : '' }
     case 'set-variable':
-      return { type: 'set-variable', name: typeof value.name === 'string' ? value.name : '', value: parseOptionalBinding(value.value, `${path}.value`, empty), path: typeof value.path === 'string' ? value.path : '', requiredInput: isRecord(value.requiredInput) && typeof value.requiredInput.name === 'string' && ['string', 'number', 'boolean', 'object', 'array'].includes(String(value.requiredInput.type)) ? { name: value.requiredInput.name, type: value.requiredInput.type as 'string' | 'number' | 'boolean' | 'object' | 'array' } : undefined }
+      return { type: 'set-variable', name: typeof value.name === 'string' ? value.name : '', value: parseOptionalBinding(value.value, `${path}.value`, empty), path: typeof value.path === 'string' ? value.path : '', valueType: ['string', 'number', 'boolean', 'object', 'array'].includes(String(value.valueType)) ? value.valueType as 'string' | 'number' | 'boolean' | 'object' | 'array' : undefined, interpolate: value.interpolate === true, requiredInput: isRecord(value.requiredInput) && typeof value.requiredInput.name === 'string' && ['string', 'number', 'boolean', 'object', 'array'].includes(String(value.requiredInput.type)) ? { name: value.requiredInput.name, type: value.requiredInput.type as 'string' | 'number' | 'boolean' | 'object' | 'array' } : undefined }
     case 'transform':
       return { type: 'transform', input: parseOptionalBinding(value.input, `${path}.input`, empty), operation: value.operation === 'uppercase' || value.operation === 'lowercase' || value.operation === 'regex' || value.operation === 'replace' || value.operation === 'json-parse' || value.operation === 'json-stringify' ? value.operation : 'trim', pattern: typeof value.pattern === 'string' ? value.pattern : '', replacement: typeof value.replacement === 'string' ? value.replacement : '', outputName: typeof value.outputName === 'string' && value.outputName.trim() !== '' ? value.outputName : 'result', outputMode: parseOutputMode(value.outputMode), updateVariable: typeof value.updateVariable === 'string' ? value.updateVariable : '' }
     case 'code':
@@ -173,7 +174,9 @@ export function parseWorkflow(value: unknown): ParseResult {
       }
       const execution = isRecord(raw.execution) ? raw.execution : {}
       const position = isRecord(raw.position) ? raw.position : {}
-      return {
+      const notificationsRaw = isRecord(raw.notifications) ? raw.notifications : undefined
+      const templatesRaw = isRecord(notificationsRaw?.messageTemplates) ? notificationsRaw.messageTemplates : undefined
+      return normalizeNotificationNode({
         id: asString(raw.id, `nodes[${index}].id`),
         type,
         name: asString(raw.name, `nodes[${index}].name`),
@@ -185,25 +188,25 @@ export function parseWorkflow(value: unknown): ParseResult {
           maxAttempts: typeof execution.maxAttempts === 'number' ? execution.maxAttempts : 1,
           onError: execution.onError === 'fail-run' ? 'fail-run' as const : 'human-handoff' as const,
         },
-        notifications: isRecord(raw.notifications) ? {
-          enabled: typeof raw.notifications.enabled === 'boolean' ? raw.notifications.enabled : undefined,
-          onSuccess: raw.notifications.onSuccess === true,
-          onFailure: raw.notifications.onFailure === true,
-          onApprovalPending: raw.notifications.onApprovalPending === true,
-          onApprovalApproved: raw.notifications.onApprovalApproved === true,
-          onApprovalRejected: raw.notifications.onApprovalRejected === true,
-          onApprovalTimeout: raw.notifications.onApprovalTimeout === true,
-          messageTemplates: isRecord(raw.notifications.messageTemplates) ? {
-            onSuccess: typeof raw.notifications.messageTemplates.onSuccess === 'string' ? raw.notifications.messageTemplates.onSuccess : undefined,
-            onFailure: typeof raw.notifications.messageTemplates.onFailure === 'string' ? raw.notifications.messageTemplates.onFailure : undefined,
-            onApprovalPending: typeof raw.notifications.messageTemplates.onApprovalPending === 'string' ? raw.notifications.messageTemplates.onApprovalPending : undefined,
-            onApprovalApproved: typeof raw.notifications.messageTemplates.onApprovalApproved === 'string' ? raw.notifications.messageTemplates.onApprovalApproved : undefined,
-            onApprovalRejected: typeof raw.notifications.messageTemplates.onApprovalRejected === 'string' ? raw.notifications.messageTemplates.onApprovalRejected : undefined,
-            onApprovalTimeout: typeof raw.notifications.messageTemplates.onApprovalTimeout === 'string' ? raw.notifications.messageTemplates.onApprovalTimeout : undefined,
+        notifications: notificationsRaw !== undefined ? {
+          enabled: typeof notificationsRaw.enabled === 'boolean' ? notificationsRaw.enabled : undefined,
+          onSuccess: notificationsRaw.onSuccess === true,
+          onFailure: notificationsRaw.onFailure === true,
+          onApprovalPending: notificationsRaw?.onApprovalPending === true,
+          onApprovalApproved: notificationsRaw?.onApprovalApproved === true,
+          onApprovalRejected: notificationsRaw?.onApprovalRejected === true,
+          onApprovalTimeout: notificationsRaw?.onApprovalTimeout === true,
+          messageTemplates: templatesRaw !== undefined ? {
+            onSuccess: typeof templatesRaw.onSuccess === 'string' ? templatesRaw.onSuccess : undefined,
+            onFailure: typeof templatesRaw.onFailure === 'string' ? templatesRaw.onFailure : undefined,
+            onApprovalPending: typeof templatesRaw.onApprovalPending === 'string' ? templatesRaw.onApprovalPending : undefined,
+            onApprovalApproved: typeof templatesRaw.onApprovalApproved === 'string' ? templatesRaw.onApprovalApproved : undefined,
+            onApprovalRejected: typeof templatesRaw.onApprovalRejected === 'string' ? templatesRaw.onApprovalRejected : undefined,
+            onApprovalTimeout: typeof templatesRaw.onApprovalTimeout === 'string' ? templatesRaw.onApprovalTimeout : undefined,
           } : undefined,
-          messageTemplate: typeof raw.notifications.messageTemplate === 'string' ? raw.notifications.messageTemplate : undefined,
+          messageTemplate: typeof notificationsRaw.messageTemplate === 'string' ? notificationsRaw.messageTemplate : undefined,
         } : undefined,
-      }
+      })
     })
     const edges = value.edges.map((raw, index) => {
       if (!isRecord(raw)) throw new Error(`edges[${index}] 无效`)

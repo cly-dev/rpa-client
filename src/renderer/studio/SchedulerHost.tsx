@@ -1,11 +1,13 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { JsonValue } from '@graph/types.ts'
 import { failedRunReason, readableRunError } from './execution-message.ts'
-import { safeEventMessage } from './execution-log.ts'
+import { redactExecutionJson, safeEventMessage } from './execution-log.ts'
 import { ExecutionLogUploader } from './execution-log-uploader.ts'
+import { hydrateScheduledSecrets, scheduledSecretStrings } from './scheduled-secrets.ts'
+import { isScheduledExecutionActive, registerScheduledExecution, unregisterScheduledExecution } from './scheduled-executions.ts'
 import {
   RPA_SERVICE_URL, appendExecutionEvents, claimSchedule, completeScheduleOccurrence,
-  createExecution, finishExecution, getWorkflowRevision, linkScheduleExecution, listSchedules, loadSubflowBundle,
+  createApproval, createExecution, finishExecution, getWorkflowRevision, linkScheduleExecution, listSchedules, loadSubflowBundle,
 } from '../workflow-api.ts'
 
 /** The clock lives in Electron's main process; this host only handles due events and execution I/O. */
@@ -30,6 +32,19 @@ export function SchedulerHost(): ReactNode {
     const interval = window.setInterval(() => { void sync() }, 60_000)
     const changed = (): void => { void sync() }
     window.addEventListener('rpa:schedules-changed', changed)
+    const stopApprovals = studio.onApprovalRequest(prompt => {
+      if (!isScheduledExecutionActive(prompt.executionId)) return
+      void (async () => {
+        try {
+          const device = await studio.getDeviceInfo()
+          await createApproval(RPA_SERVICE_URL, prompt, device)
+          window.dispatchEvent(new Event('rpa:schedule-approval-requested'))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '创建审批单失败'
+          await studio.respondApproval(prompt.id, 'rejected', `审批服务不可用：${message}`).catch(() => undefined)
+        }
+      })()
+    })
     const stop = studio.onScheduleDue(({ id, scheduledAt }) => {
       const key = `${id}@${scheduledAt}`
       if (inProgress.current.has(key)) return
@@ -42,6 +57,7 @@ export function SchedulerHost(): ReactNode {
         let occurrenceStatus: 'succeeded' | 'failed' = 'failed'
         let occurrenceError: string | undefined
         let runCompleted = false
+        let secrets: string[] = []
         let finishPayload: { status: 'succeeded' | 'failed'; outputs?: Readonly<Record<string, JsonValue>>; error?: string } = { status: 'failed' }
         try {
           const device = await studio.getDeviceInfo()
@@ -51,18 +67,20 @@ export function SchedulerHost(): ReactNode {
           occurrenceId = claimed.occurrenceId
           const revision = await getWorkflowRevision(RPA_SERVICE_URL, claimed.workflowId, claimed.workflowVersion)
           if (revision.stage !== 'published') throw new Error('定时配置引用的流程版本未发布')
-          const graph = revision.graph
-          const subflows = await loadSubflowBundle(RPA_SERVICE_URL, graph)
+          const graph = hydrateScheduledSecrets(revision.graph, claimed.secretDefaults ?? [])
+          const subflows = (await loadSubflowBundle(RPA_SERVICE_URL, graph)).map(item => hydrateScheduledSecrets(item, claimed.secretDefaults ?? []))
           const inputs = (claimed.inputs ?? {}) as Readonly<Record<string, JsonValue>>
+          secrets = scheduledSecretStrings([graph, ...subflows], inputs)
           const record = await createExecution(RPA_SERVICE_URL, {
             workflowId: claimed.workflowId, workflowVersion: claimed.workflowVersion,
             deviceId: device.deviceId, deviceName: device.deviceName, clientVersion: device.clientVersion, inputs,
           })
           executionId = record.id
+          registerScheduledExecution(executionId)
           await linkScheduleExecution(RPA_SERVICE_URL, id, occurrenceId, executionId)
           window.dispatchEvent(new Event('rpa:schedule-updated'))
           const runId = crypto.randomUUID()
-          const uploader = new ExecutionLogUploader(events => appendExecutionEvents(RPA_SERVICE_URL, record.id, events))
+          const uploader = new ExecutionLogUploader(events => appendExecutionEvents(RPA_SERVICE_URL, record.id, events), secrets)
           const stopUpdates = studio.onRunUpdate(({ runId: updateRunId, state }) => {
             if (updateRunId === runId) uploader.add(state.logs)
           })
@@ -71,7 +89,7 @@ export function SchedulerHost(): ReactNode {
           try {
             result = await studio.runWorkflow(graph, { runId, executionId, inputs, subflows, headless: true })
           } catch (error) {
-            const message = safeEventMessage(readableRunError(error))
+            const message = safeEventMessage(readableRunError(error), secrets)
             await uploader.close()
             finishPayload = { status: 'failed', error: message }
             await finishExecution(RPA_SERVICE_URL, executionId, finishPayload)
@@ -86,10 +104,10 @@ export function SchedulerHost(): ReactNode {
           const succeeded = result.status === 'succeeded'
           runCompleted = true
           occurrenceStatus = succeeded ? 'succeeded' : 'failed'
-          occurrenceError = succeeded ? (logSyncError || undefined) : safeEventMessage(failedRunReason(result))
+          occurrenceError = succeeded ? (logSyncError || undefined) : safeEventMessage(failedRunReason(result), secrets)
           finishPayload = {
             status: succeeded ? 'succeeded' : 'failed',
-            outputs: (result.variables ?? {}) as Readonly<Record<string, JsonValue>>,
+            outputs: secrets.length > 0 ? {} : redactExecutionJson(result.variables ?? {}, secrets) as Readonly<Record<string, JsonValue>>,
             error: succeeded ? undefined : occurrenceError,
           }
           await finishExecution(RPA_SERVICE_URL, executionId, finishPayload)
@@ -99,7 +117,7 @@ export function SchedulerHost(): ReactNode {
           })
           occurrenceFinished = true
         } catch (error) {
-          const message = safeEventMessage(readableRunError(error))
+          const message = safeEventMessage(readableRunError(error), secrets)
           console.error(`定时任务 ${id} 执行失败`, message)
           if (executionId && !executionFinished) await finishExecution(RPA_SERVICE_URL, executionId, {
             ...finishPayload, error: finishPayload.error ?? (runCompleted ? undefined : message),
@@ -108,6 +126,7 @@ export function SchedulerHost(): ReactNode {
             status: runCompleted ? occurrenceStatus : 'failed', executionId, error: occurrenceError ?? (runCompleted ? undefined : message),
           }).catch(() => undefined)
         } finally {
+          if (executionId) unregisterScheduledExecution(executionId)
           inProgress.current.delete(key)
           window.dispatchEvent(new Event('rpa:schedule-updated'))
           if (active) void sync()
@@ -118,6 +137,7 @@ export function SchedulerHost(): ReactNode {
       active = false
       window.clearInterval(interval)
       window.removeEventListener('rpa:schedules-changed', changed)
+      stopApprovals()
       stop()
       for (const runId of activeRunIds.current) void studio.cancelWorkflow(runId).catch(() => undefined)
       void studio.clearSchedules()

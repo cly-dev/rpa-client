@@ -23,6 +23,7 @@ export function VariablesPanel({ graph, subflows = [], outputs, inputs: runtimeI
   const globalVariables = graph.context?.variables ?? []
   const declared = graph.nodes.flatMap(node => {
     const config = node.config
+    if (config.type === 'set-variable') return config.name.trim() ? [{ name: config.name.trim(), type: config.valueType ?? '自动' }] : []
     if (config.type === 'code') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType ?? 'any' }))
     if (config.type === 'agent') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType }))
     if (!('outputMode' in config) || config.outputMode !== 'declare' || !config.updateVariable?.trim()) return []

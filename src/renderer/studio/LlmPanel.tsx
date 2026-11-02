@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import type { WorkflowGraph, WorkflowLlmConfig } from '@graph/types.ts'
+import { ClearableNumberInput } from './ClearableNumberInput.tsx'
 
 const DEFAULT_LLM: WorkflowLlmConfig = { id: 'default-llm', name: '默认 AI', enabled: false, model: '', baseUrl: '', chatPath: '/v1/chat/completions', apiKey: '', maxTokens: 2048 }
 
@@ -24,7 +25,7 @@ export function LlmPanel({ graph, onChange }: { graph: WorkflowGraph; onChange: 
       <label>API 地址<input value={config.baseUrl} onChange={event => { patch({ baseUrl: event.target.value }) }} placeholder="https://api.example.com" /></label>
       <label>对话接口路径<input value={config.chatPath} onChange={event => { patch({ chatPath: event.target.value }) }} placeholder="/v1/chat/completions 或完整 URL" /></label>
       <label>API Key（可选）<input type="password" value={config.apiKey} onChange={event => { patch({ apiKey: event.target.value }) }} placeholder="本地模型或内网服务可留空" /></label>
-      <label>最大 Token<input type="number" min={1} value={config.maxTokens} onChange={event => { patch({ maxTokens: Number(event.target.value) }) }} /></label>
+      <label>最大 Token<ClearableNumberInput min={1} value={config.maxTokens} onChange={event => { patch({ maxTokens: Number(event.target.value) }) }} /></label>
       <button type="button" className="llm-test-button" disabled={testing} onClick={() => { setTesting(true); setTestMessage(undefined); void window.studio?.testLlm(config).then(result => { setTestMessage(result.message) }).catch(error => { setTestMessage(error instanceof Error ? error.message : '测试失败') }).finally(() => { setTesting(false) }) }}>{testing ? '测试中…' : '测试联通性'}</button>
       {testMessage !== undefined ? <p className="llm-test-message">{testMessage}</p> : null}
       <p className="llm-note">节点只需选择使用全局 AI，提示词在节点中单独配置。</p>

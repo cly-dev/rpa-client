@@ -9,6 +9,7 @@ interface PaginationProps {
 
 export function normalizePageInput(value: string, totalPages: number, currentPage: number): number {
   const normalized = value.trim();
+  if (normalized === '') return 1;
   if (!/^\d+$/.test(normalized)) return currentPage;
   const parsed = Number(normalized);
   if (!Number.isSafeInteger(parsed)) return currentPage;
@@ -40,6 +41,7 @@ export function Pagination({ page, totalPages, disabled = false, onPageChange }:
         value={draft}
         disabled={disabled}
         onChange={event => setDraft(event.target.value)}
+        onBlur={goToDraftPage}
         onKeyDown={event => {
           if (event.key === 'Enter') goToDraftPage();
           if (event.key === 'Escape') setDraft(String(page));

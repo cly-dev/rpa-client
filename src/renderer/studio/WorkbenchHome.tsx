@@ -4,6 +4,7 @@ import type { AuthUser } from "../auth.ts";
 import { firstPublishIssue } from "@graph/validate.ts";
 import { ExecutionCenter } from "./ExecutionCenter.tsx";
 import { Pagination } from "./Pagination.tsx";
+import { ClearableNumberInput } from "./ClearableNumberInput.tsx";
 import type { DryRunState } from "@runner/dry-run.ts";
 import { applyParentVersionUpdate, planParentVersionUpdates, type ParentVersionUpdate } from "./dependency-bulk-update.ts";
 import { bulkArchiveWorkflows } from "./bulk-archive.ts";
@@ -129,6 +130,7 @@ export function WorkbenchHome({
   const searchTimer = useRef<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [llms, setLlms] = useState<LlmConfigItem[]>([]);
+  const [llmQuery, setLlmQuery] = useState("");
   const [selectedLlmId, setSelectedLlmId] = useState<string>();
   const [draft, setDraft] = useState<WorkflowLlmConfig>(EMPTY_LLM);
   const [keyDraft, setKeyDraft] = useState("");
@@ -178,6 +180,14 @@ export function WorkbenchHome({
     selectedLlm !== undefined &&
     (keyDraft !== "" ||
       JSON.stringify(draft) !== JSON.stringify(editableLlm(selectedLlm)));
+  const llmHasPendingChanges = llmHasUnsavedChanges || (selectedLlm === undefined && draft.id !== "");
+  const filteredLlms = llms.filter((item) => `${item.name} ${item.model} ${item.provider ?? ""}`.toLocaleLowerCase().includes(llmQuery.trim().toLocaleLowerCase()));
+
+  useEffect(() => {
+    const showScheduledApproval = (): void => { setActive('approvals') };
+    window.addEventListener('rpa:schedule-approval-requested', showScheduledApproval);
+    return () => { window.removeEventListener('rpa:schedule-approval-requested', showScheduledApproval) };
+  }, []);
 
   useEffect(() => {
     setSelectedExportIds([]);
@@ -615,15 +625,34 @@ export function WorkbenchHome({
   }, []);
 
   const selectLlm = (item: LlmConfigItem): void => {
+    if (item.id === selectedLlmId) return;
+    if (llmHasPendingChanges && !window.confirm("当前 AI 配置有未保存的修改，确定放弃并切换吗？")) return;
     setSelectedLlmId(item.id);
     setDraft(editableLlm(item));
     setKeyDraft("");
   };
 
   const createNewLlm = (): void => {
+    if (llmHasPendingChanges && !window.confirm("当前 AI 配置有未保存的修改，确定放弃并新建吗？")) return;
     const id = `llm-${Date.now()}`;
     setSelectedLlmId(undefined);
     setDraft({ ...EMPTY_LLM, id, name: `AI 配置 ${llms.length + 1}` });
+    setKeyDraft("");
+  };
+
+  const discardLlmChanges = (): void => {
+    if (selectedLlm) {
+      setDraft(editableLlm(selectedLlm));
+      setKeyDraft("");
+      return;
+    }
+    const first = llms[0];
+    if (first) {
+      setSelectedLlmId(first.id);
+      setDraft(editableLlm(first));
+    } else {
+      setDraft(EMPTY_LLM);
+    }
     setKeyDraft("");
   };
 
@@ -647,7 +676,8 @@ export function WorkbenchHome({
           : [saved, ...current],
       );
       setSelectedLlmId(saved.id);
-      selectLlm(saved);
+      setDraft(editableLlm(saved));
+      setKeyDraft("");
       showNotice("AI 配置已保存到服务端");
     } catch (error) {
       showNotice(
@@ -693,8 +723,9 @@ export function WorkbenchHome({
       const next = llms.filter((item) => item.id !== selectedLlm.id);
       setLlms(next);
       setSelectedLlmId(next[0]?.id);
-      if (next[0]) selectLlm(next[0]);
+      if (next[0]) setDraft(editableLlm(next[0]));
       else setDraft(EMPTY_LLM);
+      setKeyDraft("");
       showNotice("AI 配置已删除");
     } catch (error) {
       showNotice(
@@ -1020,7 +1051,7 @@ export function WorkbenchHome({
                 <h1>AI 配置</h1>
                 <p>集中管理模型连接；配置保存在 RPA 服务端。</p>
               </div>
-              <button className="workbench-primary" onClick={createNewLlm}>
+              <button type="button" className="workbench-primary" onClick={createNewLlm}>
                 ＋ 新增配置
               </button>
             </div>
@@ -1031,27 +1062,34 @@ export function WorkbenchHome({
                 <div className="workbench-ai-list">
                   <div className="workbench-ai-list-heading">
                     <strong>模型配置</strong>
-                    <span>{llms.length}</span>
+                    <span>{llms.length} 个</span>
+                  </div>
+                  <div className="workbench-ai-list-search">
+                    <input type="search" value={llmQuery} onChange={(event) => setLlmQuery(event.target.value)} placeholder="搜索名称、模型或服务商" aria-label="搜索 AI 配置" />
                   </div>
                   {llms.length === 0 ? (
                     <div className="workbench-ai-empty">
                       暂无配置，点击“新增配置”开始。
                     </div>
+                  ) : filteredLlms.length === 0 ? (
+                    <div className="workbench-ai-empty">没有匹配的配置</div>
                   ) : (
-                    llms.map((item) => (
+                    filteredLlms.map((item) => (
                       <button
+                        type="button"
                         key={item.id}
                         className={`workbench-ai-item${item.id === selectedLlmId ? " selected" : ""}`}
+                        aria-current={item.id === selectedLlmId ? "true" : undefined}
                         onClick={() => {
                           selectLlm(item);
                         }}
                       >
                         <span className="workbench-ai-symbol">✦</span>
-                        <span>
+                        <span className="workbench-ai-item-copy">
                           <strong>{item.name}</strong>
-                          <small>{item.model || "未填写模型"}</small>
+                          <small>{item.model || "未填写模型"} · {item.provider === "openai-compatible" ? "OpenAI 兼容" : item.provider || "未设置服务商"}</small>
                         </span>
-                        <i data-enabled={item.enabled} />
+                        <span className={`workbench-ai-status${item.enabled ? " is-enabled" : ""}`}>{item.enabled ? "已启用" : "未启用"}</span>
                       </button>
                     ))
                   )}
@@ -1059,15 +1097,17 @@ export function WorkbenchHome({
                 <div className="workbench-ai-editor">
                   <div className="workbench-ai-editor-heading">
                     <div>
-                      <strong>{selectedLlm ? "编辑配置" : "新建配置"}</strong>
+                      <strong>{selectedLlm ? draft.name || "编辑配置" : "新建配置"}</strong>
                       <small>
                         {selectedLlm
                           ? `更新于 ${new Date(selectedLlm.updatedAt).toLocaleString()}`
                           : "保存后可供流程节点引用"}
                       </small>
                     </div>
+                    {llmHasPendingChanges ? <span className="workbench-ai-unsaved">未保存修改</span> : null}
                     {selectedLlm ? (
                       <button
+                        type="button"
                         className="workbench-danger-link"
                         onClick={() => {
                           void removeLlm();
@@ -1078,6 +1118,8 @@ export function WorkbenchHome({
                     ) : null}
                   </div>
                   <div className="workbench-ai-form">
+                    <div className="workbench-ai-section">
+                      <div className="workbench-ai-section-heading"><strong>基本信息</strong><small>命名并选择流程使用的模型</small></div>
                     <label>
                       配置名称
                       <input
@@ -1091,7 +1133,7 @@ export function WorkbenchHome({
                         placeholder="例如：客服助手"
                       />
                     </label>
-                    <label className="workbench-check">
+                    <label className="workbench-ai-enable">
                       <input
                         type="checkbox"
                         checked={draft.enabled}
@@ -1102,25 +1144,25 @@ export function WorkbenchHome({
                           }));
                         }}
                       />
-                      启用此配置
+                      <span className="workbench-ai-switch" aria-hidden="true" />
+                      <span className="workbench-ai-enable-copy"><strong>启用此配置</strong><small>{draft.enabled ? "已启用，可供流程节点选择" : "未启用，流程节点暂不可选"}</small></span>
                     </label>
-                    <label>
-                      服务商
-                      <select
-                        value={draft.provider ?? "openai-compatible"}
-                        onChange={(event) => {
-                          setDraft((current) => ({
-                            ...current,
-                            provider: event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="openai-compatible">OpenAI 兼容</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="custom">自定义</option>
-                      </select>
-                    </label>
+                    <fieldset className="workbench-ai-provider">
+                      <legend>服务商</legend>
+                      <div className="workbench-ai-provider-options">
+                        {([
+                          ["openai-compatible", "OpenAI 兼容", "第三方兼容接口"],
+                          ["openai", "OpenAI", "官方接口"],
+                          ["anthropic", "Anthropic", "Claude 模型"],
+                          ["custom", "自定义", "自定义服务"],
+                        ] as const).map(([value, label, description]) => (
+                          <label className="workbench-ai-provider-option" key={value}>
+                            <input type="radio" name="llm-provider" value={value} checked={(draft.provider ?? "openai-compatible") === value} onChange={() => setDraft((current) => ({ ...current, provider: value }))} />
+                            <span><strong>{label}</strong><small>{description}</small></span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
                     <label>
                       模型名称
                       <input
@@ -1134,6 +1176,9 @@ export function WorkbenchHome({
                         placeholder="例如 gpt-4o-mini"
                       />
                     </label>
+                    </div>
+                    <div className="workbench-ai-section">
+                      <div className="workbench-ai-section-heading"><strong>连接设置</strong><small>填写模型服务地址与鉴权信息</small></div>
                     <label>
                       API 地址
                       <input
@@ -1175,11 +1220,14 @@ export function WorkbenchHome({
                         }
                       />
                     </label>
+                    <p className="workbench-ai-field-hint">API Key 只在需要更换时填写；留空会保留服务端已保存的密钥。</p>
+                    </div>
+                    <div className="workbench-ai-section">
+                      <div className="workbench-ai-section-heading"><strong>生成参数</strong><small>控制输出随机性与长度</small></div>
                     <div className="workbench-ai-form-row">
                       <label>
                         Temperature
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           min={0}
                           max={2}
                           step={0.1}
@@ -1194,8 +1242,7 @@ export function WorkbenchHome({
                       </label>
                       <label>
                         最大 Token
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           min={1}
                           value={draft.maxTokens}
                           onChange={(event) => {
@@ -1207,8 +1254,11 @@ export function WorkbenchHome({
                         />
                       </label>
                     </div>
+                    </div>
                     <div className="workbench-ai-actions">
+                      {llmHasPendingChanges ? <button type="button" className="workbench-ai-discard" disabled={savingLlm || testingLlm} onClick={discardLlmChanges}>放弃修改</button> : null}
                       <button
+                        type="button"
                         disabled={
                           savingLlm ||
                           testingLlm ||
@@ -1229,6 +1279,7 @@ export function WorkbenchHome({
                         {testingLlm ? "测试中…" : "测试联通性"}
                       </button>
                       <button
+                        type="button"
                         className="workbench-primary"
                         disabled={savingLlm || testingLlm}
                         onClick={() => {
@@ -1246,9 +1297,7 @@ export function WorkbenchHome({
                         {llmTestResult.message}
                       </p>
                     ) : null}
-                    <p className="workbench-security-note">
-                      服务端返回的密钥为脱敏值。更新时留空会保留原密钥；请先保存配置或修改，再测试服务端保存的版本。
-                    </p>
+                    <p className="workbench-security-note">连通性测试由服务端使用已保存的配置发起，不会使用尚未保存的内容。</p>
                   </div>
                 </div>
               </div>

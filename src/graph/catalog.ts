@@ -155,7 +155,7 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinition> = {
     dataOutputs: [{ name: 'approved', label: '是否通过' }, { name: 'decision', label: '审批结果' }, { name: 'comment', label: '审批意见' }],
   },
   handoff: {
-    type: 'handoff', title: '人工接管', description: '暂停并等待人工处理', kind: 'action', acceptsIncoming: true, palette: true,
+    type: 'handoff', title: '通知', description: '通过流程 Webhook 异步发送通知，流程继续执行', kind: 'action', acceptsIncoming: true, palette: true,
     flowOutputs: DEFAULT_FLOW, dataInputs: [], dataOutputs: [],
   },
   'set-variable': {

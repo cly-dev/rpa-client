@@ -262,7 +262,14 @@ export function deleteSchedule(baseUrl: string, id: string): Promise<{ id: strin
   return request(baseUrl, 'schedules', `/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export function claimSchedule(baseUrl: string, id: string, deviceId: string, scheduledAt: string): Promise<{ claimed: boolean; occurrenceId?: string; workflowId?: string; workflowVersion?: number; inputs?: Readonly<Record<string, JsonValue>> }> {
+export interface ScheduledSecretDefaults {
+  readonly workflowId: string
+  readonly version: number
+  readonly inputs: Readonly<Record<string, JsonValue>>
+  readonly variables: Readonly<Record<string, JsonValue>>
+}
+
+export function claimSchedule(baseUrl: string, id: string, deviceId: string, scheduledAt: string): Promise<{ claimed: boolean; occurrenceId?: string; workflowId?: string; workflowVersion?: number; inputs?: Readonly<Record<string, JsonValue>>; secretDefaults?: readonly ScheduledSecretDefaults[] }> {
   return request(baseUrl, 'schedules', `/${encodeURIComponent(id)}/claim`, { method: 'POST', body: JSON.stringify({ deviceId, scheduledAt }) })
 }
 
