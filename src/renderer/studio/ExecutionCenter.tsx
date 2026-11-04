@@ -16,6 +16,7 @@ import { ApprovalRichText } from './ApprovalRichText.tsx';
 import { Pagination } from './Pagination.tsx';
 import { ClearableNumberInput } from './ClearableNumberInput.tsx';
 import { isScheduledExecutionActive } from './scheduled-executions.ts';
+import { initialExecutionInputText, rememberExecutionInputText } from './execution-input-memory.ts';
 import { nextScheduleOccurrence } from '../../main/schedule-clock.ts';
 import {
   RPA_SERVICE_URL,
@@ -254,6 +255,10 @@ export function ExecutionCenter({
     [flows, query],
   );
 
+  const rememberLaunchInputs = (): void => {
+    if (launchMode === 'run' && launchFlow) rememberExecutionInputText(launchFlow.id, inputText, secretText);
+  };
+
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
@@ -455,23 +460,9 @@ export function ExecutionCenter({
         setScheduleStartAt('');
         setScheduleEndAt('');
       }
-      setInputText(
-        Object.fromEntries(
-          (revision.graph.context?.inputs ?? []).map((item) => [
-            item.name,
-            item.secret && item.defaultValue === "******"
-              ? ""
-              : stringValue(item.defaultValue),
-          ]),
-        ),
-      );
-      setSecretText(
-        Object.fromEntries(
-          (revision.graph.context?.variables ?? [])
-            .filter((item) => item.secret)
-            .map((item) => [item.name, ""]),
-        ),
-      );
+      const previous = initialExecutionInputText(flow.id, revision.graph.context?.inputs ?? [], revision.graph.context?.variables ?? [], mode === 'run');
+      setInputText({ ...previous.inputs });
+      setSecretText({ ...previous.secrets });
       setNotice("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "读取流程版本失败");
@@ -602,6 +593,7 @@ export function ExecutionCenter({
       setRunMessage(readableRunError(error));
       return;
     }
+    rememberLaunchInputs();
     const secrets = [
       ...definitions
         .filter((item) => item.secret)
@@ -1056,6 +1048,7 @@ export function ExecutionCenter({
           role="presentation"
           onClick={() => {
             if (!launching) {
+              rememberLaunchInputs();
               setLaunchFlow(undefined);
               setLaunchGraph(undefined);
               setNotice("");
@@ -1084,6 +1077,7 @@ export function ExecutionCenter({
                 aria-label="关闭"
                 disabled={launching}
                 onClick={() => {
+                  rememberLaunchInputs();
                   setLaunchFlow(undefined);
                   setLaunchGraph(undefined);
                   setNotice("");

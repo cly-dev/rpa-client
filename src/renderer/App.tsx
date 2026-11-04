@@ -3,6 +3,7 @@ import { Studio } from './studio/Studio.tsx'
 import { SchedulerHost } from './studio/SchedulerHost.tsx'
 import { AUTH_EXPIRED_EVENT, AuthRequestError, clearAuthSession, currentAuthUser, expireAuthSession, loginWithPms, logoutAuthSession, saveAuthSession, storedAuthSession, type AuthSession } from './auth.ts'
 import { checkServiceReadiness, type ServiceReadiness } from './startup-check.ts'
+import { clearRememberedExecutionInputs } from './studio/execution-input-memory.ts'
 
 interface BrowserStatus { readonly available: boolean; readonly message: string }
 
@@ -60,6 +61,7 @@ export function App(): ReactNode {
 
   useEffect(() => {
     const expired = (): void => {
+      clearRememberedExecutionInputs()
       void window.studio?.setServiceToken(undefined).catch(() => undefined)
       setSession(undefined); setVerifiedToken(undefined); setError('登录已失效，请重新登录')
     }
@@ -88,6 +90,7 @@ export function App(): ReactNode {
       if (!active) return
       setChecking(false)
       if (reason instanceof AuthRequestError && reason.invalidSession) {
+        clearRememberedExecutionInputs()
         clearAuthSession()
         void window.studio?.setServiceToken(undefined).catch(() => undefined)
         setSession(undefined)
@@ -118,6 +121,7 @@ export function App(): ReactNode {
     } finally { setSubmitting(false) }
   }
   const logout = (): void => {
+    clearRememberedExecutionInputs()
     if (session) void logoutAuthSession(session.token).catch(() => undefined)
     void window.studio?.setServiceToken(undefined).catch(() => undefined)
     clearAuthSession()
