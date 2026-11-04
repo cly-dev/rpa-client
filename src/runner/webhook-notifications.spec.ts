@@ -90,6 +90,13 @@ describe('workflow webhook notifications', () => {
     expect(failed.logs.filter(line => line.notificationEvent).map(line => line.notificationEvent)).toEqual(['node.failed'])
   })
 
+  it('attaches the actual failure reason to result-based node notifications', async () => {
+    const original = graph()
+    const failed = await walkGraph(original, { onUpdate() {}, wait: async () => {} }, async () => ({ message: '页面按钮不可见', halt: 'failed' }))
+    const event = failed.logs.find(line => line.notificationEvent === 'node.failed')
+    expect(event?.message).toContain('节点「开始」(start)执行失败：页面按钮不可见')
+  })
+
   it('captures referenced runtime values for server delivery without secret variables', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const workflow: WorkflowGraph = {
@@ -145,6 +152,7 @@ describe('workflow webhook notifications', () => {
     const events = state.logs.filter(line => line.nodeId === loop.id && line.notificationEvent === 'node.failed')
     expect(events).toHaveLength(1)
     expect(events[0]?.message).toContain('第 1 轮执行失败')
+    expect(events[0]?.message).toContain('节点「输入」：失败，已停下来等人：输入框不可用')
     expect(events[0]?.notificationValues).toEqual({ currentIndex: 0 })
   })
 

@@ -186,10 +186,12 @@ export async function walkGraph(
       log(node.id, node.name, `产出概要：${entries.length === 0 ? '无' : entries.slice(0, 20).map(([name, value]) => `${name}=${outputShape(value)}`).join('，')}${entries.length > 20 ? `，另有 ${entries.length - 20} 项` : ''}（不记录具体值）`)
     } else log(node.id, node.name, '产出概要：无')
     nodes[node.id] = result.status ?? (result.halt === 'failed' ? 'failed' : 'succeeded')
-    const notificationEvent = nodes[node.id] === 'succeeded' ? notifyOnce(node, 'node.succeeded')
-      : nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user' ? notifyOnce(node, 'node.failed') : undefined
-    log(node.id, node.name, `执行耗时：${Date.now() - startedAt}ms；状态：${nodes[node.id]}`, notificationEvent)
-    if (result.halt === 'failed' || nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user') logLoopItemFailure(node, result.message)
+    const failed = result.halt === 'failed' || nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user'
+    log(node.id, node.name, `执行耗时：${Date.now() - startedAt}ms；状态：${nodes[node.id]}`, nodes[node.id] === 'succeeded' && !failed ? notifyOnce(node, 'node.succeeded') : undefined)
+    if (failed) {
+      log(node.id, node.name, `节点「${node.name}」(${node.type})执行失败：${result.message}`, notifyOnce(node, 'node.failed'))
+      logLoopItemFailure(node, result.message)
+    }
     if (result.halt !== undefined) {
       const activeLoopId = activeLoopIds.at(-1)
       const loop = activeLoopId === undefined ? undefined : graph.nodes.find(item => item.id === activeLoopId)
@@ -198,7 +200,6 @@ export async function walkGraph(
         current = loop
         continue
       }
-      if (result.halt === 'failed') log(node.id, node.name, `节点「${node.name}」(${node.type})执行失败：${result.message}`)
       return emit(result.halt, node.id)
     }
 

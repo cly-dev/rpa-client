@@ -8,7 +8,7 @@ import type {
 } from "@graph/types.ts";
 import type { DryRunState } from "@runner/dry-run.ts";
 import { workflowNeedsBrowser } from "@runner/page-requirement.ts";
-import { failedRunReason, readableRunError } from "./execution-message.ts";
+import { executionEventTone, failedRunReason, readableRunError } from "./execution-message.ts";
 import { safeEventMessage } from './execution-log.ts';
 import { BrowserModePicker } from './BrowserModePicker.tsx';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
@@ -1448,7 +1448,6 @@ export function ExecutionCenter({
             {detail.error ? (
               <p className="execution-error">{detail.error}</p>
             ) : null}
-            {(detail.webhooks?.length ?? 0) > 0 ? <section className="execution-webhook-deliveries" aria-label="Webhook 投递记录"><h3>Webhook 通知</h3>{detail.webhooks?.map(item => <div key={item.eventId}><span>{item.eventType}</span><strong>{item.status === 'sent' ? '已发送' : item.status === 'failed' ? '发送失败' : item.status === 'sending' ? '发送中' : '待发送'}</strong><small>尝试 {item.attempts} 次{item.lastError ? ` · ${item.lastError}` : ''}</small></div>)}</section> : null}
             <div className="execution-detail-events">
               {detailLoading ? (
                 <p>正在加载详情…</p>
@@ -1456,7 +1455,7 @@ export function ExecutionCenter({
                 <p>暂无节点日志</p>
               ) : (
                 detail.events?.map((event) => (
-                  <article key={event.sequence}>
+                  <article key={event.sequence} className={`is-${executionEventTone(event.message)}`}>
                     <time>{new Date(event.at).toLocaleTimeString()}</time>
                     <strong>{event.nodeName}</strong>
                     <p>{event.message}</p>

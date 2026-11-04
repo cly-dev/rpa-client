@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { DryRunState } from '@runner/dry-run.ts'
 import type { ExecutionEvent, ExecutionRecord, ExecutionStatus } from '../workflow-api.ts'
+import { executionEventTone } from './execution-message.ts'
 
 interface Props {
   readonly record: ExecutionRecord
@@ -20,12 +21,6 @@ function displayStatus(record: ExecutionRecord, state: DryRunState | undefined):
   if (state?.status === 'waiting-approval') return 'waiting_approval'
   if (state?.status === 'succeeded' || state?.status === 'failed') return state.status
   return record.status
-}
-
-function eventTone(message: string): 'error' | 'warning' | 'normal' {
-  if (/执行失败|运行失败|尝试失败|错误：|异常：/.test(message)) return 'error'
-  if (/等待|重试|超时|跳过/.test(message)) return 'warning'
-  return 'normal'
 }
 
 export function LiveExecutionPanel({ record, state, events, error, onOpenDetail, onDismiss }: Props): ReactNode {
@@ -61,7 +56,7 @@ export function LiveExecutionPanel({ record, state, events, error, onOpenDetail,
     <section className="execution-live-log-section" aria-label="实时运行日志">
       <div className="execution-live-log-heading"><h3>实时日志</h3>{events.length > 8 ? <button type="button" onClick={() => { setShowAll(value => !value) }}>{showAll ? '只看最近 8 条' : `查看全部 ${events.length} 条`}</button> : null}</div>
       {visibleEvents.length === 0 ? <p className="execution-live-empty">正在准备本机浏览器与运行环境，节点日志会实时显示在这里。</p> : <ol className={`execution-live-logs${showAll ? ' is-expanded' : ''}`}>
-        {visibleEvents.map(event => <li key={event.sequence} className={`is-${eventTone(event.message)}`}>
+        {visibleEvents.map(event => <li key={event.sequence} className={`is-${executionEventTone(event.message)}`}>
           <time dateTime={new Date(event.at).toISOString()}>{new Date(event.at).toLocaleTimeString('zh-CN', { hour12: false })}</time>
           <strong title={event.nodeName || '流程'}>{event.nodeName || '流程'}</strong>
           <span>{event.message}</span>

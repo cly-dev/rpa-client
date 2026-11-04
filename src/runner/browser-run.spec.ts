@@ -674,6 +674,50 @@ describe('runBrowser', () => {
     expect(outputMapped.variables?.childResult).toBe('2026-10-08')
   })
 
+  it('passes child approval notification inputs under the published template paths', async () => {
+    const parentStart = createNode('start', { x: 0, y: 0 })
+    const call = createNode('call-subflow', { x: 100, y: 0 })
+    const parentEnd = createNode('end', { x: 200, y: 0 })
+    const childStart = createNode('start', { x: 0, y: 0 })
+    const approval = createNode('approval', { x: 100, y: 0 })
+    const childEnd = createNode('end', { x: 200, y: 0 })
+    const parent: WorkflowGraph = {
+      workflowId: 'parent-notify', name: 'Parent', version: 1, entryNodeId: parentStart.id,
+      context: { inputs: [{ name: 'parentEmail', type: 'string' }, { name: 'body', type: 'string' }, { name: 'order', type: 'string' }], variables: [] },
+      nodes: [
+        { ...parentStart, config: { type: 'start', url: '' } },
+        { ...call, config: { type: 'call-subflow', workflowId: 'child-notify', workflowVersion: 1, inputMappings: [
+          { inputName: 'email', source: { kind: 'workflow-input', name: 'parentEmail' } },
+          { inputName: 'email_content', source: { kind: 'workflow-input', name: 'body' } },
+          { inputName: 'workId', source: { kind: 'workflow-input', name: 'order' } },
+        ] } },
+        parentEnd,
+      ],
+      edges: [createEdge(parentStart.id, 'default', call.id), createEdge(call.id, 'default', parentEnd.id)],
+    }
+    const child: WorkflowGraph = {
+      workflowId: 'child-notify', name: 'Child', version: 1, entryNodeId: childStart.id,
+      context: { inputs: [{ name: 'email', type: 'string' }, { name: 'email_content', type: 'string' }, { name: 'workId', type: 'string' }], variables: [] },
+      nodes: [
+        { ...childStart, config: { type: 'start', url: '' } },
+        { ...approval, notifications: { onApprovalPending: true, messageTemplate: '工单 {{inputs.workId}}，收件人 {{inputs.email}}，内容 {{inputs.email_content}}' } },
+        childEnd,
+      ],
+      edges: [createEdge(childStart.id, 'default', approval.id), createEdge(approval.id, 'approved', childEnd.id)],
+    }
+    let notificationValues: Readonly<Record<string, import('@graph/types.ts').JsonValue>> | undefined
+    const state = await runBrowser(parent, fakeDriver([]), {
+      onUpdate() {}, wait: async () => {},
+      requestApproval: async prompt => {
+        notificationValues = prompt.notificationValues
+        return { decision: 'approved', comment: '', approverName: '当前执行人', decidedAt: '2026-10-08T00:00:00.000Z' }
+      },
+    }, { inputs: { parentEmail: 'user@example.com', body: '<p>邮件正文</p>', order: 'WO-123' }, subflows: [child] })
+
+    expect(state.status).toBe('succeeded')
+    expect(notificationValues).toEqual({ 'inputs.workId': 'WO-123', 'inputs.email': 'user@example.com', 'inputs.email_content': '<p>邮件正文</p>' })
+  })
+
   it('resolves nested fields of an object injected into a child API request', async () => {
     const parentStart = createNode('start', { x: 0, y: 0 })
     const call = createNode('call-subflow', { x: 100, y: 0 })

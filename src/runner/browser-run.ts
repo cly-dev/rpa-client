@@ -1004,16 +1004,18 @@ export async function runBrowser(
   }
   const notificationValuesFor = (nodeId: string, event?: NonNullable<import('./walk.ts').RunLogLine['notificationEvent']>): Record<string, import('@graph/types.ts').JsonValue> => {
     const node = runnableGraph.nodes.find(item => item.id === nodeId)
-    const marker = nodeId.split('::').at(-2)
+    const nodeParts = nodeId.split('::')
+    const marker = nodeParts.at(-2)
     const owner = marker === undefined ? undefined : options.subflows?.find(item => `${item.workflowId.replace(/[^A-Za-z0-9_]/g, '_')}_v${item.version}` === marker)
-    const prefixTemplate = owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
+    const sourceNode = owner?.nodes.find(item => item.id === nodeParts.at(-1)) ?? node
+    const prefixTemplate = owner ? owner.webhook?.messageTemplate ?? '' : runnableGraph.webhook?.messageTemplate ?? ''
     const templateFor = (trigger: import('@graph/types.ts').NodeNotificationTrigger): string => {
-      const statusTemplate = node?.notifications?.messageTemplates?.[trigger]
-      return statusTemplate?.trim() || node?.notifications?.messageTemplate?.trim() || ''
+      const statusTemplate = sourceNode?.notifications?.messageTemplates?.[trigger]
+      return statusTemplate?.trim() || sourceNode?.notifications?.messageTemplate?.trim() || ''
     }
     const bodyTemplate = event === undefined
       ? (['onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout'] as const)
-          .filter(trigger => node?.notifications?.[trigger] === true)
+          .filter(trigger => sourceNode?.notifications?.[trigger] === true)
           .map(templateFor)
           .join('\n')
       : templateFor(event === 'node.succeeded' ? 'onSuccess' : 'onFailure')
@@ -1024,10 +1026,15 @@ export async function runBrowser(
       if (path === 'event' || path.startsWith('event.') || path in values) continue
       const inputName = path.startsWith('inputs.') ? path.slice(7).split(/[.\[]/, 1)[0] : ''
       const variableName = (path.startsWith('variables.') ? path.slice(10) : path).split(/[.\[]/, 1)[0]
-      if (runnableGraph.context?.inputs?.some(item => item.secret && item.name === inputName)) continue
+      if ((owner?.context ?? runnableGraph.context)?.inputs?.some(item => item.secret && item.name === inputName)) continue
       if (runnableGraph.context?.variables?.some(item => item.secret && item.name === variableName)) continue
       if (/(?:password|secret|token|cookie|authorization|api[_-]?key)/i.test(path)) continue
-      const value = resolveExpression(`{{${path}}}`, context)
+      const callNodeId = nodeParts.at(-3)
+      const alias = owner && callNodeId && inputName
+        ? `subflow_${callNodeId.replace(/[^A-Za-z0-9_]/g, '_')}_${inputName.replace(/[^A-Za-z0-9_]/g, '_')}`
+        : undefined
+      const resolvedPath = alias === undefined ? path : `${alias}${path.slice(7 + inputName.length)}`
+      const value = resolveExpression(`{{${resolvedPath}}}`, context)
       const size = JSON.stringify(value).length
       if (size > 4_096 || totalLength + size > 16_384) continue
       values[path] = value
