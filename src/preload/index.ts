@@ -19,9 +19,15 @@ const studio = {
     ipcRenderer.on('scheduler:due', listen)
     return () => { ipcRenderer.removeListener('scheduler:due', listen) }
   },
+  notifyScheduleState: (id: string, enabled: boolean) => ipcRenderer.invoke('scheduler:state-changed', { id, enabled }) as Promise<{ ok: true }>,
+  onScheduleStateChanged: (callback: (value: { id: string; enabled: boolean }) => void) => {
+    const listen = (_event: unknown, value: { id: string; enabled: boolean }): void => { callback(value) }
+    ipcRenderer.on('scheduler:state-changed', listen)
+    return () => { ipcRenderer.removeListener('scheduler:state-changed', listen) }
+  },
   checkBrowserReadiness: () => ipcRenderer.invoke('system:browser-readiness') as Promise<{ available: boolean; message: string }>,
   runWorkflow: (graph: import('../graph/types.ts').WorkflowGraph, options?: { runId?: string; executionId?: string; inputs?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; variables?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; outputs?: Readonly<Record<string, Readonly<Record<string, import('../graph/types.ts').JsonValue>>>>; headless?: boolean; subflows?: readonly import('../graph/types.ts').WorkflowGraph[]; reuseCurrentPage?: boolean; stopAfterNodeId?: string; openDebugBrowserOnPageActionFailure?: boolean }) => ipcRenderer.invoke('workflow:run', { graph, ...options }) as Promise<DryRunState>,
-  cancelWorkflow: (runId: string, reason: 'user' | 'editor-exit' = 'user') => ipcRenderer.invoke('workflow:cancel-run', { runId, reason }) as Promise<{ cancelled: boolean }>,
+  cancelWorkflow: (runId: string, reason: 'user' | 'editor-exit' | 'schedule-paused' = 'user') => ipcRenderer.invoke('workflow:cancel-run', { runId, reason }) as Promise<{ cancelled: boolean }>,
   onRunUpdate: (callback: (value: { runId?: string; state: DryRunState }) => void) => {
     const listen = (_event: unknown, value: { runId?: string; state: DryRunState }): void => { callback(value) }
     ipcRenderer.on('workflow:run-update', listen)

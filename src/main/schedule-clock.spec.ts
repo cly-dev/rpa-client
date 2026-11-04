@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ClientScheduleClock, scheduleMatches, type ClientScheduleRule } from './schedule-clock.ts'
+import { ClientScheduleClock, nextScheduleOccurrence, scheduleMatches, type ClientScheduleRule } from './schedule-clock.ts'
 
 const interval: ClientScheduleRule = {
   id: 'schedule-1', kind: 'interval', intervalMinutes: 5,
@@ -36,5 +36,29 @@ describe('client schedule clock', () => {
     const weekly: ClientScheduleRule = { ...daily, kind: 'weekly', weekday: 1 }
     expect(scheduleMatches(weekly, Date.parse('2026-10-19T01:10:00.000Z'))).toBe(true)
     expect(scheduleMatches(weekly, Date.parse('2026-10-20T01:10:00.000Z'))).toBe(false)
+  })
+
+  it('uses a past custom start as the interval phase without replaying before creation', () => {
+    const rule = { ...interval, createdAt: '2026-10-19T04:20:00.000Z', startAt: '2026-10-18T01:00:00.000Z', intervalMinutes: 60 }
+    expect(scheduleMatches(rule, Date.parse('2026-10-19T04:00:00.000Z'))).toBe(false)
+    expect(nextScheduleOccurrence(rule, Date.parse('2026-10-19T04:20:00.000Z'))).toBe(Date.parse('2026-10-19T05:00:00.000Z'))
+  })
+
+  it('starts a future rule on time and stops after an optional end', () => {
+    const rule = { ...interval, startAt: '2026-10-19T02:00:00.000Z', endAt: '2026-10-19T02:10:00.000Z' }
+    expect(nextScheduleOccurrence(rule, Date.parse('2026-10-19T01:30:00.000Z'))).toBe(Date.parse('2026-10-19T02:00:00.000Z'))
+    expect(scheduleMatches(rule, Date.parse('2026-10-19T02:10:00.000Z'))).toBe(true)
+    expect(scheduleMatches(rule, Date.parse('2026-10-19T02:15:00.000Z'))).toBe(false)
+    expect(nextScheduleOccurrence(rule, Date.parse('2026-10-19T02:11:00.000Z'))).toBeNull()
+  })
+
+  it('keeps running without an end time', () => {
+    const rule = { ...interval, startAt: '2026-10-19T01:00:00.000Z', endAt: null }
+    expect(nextScheduleOccurrence(rule, Date.parse('2026-10-21T01:02:00.000Z'))).toBe(Date.parse('2026-10-21T01:05:00.000Z'))
+  })
+
+  it('previews the first daily run after a future start time', () => {
+    const daily: ClientScheduleRule = { ...interval, kind: 'daily', intervalMinutes: null, hour: 9, minute: 10, startAt: '2026-10-19T02:00:00.000Z' }
+    expect(nextScheduleOccurrence(daily, Date.parse('2026-10-19T01:00:00.000Z'))).toBe(Date.parse('2026-10-20T01:10:00.000Z'))
   })
 })

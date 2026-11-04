@@ -1006,17 +1006,18 @@ export async function runBrowser(
     const node = runnableGraph.nodes.find(item => item.id === nodeId)
     const marker = nodeId.split('::').at(-2)
     const owner = marker === undefined ? undefined : options.subflows?.find(item => `${item.workflowId.replace(/[^A-Za-z0-9_]/g, '_')}_v${item.version}` === marker)
-    const defaultTemplate = owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
+    const prefixTemplate = owner?.webhook?.messageTemplate || runnableGraph.webhook?.messageTemplate || ''
     const templateFor = (trigger: import('@graph/types.ts').NodeNotificationTrigger): string => {
       const statusTemplate = node?.notifications?.messageTemplates?.[trigger]
-      return statusTemplate?.trim() || node?.notifications?.messageTemplate?.trim() || defaultTemplate
+      return statusTemplate?.trim() || node?.notifications?.messageTemplate?.trim() || ''
     }
-    const template = event === undefined
+    const bodyTemplate = event === undefined
       ? (['onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout'] as const)
           .filter(trigger => node?.notifications?.[trigger] === true)
           .map(templateFor)
           .join('\n')
       : templateFor(event === 'node.succeeded' ? 'onSuccess' : 'onFailure')
+    const template = `${prefixTemplate}\n${bodyTemplate}`
     const values: Record<string, import('@graph/types.ts').JsonValue> = {}
     let totalLength = 0
     for (const path of notificationContentReferences(template)) {

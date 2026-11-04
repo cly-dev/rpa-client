@@ -16,6 +16,7 @@ import { ApprovalRichText } from './ApprovalRichText.tsx';
 import { Pagination } from './Pagination.tsx';
 import { ClearableNumberInput } from './ClearableNumberInput.tsx';
 import { isScheduledExecutionActive } from './scheduled-executions.ts';
+import { nextScheduleOccurrence } from '../../main/schedule-clock.ts';
 import {
   RPA_SERVICE_URL,
   appendExecutionEvents,
@@ -197,6 +198,27 @@ export function ExecutionCenter({
   const [scheduleInterval, setScheduleInterval] = useState(60);
   const [scheduleTime, setScheduleTime] = useState('09:00');
   const [scheduleWeekday, setScheduleWeekday] = useState(1);
+  const [scheduleStartMode, setScheduleStartMode] = useState<'now' | 'custom'>('now');
+  const [scheduleStartAt, setScheduleStartAt] = useState('');
+  const [scheduleEndAt, setScheduleEndAt] = useState('');
+  const schedulePreview = useMemo(() => {
+    if (scheduleStartMode === 'custom' && (!scheduleStartAt || !Number.isFinite(Date.parse(scheduleStartAt)))) return '请选择有效的开始时间';
+    if (scheduleEndAt && !Number.isFinite(Date.parse(scheduleEndAt))) return '请选择有效的截止时间';
+    const now = Date.now();
+    const endAt = scheduleEndAt ? new Date(scheduleEndAt).toISOString() : null;
+    if (endAt && Date.parse(endAt) < now) return '截止时间已过去，请重新选择';
+    const startAt = scheduleStartMode === 'custom' ? new Date(scheduleStartAt).toISOString() : null;
+    if (startAt && endAt && Date.parse(endAt) < Date.parse(startAt)) return '截止时间不能早于开始时间';
+    const [hour, minute] = scheduleTime.split(':').map(Number);
+    const next = nextScheduleOccurrence({
+      id: 'preview', kind: scheduleKind, intervalMinutes: scheduleKind === 'interval' ? scheduleInterval : null,
+      hour: scheduleKind === 'interval' ? null : hour, minute: scheduleKind === 'interval' ? null : minute,
+      weekday: scheduleKind === 'weekly' ? scheduleWeekday : null,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      createdAt: new Date(now).toISOString(), startAt, endAt, enabled: true,
+    }, now);
+    return next === null ? '当前配置没有后续执行时间' : `预计下次执行：${new Date(next).toLocaleString()}`;
+  }, [scheduleKind, scheduleInterval, scheduleTime, scheduleWeekday, scheduleStartMode, scheduleStartAt, scheduleEndAt]);
   const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
   const [scheduleActionId, setScheduleActionId] = useState<string>();
   const [showDeletedSchedules, setShowDeletedSchedules] = useState(false);
@@ -428,6 +450,11 @@ export function ExecutionCenter({
       setLaunchFlow(flow);
       setLaunchGraph(revision.graph);
       setLaunchMode(mode);
+      if (mode === 'schedule') {
+        setScheduleStartMode('now');
+        setScheduleStartAt('');
+        setScheduleEndAt('');
+      }
       setInputText(
         Object.fromEntries(
           (revision.graph.context?.inputs ?? []).map((item) => [
@@ -467,6 +494,20 @@ export function ExecutionCenter({
         inputs[definition.name] = value;
       }
       const [hour, minute] = scheduleTime.split(':').map(Number);
+      if (scheduleStartMode === 'custom' && (!scheduleStartAt || !Number.isFinite(Date.parse(scheduleStartAt)))) throw new Error('请选择有效的开始时间');
+      if (scheduleEndAt && !Number.isFinite(Date.parse(scheduleEndAt))) throw new Error('请选择有效的截止时间');
+      const startAt = scheduleStartMode === 'custom' ? new Date(scheduleStartAt).toISOString() : undefined;
+      const endAt = scheduleEndAt ? new Date(scheduleEndAt).toISOString() : undefined;
+      if (endAt && Date.parse(endAt) < Date.now()) throw new Error('截止时间已过去，请重新选择');
+      if (startAt && endAt && Date.parse(endAt) < Date.parse(startAt)) throw new Error('截止时间不能早于开始时间');
+      const now = Date.now();
+      if (nextScheduleOccurrence({
+        id: 'preview', kind: scheduleKind, intervalMinutes: scheduleKind === 'interval' ? scheduleInterval : null,
+        hour: scheduleKind === 'interval' ? null : hour, minute: scheduleKind === 'interval' ? null : minute,
+        weekday: scheduleKind === 'weekly' ? scheduleWeekday : null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        createdAt: new Date(now).toISOString(), startAt, endAt, enabled: true,
+      }, now) === null) throw new Error('当前开始和截止时间范围内没有可执行时刻，请调整定时规则');
       const studio = window.studio;
       if (!studio) throw new Error('当前窗口不支持本机定时执行');
       setLaunching(true);
@@ -481,7 +522,7 @@ export function ExecutionCenter({
         kind: scheduleKind,
         ...(scheduleKind === 'interval' ? { intervalMinutes: scheduleInterval } : { hour, minute }),
         ...(scheduleKind === 'weekly' ? { weekday: scheduleWeekday } : {}),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, inputs,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt, endAt, inputs,
       });
       setLaunchFlow(undefined);
       setLaunchGraph(undefined);
@@ -501,9 +542,11 @@ export function ExecutionCenter({
     setScheduleActionId(schedule.id);
     try {
       await toggleSchedule(RPA_SERVICE_URL, schedule.id, !schedule.enabled);
+      window.dispatchEvent(new CustomEvent('rpa:schedule-state-changed', { detail: { id: schedule.id, enabled: !schedule.enabled } }));
+      await window.studio?.notifyScheduleState(schedule.id, !schedule.enabled).catch(() => undefined);
       await refresh();
       window.dispatchEvent(new Event('rpa:schedules-changed'));
-      setNotice(schedule.enabled ? '定时任务已暂停' : '定时任务已恢复');
+      setNotice(schedule.enabled ? '定时任务已暂停，当前执行正在停止' : '定时任务已恢复');
     } catch (error) { setNotice(error instanceof Error ? error.message : '更新定时任务失败'); }
     finally { setScheduleActionId(undefined); }
   };
@@ -897,9 +940,10 @@ export function ExecutionCenter({
           <div className="execution-schedule-toolbar"><label><input type="checkbox" checked={showDeletedSchedules} onChange={event => setShowDeletedSchedules(event.target.checked)} />显示已删除任务的历史</label></div>
           {schedules.length === 0 ? <div className="workbench-empty"><strong>还没有定时任务</strong><p>从“选择流程”中找到已发布流程，点击“定时执行”创建。</p></div> : schedules.map(schedule => (
             <div className="execution-record-row execution-schedule-row" key={schedule.id}>
-              <span className={`execution-status is-${schedule.deletedAt ? 'cancelled' : schedule.enabled ? 'running' : 'cancelled'}`}>{schedule.deletedAt ? '已删除' : schedule.enabled ? '已启用' : '已暂停'}</span>
+              <span className={`execution-status is-${schedule.deletedAt || !schedule.enabled || (schedule.endAt && Date.parse(schedule.endAt) < Date.now()) ? 'cancelled' : 'running'}`}>{schedule.deletedAt ? '已删除' : !schedule.enabled ? '已暂停' : schedule.endAt && Date.parse(schedule.endAt) < Date.now() ? '已截止' : '已启用'}</span>
               <span className="execution-record-main"><strong>{schedule.workflowName ?? schedule.workflowId}</strong><small>
                 v{schedule.workflowVersion} · {schedule.kind === 'interval' ? `每 ${schedule.intervalMinutes} 分钟` : schedule.kind === 'daily' ? `每天 ${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}` : `每周${['日', '一', '二', '三', '四', '五', '六'][schedule.weekday ?? 0]} ${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`} · {schedule.deviceName} · {schedule.timezone}
+                {` · 开始：${schedule.startAt ? new Date(schedule.startAt).toLocaleString() : '创建后立即生效'} · 截止：${schedule.endAt ? new Date(schedule.endAt).toLocaleString() : '不截止'}`}
                 {schedule.lastOccurrence ? ` · 最近触发：${new Date(schedule.lastOccurrence.scheduledAt).toLocaleString()}（${schedule.lastOccurrence.status}）` : ''}
               </small></span>
               <div className="execution-schedule-actions">
@@ -1208,6 +1252,10 @@ export function ExecutionCenter({
                   {scheduleKind === 'weekly' ? <label>星期<select value={scheduleWeekday} onChange={event => setScheduleWeekday(Number(event.target.value))}>{['日', '一', '二', '三', '四', '五', '六'].map((label, index) => <option key={index} value={index}>星期{label}</option>)}</select></label> : null}
                   <label>执行时间<input type="time" value={scheduleTime} onChange={event => setScheduleTime(event.target.value)} /></label>
                 </>}
+                <label>开始生效<select value={scheduleStartMode} onChange={event => setScheduleStartMode(event.target.value as 'now' | 'custom')}><option value="now">立即开始</option><option value="custom">指定时间</option></select></label>
+                {scheduleStartMode === 'custom' ? <label>开始时间<input type="datetime-local" value={scheduleStartAt} onChange={event => setScheduleStartAt(event.target.value)} /></label> : null}
+                <label>截止时间（可不填）<input type="datetime-local" value={scheduleEndAt} onChange={event => setScheduleEndAt(event.target.value)} /></label>
+                <p>{schedulePreview}。过去的开始时间只用于计算排程，不补跑历史；不填截止时间则持续执行。</p>
                 <p>按本机时区 {Intl.DateTimeFormat().resolvedOptions().timeZone} 计时。软件关闭或账号退出期间不会执行，重新打开后仅补最近 5 分钟内的触发。</p>
               </div> : null}
             </div>

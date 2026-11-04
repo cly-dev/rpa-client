@@ -79,6 +79,7 @@ export interface WorkflowWebhookConfig {
   readonly onFinished?: boolean
   readonly bodyTemplate?: string
   readonly provider?: 'generic' | 'dingtalk'
+  /** DingTalk prefix prepended to every workflow/node notification. */
   readonly messageTemplate?: string
 }
 

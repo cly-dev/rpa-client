@@ -7,24 +7,59 @@ export interface ClientScheduleRule {
   readonly weekday: number | null
   readonly timezone: string
   readonly createdAt: string
+  readonly startAt?: string | null
+  readonly endAt?: string | null
   readonly enabled: boolean
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+function localTimeMatches(rule: ClientScheduleRule, timestamp: number, formatter: Intl.DateTimeFormat): boolean {
+  const parts = formatter.formatToParts(new Date(timestamp))
+  const part = (type: string): string => parts.find(item => item.type === type)?.value ?? ''
+  return Number(part('hour')) === rule.hour && Number(part('minute')) === rule.minute && (rule.kind === 'daily' || WEEKDAYS.indexOf(part('weekday')) === rule.weekday)
+}
+
 export function scheduleMatches(rule: ClientScheduleRule, timestamp: number): boolean {
   if (!Number.isFinite(timestamp) || timestamp % 60_000 !== 0) return false
   const created = Date.parse(rule.createdAt)
-  if (!Number.isFinite(created)) return false
-  const anchor = Math.ceil(created / 60_000) * 60_000
-  if (timestamp < anchor) return false
+  const starts = rule.startAt ? Date.parse(rule.startAt) : created
+  const ends = rule.endAt ? Date.parse(rule.endAt) : Number.POSITIVE_INFINITY
+  if (!Number.isFinite(created) || !Number.isFinite(starts) || Number.isNaN(ends)) return false
+  const anchor = Math.ceil(starts / 60_000) * 60_000
+  if (timestamp < Math.ceil(created / 60_000) * 60_000 || timestamp < anchor || timestamp > ends) return false
   if (rule.kind === 'interval') return typeof rule.intervalMinutes === 'number' && rule.intervalMinutes > 0 && (timestamp - anchor) % (rule.intervalMinutes * 60_000) === 0
   if (rule.hour === null || rule.minute === null) return false
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: rule.timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', weekday: 'short' }).formatToParts(new Date(timestamp))
-    const part = (type: string): string => parts.find(item => item.type === type)?.value ?? ''
-    return Number(part('hour')) === rule.hour && Number(part('minute')) === rule.minute && (rule.kind === 'daily' || WEEKDAYS.indexOf(part('weekday')) === rule.weekday)
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: rule.timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+    return localTimeMatches(rule, timestamp, formatter)
   } catch { return false }
+}
+
+export function nextScheduleOccurrence(rule: ClientScheduleRule, now = Date.now()): number | null {
+  const created = Date.parse(rule.createdAt)
+  const starts = rule.startAt ? Date.parse(rule.startAt) : created
+  const ends = rule.endAt ? Date.parse(rule.endAt) : Number.POSITIVE_INFINITY
+  if (!Number.isFinite(now) || !Number.isFinite(created) || !Number.isFinite(starts) || Number.isNaN(ends)) return null
+  const first = Math.ceil(Math.max(now, created, starts) / 60_000) * 60_000
+  if (first > ends) return null
+  if (rule.kind === 'interval') {
+    if (!rule.intervalMinutes || rule.intervalMinutes < 1) return null
+    const anchor = Math.ceil(starts / 60_000) * 60_000
+    const period = rule.intervalMinutes * 60_000
+    const candidate = anchor + Math.max(0, Math.ceil((first - anchor) / period)) * period
+    return candidate <= ends ? candidate : null
+  }
+  // A week covers every daily/weekly slot, including a possible daylight-saving transition.
+  const limit = Math.min(first + 8 * 24 * 60 * 60_000, ends)
+  if (rule.hour === null || rule.minute === null) return null
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: rule.timezone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+    for (let candidate = first; candidate <= limit; candidate += 60_000) {
+      if (localTimeMatches(rule, candidate, formatter)) return candidate
+    }
+  } catch { return null }
+  return null
 }
 
 export class ClientScheduleClock {

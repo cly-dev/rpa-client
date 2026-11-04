@@ -129,6 +129,14 @@ app.whenReady().then(() => {
     scheduleClock.acknowledge(value.id, value.scheduledAt)
     return { ok: true }
   })
+  ipcMain.handle('scheduler:state-changed', (_event, raw: unknown) => {
+    const value = raw as { id?: unknown; enabled?: unknown } | undefined
+    if (typeof value?.id !== 'string' || typeof value.enabled !== 'boolean') throw new Error('定时任务状态无效')
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('scheduler:state-changed', value)
+    }
+    return { ok: true }
+  })
   const activeRuns = new Map<string, { readonly controller: AbortController; readonly senderId: number }>()
   const pendingApprovals = new Map<string, { readonly resolve: (decision: ApprovalDecision) => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
   ipcMain.handle('workflow:approval-respond', (_event, raw: unknown) => {
@@ -150,7 +158,7 @@ app.whenReady().then(() => {
       : ''
     const active = activeRuns.get(runId)
     if (active === undefined || active.senderId !== event.sender.id) return { cancelled: false }
-    const reason = new Error(value.reason === 'editor-exit' ? '流程已因退出编辑页而终止' : '流程已由用户停止')
+    const reason = new Error(value.reason === 'editor-exit' ? '流程已因退出编辑页而终止' : value.reason === 'schedule-paused' ? '定时任务已暂停，当前执行已停止' : '流程已由用户停止')
     active.controller.abort(reason)
     for (const [approvalId, approval] of pendingApprovals) {
       if (approval.runId !== runId) continue

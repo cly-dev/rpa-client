@@ -2,21 +2,22 @@ import { useState, type ReactNode } from 'react'
 import { notificationContentError, validDingTalkRobotUrl } from '@graph/webhook-body-template.ts'
 import { RPA_SERVICE_URL, testDingTalkWebhook } from '../workflow-api.ts'
 
-export function WebhookTestButton({ url, messageTemplate, workflowName, nodeName }: {
+export function WebhookTestButton({ url, messageTemplate, prefixTemplate = '', workflowName, nodeName }: {
   url: string
   messageTemplate: string
+  prefixTemplate?: string
   workflowName: string
   nodeName?: string
 }): ReactNode {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState('')
-  const error = notificationContentError(messageTemplate)
+  const error = notificationContentError(messageTemplate) ?? notificationContentError(prefixTemplate)
   const addressValid = validDingTalkRobotUrl(url)
   const test = async (): Promise<void> => {
     setBusy(true)
     setResult('')
     try {
-      const response = await testDingTalkWebhook(RPA_SERVICE_URL, { url, messageTemplate, workflowName, nodeName })
+      const response = await testDingTalkWebhook(RPA_SERVICE_URL, { url, messageTemplate, prefixTemplate, workflowName, nodeName })
       setResult(response.message)
     } catch (cause) { setResult(cause instanceof Error ? cause.message : '测试发送失败') }
     finally { setBusy(false) }

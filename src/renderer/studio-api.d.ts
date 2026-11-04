@@ -12,7 +12,9 @@ interface StudioApi {
   clearSchedules(): Promise<{ ok: true }>
   acknowledgeScheduleDue(id: string, scheduledAt: string): Promise<{ ok: true }>
   onScheduleDue(callback: (value: { id: string; scheduledAt: string }) => void): () => void
-  cancelWorkflow(runId: string, reason?: 'user' | 'editor-exit'): Promise<{ cancelled: boolean }>
+  notifyScheduleState(id: string, enabled: boolean): Promise<{ ok: true }>
+  onScheduleStateChanged(callback: (value: { id: string; enabled: boolean }) => void): () => void
+  cancelWorkflow(runId: string, reason?: 'user' | 'editor-exit' | 'schedule-paused'): Promise<{ cancelled: boolean }>
   onRunUpdate(callback: (value: { readonly runId?: string; readonly state: DryRunState }) => void): () => void
   onApprovalRequest(callback: (prompt: ApprovalPrompt) => void): () => void
   respondApproval(id: string, decision: 'approved' | 'rejected', comment?: string): Promise<{ ok: true }>

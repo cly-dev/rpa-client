@@ -90,6 +90,8 @@ export interface WorkflowSchedule {
   readonly minute: number | null
   readonly weekday: number | null
   readonly timezone: string
+  readonly startAt?: string | null
+  readonly endAt?: string | null
   readonly inputs: Readonly<Record<string, JsonValue>>
   readonly enabled: boolean
   readonly deletedAt?: string | null
@@ -280,7 +282,7 @@ export function listScheduleOccurrences(baseUrl: string, id: string, page = 1, p
 export function createSchedule(baseUrl: string, value: {
   workflowId: string; workflowVersion: number; deviceId: string; deviceName: string;
   kind: WorkflowSchedule['kind']; intervalMinutes?: number; hour?: number; minute?: number; weekday?: number;
-  timezone: string; inputs: Readonly<Record<string, JsonValue>>;
+  timezone: string; startAt?: string; endAt?: string; inputs: Readonly<Record<string, JsonValue>>;
 }): Promise<WorkflowSchedule> {
   return request(baseUrl, 'schedules', '', { method: 'POST', body: JSON.stringify(value) })
 }
@@ -383,7 +385,7 @@ export function publishWorkflow(baseUrl: string, id: string): Promise<{ id: stri
   return request(baseUrl, 'workflows', `/${encodeURIComponent(id)}/publish`, { method: 'POST' })
 }
 
-export function testDingTalkWebhook(baseUrl: string, value: { url: string; messageTemplate: string; workflowName: string; nodeName?: string }): Promise<{ message: string }> {
+export function testDingTalkWebhook(baseUrl: string, value: { url: string; messageTemplate: string; prefixTemplate?: string; workflowName: string; nodeName?: string }): Promise<{ message: string }> {
   return request(baseUrl, 'webhooks', '/test', { method: 'POST', body: JSON.stringify(value) })
 }
 
