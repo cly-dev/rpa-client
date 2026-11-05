@@ -121,6 +121,7 @@ export interface BrowserRunOptions {
   readonly allowExistingPage?: boolean
   readonly subflows?: readonly WorkflowGraph[]
   readonly stopAfterNodeId?: string
+  readonly resumeApproval?: { readonly nodeId: string; readonly decision: 'approved' | 'rejected' | 'timeout'; readonly comment: string; readonly approverId?: string; readonly approverName: string; readonly decidedAt: string }
 }
 
 const SENSITIVE_LOG_KEY = /password|passwd|pwd|secret|token|authorization|cookie|api[-_]?key|access[-_]?key|session|密码|令牌|密钥|口令|凭证/i
@@ -986,9 +987,15 @@ export async function runBrowser(
   options: BrowserRunOptions = {},
 ): Promise<RunState> {
   const runnableGraph = expandSubflows(graph, options.subflows ?? [])
+  const resumeEdge = options.resumeApproval === undefined ? undefined : runnableGraph.edges.find(edge => edge.sourceNodeId === options.resumeApproval!.nodeId && edge.sourcePort === options.resumeApproval!.decision)
+  if (options.resumeApproval && !resumeEdge) throw new Error(`审批节点的「${options.resumeApproval.decision}」出口没有后续连线`)
+  const approvalOutputs = options.resumeApproval === undefined ? {} : {
+    [options.resumeApproval.nodeId]: { approved: options.resumeApproval.decision === 'approved', decision: options.resumeApproval.decision, comment: options.resumeApproval.comment, approverId: options.resumeApproval.approverId ?? '', approverName: options.resumeApproval.approverName, decidedAt: options.resumeApproval.decidedAt },
+  }
+  const initialOutputs = { ...options.outputs, ...approvalOutputs }
   const entry = graph.nodes.find(node => node.id === graph.entryNodeId)
   const stopAtEmptyStart = options.stopAfterNodeId === graph.entryNodeId && entry?.config.type === 'start' && entry.config.url.trim() === ''
-  if (!stopAtEmptyStart && workflowNeedsExistingPage([runnableGraph]) && (!options.allowExistingPage || (driver.currentUrl !== undefined && !usablePageUrl(driver.currentUrl())))) {
+  if (!options.resumeApproval && !stopAtEmptyStart && workflowNeedsExistingPage([runnableGraph]) && (!options.allowExistingPage || (driver.currentUrl !== undefined && !usablePageUrl(driver.currentUrl())))) {
     throw new Error('流程和子流程都没有配置开始 URL，且没有可沿用的浏览器页面；请先打开目标页面，或在开始节点填写初始 URL。')
   }
   const context: WorkflowContext = {
@@ -996,7 +1003,7 @@ export async function runBrowser(
     variables: { ...initialContextValues(runnableGraph.context?.variables), ...options.variables },
     failures: {},
     successes: {},
-    outputs: { ...options.outputs },
+    outputs: { ...initialOutputs },
     page: { url: options.allowExistingPage ? driver.currentUrl?.() ?? '' : '' },
     runtime: { executionId: options.executionId ?? `local-${Date.now()}`, workflowId: graph.workflowId },
     llm: runnableGraph.llm,
@@ -1029,7 +1036,7 @@ export async function runBrowser(
       if ((owner?.context ?? runnableGraph.context)?.inputs?.some(item => item.secret && item.name === inputName)) continue
       if (runnableGraph.context?.variables?.some(item => item.secret && item.name === variableName)) continue
       if (/(?:password|secret|token|cookie|authorization|api[_-]?key)/i.test(path)) continue
-      const callNodeId = nodeParts.at(-3)
+      const callNodeId = nodeParts.slice(0, -2).join('::')
       const alias = owner && callNodeId && inputName
         ? `subflow_${callNodeId.replace(/[^A-Za-z0-9_]/g, '_')}_${inputName.replace(/[^A-Za-z0-9_]/g, '_')}`
         : undefined
@@ -1059,9 +1066,29 @@ export async function runBrowser(
       handlers.onUpdate(latestState)
     },
     requestApproval: handlers.requestApproval === undefined ? undefined : prompt => handlers.requestApproval!({ ...prompt, notificationValues: notificationValuesFor(prompt.nodeId) }),
+    queueApproval: handlers.queueApproval === undefined ? undefined : (prompt, loopNodeId, outputs) => {
+      const index = outputs[loopNodeId]?.index
+      const secretDefaults = [graph, ...(options.subflows ?? [])].map(flow => ({
+        workflowId: flow.workflowId, version: flow.version,
+        inputs: Object.fromEntries((flow.context?.inputs ?? []).filter(item => item.secret).flatMap(item => {
+          const value = item.defaultValue !== undefined && item.defaultValue !== '******' ? item.defaultValue : flow === graph ? context.inputs[item.name] : undefined
+          return value === undefined || value === '******' ? [] : [[item.name, value]]
+        })),
+        variables: Object.fromEntries((flow.context?.variables ?? []).filter(item => item.secret).flatMap(item => {
+          const value = item.defaultValue !== undefined && item.defaultValue !== '******' ? item.defaultValue : context.variables[item.name]
+          return value === undefined || value === '******' ? [] : [[item.name, value]]
+        })),
+      }))
+      const continuation = structuredClone({
+        loopNodeId, iterationIndex: typeof index === 'number' ? index : 0,
+        inputs: context.inputs, variables: context.variables, outputs: { ...context.outputs, ...outputs }, secretDefaults,
+      })
+      return handlers.queueApproval!({ ...prompt, notificationValues: notificationValuesFor(prompt.nodeId), continuation }, loopNodeId, outputs)
+    },
   }, async (node, outputs) => {
+    if (options.resumeApproval && node.type === 'approval') throw new Error('异步审批续跑分支暂不支持再次进入审批节点；请拆分为独立流程')
     const beforeUrl = context.page.url
-    const result = await liveStep(node, { ...options.outputs, ...outputs }, driver, context, loops)
+    const result = await liveStep(node, { ...initialOutputs, ...outputs }, driver, context, loops)
     if (driver.currentUrl !== undefined) context.page.url = driver.currentUrl()
     // The page title is diagnostic metadata. A tab closing during this read
     // must not turn an otherwise successful node into a page.title failure.
@@ -1098,7 +1125,7 @@ export async function runBrowser(
       logs.push(`页面 URL 已更新：${beforeUrl ? redactLogUrl(beforeUrl) : '(空)'} → ${redactLogUrl(context.page.url)}`)
     }
     return logs.length === 0 ? result : { ...result, logs }
-  }, { stopAfterNodeId: options.stopAfterNodeId })
+  }, { stopAfterNodeId: options.stopAfterNodeId, startAtNodeId: resumeEdge?.targetNodeId, initialOutputs, resumeContinuation: options.resumeApproval !== undefined, deferApprovals: options.executionId !== undefined })
   stopUrlListener?.()
   return { ...state, logs: latestState?.logs ?? state.logs, inputs: { ...context.inputs }, variables: { ...context.variables }, page: { ...context.page } }
 }

@@ -70,6 +70,7 @@ export interface RunHandlers {
   onUpdate(state: RunState): void
   wait(ms: number): Promise<void>
   requestApproval?(prompt: ApprovalPrompt): Promise<ApprovalDecision>
+  queueApproval?(prompt: ApprovalPrompt, loopNodeId: string, outputs: Readonly<Record<string, NodeOutputs>>): Promise<void>
 }
 
 export interface StepResult {
@@ -87,12 +88,12 @@ export async function walkGraph(
   graph: WorkflowGraph,
   handlers: RunHandlers,
   step: (node: WorkflowNode, outputs: Readonly<Record<string, NodeOutputs>>) => Promise<StepResult>,
-  options: { readonly stopAfterNodeId?: string } = {},
+  options: { readonly stopAfterNodeId?: string; readonly startAtNodeId?: string; readonly initialOutputs?: Readonly<Record<string, NodeOutputs>>; readonly resumeContinuation?: boolean; readonly deferApprovals?: boolean } = {},
 ): Promise<RunState> {
   const nodes: Record<string, NodeRunStatus> = Object.fromEntries(graph.nodes.map(node => [node.id, 'pending' as const]))
-  const outputs: Record<string, NodeOutputs> = {}
+  const outputs: Record<string, NodeOutputs> = { ...options.initialOutputs }
   let logs: RunLogLine[] = []
-  let current = graph.nodes.find(node => node.id === graph.entryNodeId)
+  let current = graph.nodes.find(node => node.id === (options.startAtNodeId ?? graph.entryNodeId))
   const visited = new Set<string>()
   const visitCounts = new Map<string, number>()
   const activeLoopIds: string[] = []
@@ -155,6 +156,16 @@ export async function walkGraph(
     try {
       result = await step(node, outputs)
       if (result.approval !== undefined) {
+        const activeLoopId = activeLoopIds.at(-1)
+        if (options.deferApprovals && activeLoopId && node.config.type === 'approval' && node.config.executionMode !== 'blocking') {
+          if (!handlers.queueApproval) throw new Error('当前执行环境不支持循环内异步审批')
+          await handlers.queueApproval(result.approval, activeLoopId, outputs)
+          log(node.id, node.name, '当前轮审批已挂起，继续处理下一轮')
+          nodes[node.id] = 'waiting-user'
+          emit('running', node.id)
+          current = graph.nodes.find(item => item.id === activeLoopId)
+          continue
+        }
         if (handlers.requestApproval === undefined) throw new Error('当前执行环境不支持人工审批')
         log(node.id, node.name, result.message)
         nodes[node.id] = 'waiting-user'
@@ -210,6 +221,10 @@ export async function walkGraph(
     }
 
     if (node.type === 'continue-loop') {
+      if (options.resumeContinuation && activeLoopIds.length === 0) {
+        log(node.id, node.name, '审批分支已完成当前轮续跑')
+        return emit('succeeded', node.id)
+      }
       const activeLoopId = activeLoopIds.at(-1)
       const loop = activeLoopId === undefined ? undefined : graph.nodes.find(item => item.id === activeLoopId)
       if (loop?.type !== 'for-each') {

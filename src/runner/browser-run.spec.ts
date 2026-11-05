@@ -56,6 +56,33 @@ describe('runDry after walk extract', () => {
 })
 
 describe('runBrowser', () => {
+  it('freezes each loop item and resumes the approved branch with that item only', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = createNode('for-each', { x: 100, y: 0 })
+    const approval = createNode('approval', { x: 200, y: 0 })
+    const setValue = createNode('set-variable', { x: 300, y: 0 })
+    const continueLoop = createNode('continue-loop', { x: 400, y: 0 })
+    const end = createNode('end', { x: 500, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: 'deferred-browser-loop', name: 'Deferred browser loop', version: 1, entryNodeId: start.id,
+      nodes: [start, { ...loop, config: { ...loop.config, type: 'for-each', collection: { kind: 'literal', value: [{ id: 'A' }, { id: 'B' }] } } }, approval,
+        { ...setValue, config: { type: 'set-variable', name: 'approvedId', value: { kind: 'literal', value: '{{currentItem.id}}' }, path: '' } }, continueLoop, end],
+      edges: [createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', approval.id), createEdge(loop.id, 'done', end.id), createEdge(approval.id, 'approved', setValue.id), createEdge(setValue.id, 'default', continueLoop.id)],
+    }
+    const queued: import('@graph/types.ts').ApprovalPrompt[] = []
+    const scanned = await runBrowser(graph, fakeDriver([]), { onUpdate() {}, wait: async () => {}, queueApproval: async prompt => { queued.push(prompt) } }, { executionId: 'execution-1' })
+    expect(scanned.status).toBe('succeeded')
+    expect(queued).toHaveLength(2)
+    expect(queued.map(item => item.continuation?.variables.currentItem)).toEqual([{ id: 'A' }, { id: 'B' }])
+    const first = queued[0]!
+    const resumed = await runBrowser(graph, fakeDriver([]), { onUpdate() {}, wait: async () => {} }, {
+      executionId: 'child-1', inputs: first.continuation!.inputs, variables: first.continuation!.variables, outputs: first.continuation!.outputs,
+      resumeApproval: { nodeId: approval.id, decision: 'approved', comment: '', approverName: '当前执行人', decidedAt: new Date().toISOString() },
+    })
+    expect(resumed.status).toBe('succeeded')
+    expect(resumed.variables?.approvedId).toBe('A')
+    expect(resumed.nodes[loop.id]).toBe('pending')
+  })
   it('resolves prompt variables and exposes each structured output by its configured name', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const agent = createNode('agent', { x: 100, y: 0 })
@@ -716,6 +743,69 @@ describe('runBrowser', () => {
 
     expect(state.status).toBe('succeeded')
     expect(notificationValues).toEqual({ 'inputs.workId': 'WO-123', 'inputs.email': 'user@example.com', 'inputs.email_content': '<p>邮件正文</p>' })
+  })
+
+  it('passes grandchild approval notification inputs through the complete call path', async () => {
+    const parentStart = createNode('start', { x: 0, y: 0 })
+    const parentCall = createNode('call-subflow', { x: 100, y: 0 })
+    const parentEnd = createNode('end', { x: 200, y: 0 })
+    const childStart = createNode('start', { x: 0, y: 0 })
+    const childCall = createNode('call-subflow', { x: 100, y: 0 })
+    const childEnd = createNode('end', { x: 200, y: 0 })
+    const grandchildStart = createNode('start', { x: 0, y: 0 })
+    const approval = createNode('approval', { x: 100, y: 0 })
+    const grandchildEnd = createNode('end', { x: 200, y: 0 })
+    const parent: WorkflowGraph = {
+      workflowId: 'parent-grandchild-notify', name: 'Parent', version: 1, entryNodeId: parentStart.id,
+      context: { inputs: [{ name: 'workId', type: 'string' }, { name: 'email', type: 'string' }, { name: 'email_content', type: 'string' }], variables: [] },
+      nodes: [
+        { ...parentStart, config: { type: 'start', url: '' } },
+        { ...parentCall, config: { type: 'call-subflow', workflowId: 'child-grandchild-notify', workflowVersion: 1, inputMappings: [
+          { inputName: 'workId', source: { kind: 'workflow-input', name: 'workId' } },
+          { inputName: 'email', source: { kind: 'workflow-input', name: 'email' } },
+          { inputName: 'email_content', source: { kind: 'workflow-input', name: 'email_content' } },
+        ] } },
+        parentEnd,
+      ],
+      edges: [createEdge(parentStart.id, 'default', parentCall.id), createEdge(parentCall.id, 'default', parentEnd.id)],
+    }
+    const child: WorkflowGraph = {
+      workflowId: 'child-grandchild-notify', name: 'Child', version: 1, entryNodeId: childStart.id,
+      context: { inputs: [{ name: 'workId', type: 'string' }, { name: 'email', type: 'string' }, { name: 'email_content', type: 'string' }], variables: [] },
+      nodes: [
+        { ...childStart, config: { type: 'start', url: '' } },
+        { ...childCall, config: { type: 'call-subflow', workflowId: 'grandchild-notify', workflowVersion: 1, inputMappings: [
+          { inputName: 'workId', source: { kind: 'workflow-input', name: 'workId' } },
+          { inputName: 'email', source: { kind: 'workflow-input', name: 'email' } },
+          { inputName: 'email_content', source: { kind: 'workflow-input', name: 'email_content' } },
+        ] } },
+        childEnd,
+      ],
+      edges: [createEdge(childStart.id, 'default', childCall.id), createEdge(childCall.id, 'default', childEnd.id)],
+    }
+    const grandchild: WorkflowGraph = {
+      workflowId: 'grandchild-notify', name: 'Grandchild', version: 1, entryNodeId: grandchildStart.id,
+      context: { inputs: [{ name: 'workId', type: 'string' }, { name: 'email', type: 'string' }, { name: 'email_content', type: 'string' }], variables: [] },
+      nodes: [
+        { ...grandchildStart, config: { type: 'start', url: '' } },
+        { ...approval, notifications: { onApprovalPending: true, onSuccess: true, messageTemplate: '工单 {{inputs.workId}}，收件人 {{inputs.email}}，内容 {{inputs.email_content}}' } },
+        grandchildEnd,
+      ],
+      edges: [createEdge(grandchildStart.id, 'default', approval.id), createEdge(approval.id, 'approved', grandchildEnd.id)],
+    }
+    let notificationValues: Readonly<Record<string, import('@graph/types.ts').JsonValue>> | undefined
+    const state = await runBrowser(parent, fakeDriver([]), {
+      onUpdate() {}, wait: async () => {},
+      requestApproval: async prompt => {
+        notificationValues = prompt.notificationValues
+        return { decision: 'approved', comment: '', approverName: '当前执行人', decidedAt: '2026-10-08T00:00:00.000Z' }
+      },
+    }, { inputs: { workId: 'WO-123', email: 'user@example.com', email_content: '<p>邮件正文</p>' }, subflows: [child, grandchild] })
+
+    expect(state.status).toBe('succeeded')
+    expect(notificationValues).toEqual({ 'inputs.workId': 'WO-123', 'inputs.email': 'user@example.com', 'inputs.email_content': '<p>邮件正文</p>' })
+    expect(state.logs.find(log => log.nodeId.endsWith(`::${approval.id}`) && log.notificationEvent === 'node.succeeded')?.notificationValues)
+      .toEqual(notificationValues)
   })
 
   it('resolves nested fields of an object injected into a child API request', async () => {

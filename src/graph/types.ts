@@ -319,6 +319,17 @@ export interface ApprovalConfig {
   readonly fields: readonly ApprovalField[]
   readonly requireCommentOnReject: boolean
   readonly timeoutMinutes: number
+  /** Loop items may keep scanning while each approval waits for a decision. */
+  readonly executionMode?: 'deferred-in-loop' | 'blocking'
+}
+
+export interface ApprovalContinuation {
+  readonly loopNodeId: string
+  readonly iterationIndex: number
+  readonly inputs: Readonly<Record<string, JsonValue>>
+  readonly variables: Readonly<Record<string, JsonValue>>
+  readonly outputs: Readonly<Record<string, NodeOutputs>>
+  readonly secretDefaults?: readonly { readonly workflowId: string; readonly version: number; readonly inputs: Readonly<Record<string, JsonValue>>; readonly variables: Readonly<Record<string, JsonValue>> }[]
 }
 
 export interface ApprovalPrompt {
@@ -334,6 +345,7 @@ export interface ApprovalPrompt {
   readonly timeoutAt?: string
   readonly notifications?: NodeNotificationConfig
   readonly notificationValues?: Readonly<Record<string, JsonValue>>
+  readonly continuation?: ApprovalContinuation
 }
 
 export interface ApprovalDecision {
@@ -524,6 +536,7 @@ export type ValidationCode =
   | 'webhook-url-invalid'
   | 'webhook-url-missing'
   | 'webhook-body-invalid'
+  | 'deferred-approval-branch-invalid'
 
 export interface ValidationIssue {
   readonly code: ValidationCode

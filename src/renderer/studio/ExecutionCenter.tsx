@@ -166,6 +166,13 @@ function occurrenceStatus(item: ScheduleOccurrence): { css: string; label: strin
   return { css: 'running', label: '准备中' };
 }
 
+function approvalStatusLabel(status: ApprovalRecord['status']): string {
+  return status === 'pending' ? '待审批'
+    : status === 'approved' ? '已通过'
+      : status === 'rejected' ? '未通过'
+        : status === 'timeout' ? '已超时' : '已取消';
+}
+
 export function ExecutionCenter({
   initialTab = "flows",
   initialRecordId,
@@ -238,6 +245,13 @@ export function ExecutionCenter({
   const [detailLoading, setDetailLoading] = useState(false);
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [approvalTotal, setApprovalTotal] = useState(0);
+  const [approvalView, setApprovalView] = useState<'pending' | 'history'>('pending');
+  const [approvalHistory, setApprovalHistory] = useState<ApprovalRecord[]>([]);
+  const [approvalHistoryPage, setApprovalHistoryPage] = useState(1);
+  const [approvalHistoryTotal, setApprovalHistoryTotal] = useState(0);
+  const [approvalHistoryLoading, setApprovalHistoryLoading] = useState(false);
+  const [approvalHistoryError, setApprovalHistoryError] = useState('');
+  const [approvalHistoryRefresh, setApprovalHistoryRefresh] = useState(0);
   const [activeApproval, setActiveApproval] = useState<ApprovalRecord>();
   const [approvalComment, setApprovalComment] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
@@ -256,13 +270,31 @@ export function ExecutionCenter({
   );
 
   const rememberLaunchInputs = (): void => {
-    if (launchMode === 'run' && launchFlow) rememberExecutionInputText(launchFlow.id, inputText, secretText);
+    if (launchFlow) rememberExecutionInputText(launchFlow.id, inputText, secretText, launchMode);
   };
 
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
   useEffect(() => { setScope(initialScope ?? (approvalOnly ? 'all' : workspaceId)); setPage(1); }, [workspaceId, approvalOnly, initialScope]);
+  useEffect(() => { setApprovalHistoryPage(1); }, [scope]);
+  useEffect(() => {
+    if (tab !== 'approvals' || approvalView !== 'history') return;
+    let active = true;
+    setApprovalHistoryLoading(true);
+    setApprovalHistoryError('');
+    setApprovalHistory([]);
+    void listApprovals(RPA_SERVICE_URL, approvalHistoryPage, 15, 'history', undefined, scope === 'all' ? undefined : scope)
+      .then(result => {
+        if (!active) return;
+        setApprovalHistory(result.items);
+        setApprovalHistoryTotal(result.total);
+        setApprovalHistoryPage(result.page);
+      })
+      .catch(error => { if (active) setApprovalHistoryError(error instanceof Error ? error.message : '读取审批历史失败'); })
+      .finally(() => { if (active) setApprovalHistoryLoading(false); });
+    return () => { active = false; };
+  }, [tab, approvalView, approvalHistoryPage, scope, approvalHistoryRefresh]);
   useEffect(() => {
     onApprovalTotalChange?.(approvalTotal);
   }, [approvalTotal, onApprovalTotalChange]);
@@ -340,7 +372,8 @@ export function ExecutionCenter({
   useEffect(() => {
     const onFinished = (): void => { void refresh(); };
     window.addEventListener('rpa:schedule-updated', onFinished);
-    return () => window.removeEventListener('rpa:schedule-updated', onFinished);
+    window.addEventListener('rpa:approval-continuation-finished', onFinished);
+    return () => { window.removeEventListener('rpa:schedule-updated', onFinished); window.removeEventListener('rpa:approval-continuation-finished', onFinished); };
   }, [page, scope, showDeletedSchedules, appliedHistoryQuery]);
 
   useEffect(() => {
@@ -352,6 +385,10 @@ export function ExecutionCenter({
         try {
           const device = await studio.getDeviceInfo();
           const record = await createApproval(RPA_SERVICE_URL, prompt, device);
+          if (prompt.continuation) {
+            if (record.continuationStatus !== 'pending') throw new Error('服务端尚未支持循环审批续跑，请先部署服务端数据库迁移与新版本');
+            await studio.acknowledgeApprovalQueued(prompt.id);
+          }
           setApprovals((current) => [
             record,
             ...current.filter((item) => item.id !== record.id),
@@ -359,9 +396,10 @@ export function ExecutionCenter({
           setApprovalTotal((current) => current + 1);
           setActiveApproval(record);
           setApprovalComment("");
+          setApprovalView('pending');
           setTab("approvals");
           onApprovalRequested?.();
-          setLive((current) =>
+          setLive((current) => prompt.continuation ? current :
             current === undefined
               ? current
               : {
@@ -369,18 +407,13 @@ export function ExecutionCenter({
                   record: { ...current.record, status: "waiting_approval" },
                 },
           );
-          setNotice("流程正在等待当前执行人审批");
+          setNotice(prompt.continuation ? "当前轮审批已挂起，循环继续执行" : "流程正在等待当前执行人审批");
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "创建审批单失败";
           setNotice(`无法创建审批单：${message}`);
-          await studio
-            .respondApproval(
-              prompt.id,
-              "rejected",
-              `审批服务不可用：${message}`,
-            )
-            .catch(() => undefined);
+          if (prompt.continuation) await studio.acknowledgeApprovalQueued(prompt.id, `审批服务不可用：${message}`).catch(() => undefined);
+          else await studio.respondApproval(prompt.id, "rejected", `审批服务不可用：${message}`).catch(() => undefined);
         }
       })();
     });
@@ -390,7 +423,7 @@ export function ExecutionCenter({
     decision: "approved" | "rejected",
   ): Promise<void> => {
     if (activeApproval === undefined || window.studio === undefined) return;
-    if (live?.record.id !== activeApproval.executionId && !isScheduledExecutionActive(activeApproval.executionId)) {
+    if (!activeApproval.continuationStatus && live?.record.id !== activeApproval.executionId && !isScheduledExecutionActive(activeApproval.executionId)) {
       setNotice(
         "这条审批对应的本机执行已经不在运行，当前版本无法恢复，请重新执行流程",
       );
@@ -413,22 +446,19 @@ export function ExecutionCenter({
         approverId: device.deviceId,
         approverName: device.deviceName,
       });
-      await window.studio.respondApproval(
-        activeApproval.id,
-        decision,
-        approvalComment.trim(),
-      );
+      if (!activeApproval.continuationStatus) await window.studio.respondApproval(activeApproval.id, decision, approvalComment.trim());
+      else window.dispatchEvent(new Event('rpa:approval-continuation-ready'));
       setApprovals((current) => current.filter((item) => item.id !== saved.id));
       setApprovalTotal((current) => Math.max(0, current - 1));
       setActiveApproval(undefined);
       setApprovalComment("");
-      setLive((current) =>
+      setLive((current) => activeApproval.continuationStatus ? current :
         current === undefined
           ? current
           : { ...current, record: { ...current.record, status: "running" } },
       );
       setNotice(
-        decision === "approved"
+        activeApproval.continuationStatus ? '审批已处理，该轮分支将在本机空闲后续跑' : decision === "approved"
           ? "审批已通过，流程继续执行"
           : "审批已拒绝，流程进入拒绝分支",
       );
@@ -460,7 +490,7 @@ export function ExecutionCenter({
         setScheduleStartAt('');
         setScheduleEndAt('');
       }
-      const previous = initialExecutionInputText(flow.id, revision.graph.context?.inputs ?? [], revision.graph.context?.variables ?? [], mode === 'run');
+      const previous = initialExecutionInputText(flow.id, revision.graph.context?.inputs ?? [], revision.graph.context?.variables ?? [], true, mode);
       setInputText({ ...previous.inputs });
       setSecretText({ ...previous.secrets });
       setNotice("");
@@ -515,6 +545,7 @@ export function ExecutionCenter({
         ...(scheduleKind === 'weekly' ? { weekday: scheduleWeekday } : {}),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, startAt, endAt, inputs,
       });
+      rememberLaunchInputs();
       setLaunchFlow(undefined);
       setLaunchGraph(undefined);
       setTab('schedules');
@@ -749,7 +780,9 @@ export function ExecutionCenter({
           ? { error: `运行已结束，但部分日志未同步：${syncError}` }
           : {}),
       });
-      if (finalStatus === "succeeded") setNotice("本机执行成功");
+      if (saved.status === 'waiting_approval') setNotice('循环扫描已完成，等待各轮审批及分支续跑');
+      else if (saved.status === 'failed') setNotice(saved.error || '审批分支执行失败');
+      else if (finalStatus === "succeeded") setNotice("本机执行成功");
       await refresh();
     } catch (error) {
       if (localFailure === undefined) setRunMessage(safeEventMessage(readableRunError(error), secrets));
@@ -830,6 +863,7 @@ export function ExecutionCenter({
           disabled={loading || launching}
           onClick={() => {
             void refresh();
+            if (tab === 'approvals' && approvalView === 'history') setApprovalHistoryRefresh(value => value + 1);
           }}
         >刷新</button></div>
       </div>
@@ -948,7 +982,11 @@ export function ExecutionCenter({
         </div>
       ) : tab === "approvals" ? (
         <>
-          {loading ? (
+          <div className="approval-view-tabs" role="tablist" aria-label="审批任务分类">
+            <button type="button" role="tab" aria-selected={approvalView === 'pending'} className={approvalView === 'pending' ? 'active' : ''} onClick={() => setApprovalView('pending')}>待审批 <span>{approvalTotal}</span></button>
+            <button type="button" role="tab" aria-selected={approvalView === 'history'} className={approvalView === 'history' ? 'active' : ''} onClick={() => setApprovalView('history')}>审批历史</button>
+          </div>
+          {approvalView === 'pending' ? loading ? (
             <div className="workbench-empty">
               <span className="workbench-spinner" />
               正在读取待审批任务…
@@ -984,6 +1022,31 @@ export function ExecutionCenter({
                 </button>
               ))}
             </div>
+          ) : approvalHistoryLoading ? (
+            <div className="workbench-empty"><span className="workbench-spinner" />正在读取审批历史…</div>
+          ) : approvalHistoryError ? (
+            <div className="workbench-empty"><strong>读取审批历史失败</strong><p>{approvalHistoryError}</p></div>
+          ) : approvalHistory.length === 0 ? (
+            <div className="workbench-empty"><strong>暂无审批历史</strong><p>通过、未通过、超时或取消的审批会显示在这里。</p></div>
+          ) : (
+            <>
+              <div className="execution-record-list">
+                {approvalHistory.map(item => (
+                  <button type="button" className="execution-record-row approval-history-row" key={item.id} onClick={() => { setActiveApproval(item); setApprovalComment(''); }}>
+                    <span className={`execution-status is-${item.status}`}>{approvalStatusLabel(item.status)}</span>
+                    <span className="execution-record-main">
+                      <strong>{item.workflowName ? `${item.workflowName} · ` : ''}{item.title}</strong>
+                      <small>{workspaces.find(space => space.id === item.workspaceId)?.name ?? item.workspaceId} · {item.nodeName} · 审批人：{item.approverName || '未记录'}</small>
+                      {item.status === 'rejected' ? <span className="approval-history-reason">不通过原因：{item.comment?.trim() || '未填写原因'}</span> : null}
+                      {item.continuationStatus ? <span className="approval-history-reason">分支续跑：{{ pending: '待审批', ready: '待本机执行', claimed: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消' }[item.continuationStatus]}</span> : null}
+                    </span>
+                    <time>{new Date(item.decidedAt ?? item.createdAt).toLocaleString()}</time>
+                    <i>›</i>
+                  </button>
+                ))}
+              </div>
+              {approvalHistoryTotal > pageSize ? <Pagination page={approvalHistoryPage} totalPages={Math.ceil(approvalHistoryTotal / pageSize)} disabled={approvalHistoryLoading} onPageChange={setApprovalHistoryPage} /> : null}
+            </>
           )}
         </>
       ) : (
@@ -1293,7 +1356,7 @@ export function ExecutionCenter({
             <header>
               <div>
                 <h2>{activeApproval.title}</h2>
-                <p>{activeApproval.nodeName} · 当前执行人审批</p>
+                <p>{activeApproval.workflowName ? `${activeApproval.workflowName} · ` : ''}{activeApproval.nodeName} · {activeApproval.status === 'pending' ? '当前执行人审批' : '审批历史'}</p>
               </div>
               <button
                 type="button"
@@ -1318,23 +1381,17 @@ export function ExecutionCenter({
                   ))}
                 </dl>
               ) : null}
-              <label className="execution-input-field">
-                <span>
-                  审批意见
-                  {activeApproval.requireCommentOnReject ? (
-                    <em>拒绝时必填</em>
-                  ) : null}
-                </span>
-                <textarea
-                  rows={4}
-                  value={approvalComment}
-                  onChange={(event) => {
-                    setApprovalComment(event.target.value);
-                  }}
-                  placeholder="填写审批意见（可选）"
-                />
-              </label>
-              {activeApproval.timeoutAt ? (
+              {activeApproval.status === 'pending' ? <label className="execution-input-field">
+                <span>审批意见{activeApproval.requireCommentOnReject ? <em>拒绝时必填</em> : null}</span>
+                <textarea rows={4} value={approvalComment} onChange={event => setApprovalComment(event.target.value)} placeholder="填写审批意见（可选）" />
+              </label> : <div className="approval-history-result">
+                <div><span>审批结果</span><strong className={`execution-status is-${activeApproval.status}`}>{approvalStatusLabel(activeApproval.status)}</strong></div>
+                <div><span>审批人</span><strong>{activeApproval.approverName || '未记录'}</strong></div>
+                <div><span>处理时间</span><strong>{new Date(activeApproval.decidedAt ?? activeApproval.createdAt).toLocaleString()}</strong></div>
+                {activeApproval.continuationStatus ? <div><span>分支续跑</span><strong>{{ pending: '待审批', ready: '待本机执行', claimed: '执行中', completed: '已完成', failed: '失败', cancelled: '已取消' }[activeApproval.continuationStatus]}</strong></div> : null}
+                {activeApproval.status === 'rejected' || activeApproval.comment?.trim() ? <div className="approval-history-comment"><span>{activeApproval.status === 'rejected' ? '不通过原因' : '审批意见'}</span><ApprovalRichText value={activeApproval.comment?.trim() || '未填写原因'} /></div> : null}
+              </div>}
+              {activeApproval.status === 'pending' && activeApproval.timeoutAt ? (
                 <p className="properties-hint">
                   审批截止时间：
                   {new Date(activeApproval.timeoutAt).toLocaleString()}
@@ -1342,7 +1399,7 @@ export function ExecutionCenter({
               ) : null}
             </div>
             <footer>
-              <button
+              {activeApproval.status === 'pending' ? <><button
                 type="button"
                 className="approval-reject"
                 disabled={approvalSubmitting}
@@ -1360,8 +1417,9 @@ export function ExecutionCenter({
                   void submitApproval("approved");
                 }}
               >
-                {approvalSubmitting ? "正在提交…" : "通过并继续"}
+                {approvalSubmitting ? "正在提交…" : activeApproval.continuationStatus ? "通过并续跑本轮" : "通过并继续"}
               </button>
+              </> : <>{activeApproval.continuationExecutionId ? <button type="button" onClick={() => { const id = activeApproval.continuationExecutionId!; setActiveApproval(undefined); void openDetail({ id }); }}>查看分支日志</button> : null}<button type="button" onClick={() => setActiveApproval(undefined)}>关闭</button></>}
             </footer>
           </section>
         </div>

@@ -11,6 +11,43 @@ function handlers() {
 }
 
 describe('walkGraph loop control', () => {
+  it('queues each loop approval without waiting for a decision', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = createNode('for-each', { x: 100, y: 0 })
+    const approval = createNode('approval', { x: 200, y: 0 })
+    const end = createNode('end', { x: 300, y: 0 })
+    const graph: WorkflowGraph = {
+      workflowId: 'deferred-loop', name: 'Deferred loop', version: 1, entryNodeId: start.id,
+      nodes: [start, loop, approval, end],
+      edges: [createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', approval.id), createEdge(loop.id, 'done', end.id)],
+    }
+    let iteration = 0
+    const queued: number[] = []
+    const state = await walkGraph(graph, {
+      ...handlers(),
+      requestApproval: async () => { throw new Error('should not wait for approval') },
+      queueApproval: async (_prompt, _loopId, outputs) => { queued.push(outputs[loop.id]?.index as number) },
+    }, async node => {
+      if (node.id === loop.id) return iteration < 3 ? { message: 'next', branch: 'body', outputs: { index: iteration++ } } : { message: 'done', branch: 'done' }
+      if (node.id === approval.id) return { message: 'approval', approval: { id: `approval-${iteration}`, executionId: 'execution-1', workflowId: graph.workflowId, nodeId: node.id, nodeName: node.name, title: '审批', description: '', fields: [], requireCommentOnReject: true } }
+      return { message: node.name }
+    }, { deferApprovals: true })
+    expect(state.status).toBe('succeeded')
+    expect(queued).toEqual([0, 1, 2])
+    expect(state.nodes[end.id]).toBe('succeeded')
+  })
+
+  it('ends an independently resumed approval branch at the loop boundary', async () => {
+    const approval = createNode('approval', { x: 0, y: 0 })
+    const action = createNode('set-variable', { x: 100, y: 0 })
+    const continueLoop = createNode('continue-loop', { x: 200, y: 0 })
+    const graph: WorkflowGraph = { workflowId: 'resume-loop', name: 'Resume loop', version: 1, entryNodeId: approval.id,
+      nodes: [approval, action, continueLoop], edges: [createEdge(approval.id, 'approved', action.id), createEdge(action.id, 'default', continueLoop.id)] }
+    const state = await walkGraph(graph, handlers(), async node => ({ message: node.name }), { startAtNodeId: action.id, resumeContinuation: true, initialOutputs: { [approval.id]: { approved: true } } })
+    expect(state.status).toBe('succeeded')
+    expect(state.nodes[approval.id]).toBe('pending')
+    expect(state.nodes[continueLoop.id]).toBe('succeeded')
+  })
   it('notifies the loop once for the first failed item while skip continues the run', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const loop = { ...createNode('for-each', { x: 100, y: 0 }), notifications: { enabled: true, onFailure: true } }

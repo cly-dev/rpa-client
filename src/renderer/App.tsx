@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Studio } from './studio/Studio.tsx'
 import { SchedulerHost } from './studio/SchedulerHost.tsx'
+import { ApprovalContinuationHost } from './studio/ApprovalContinuationHost.tsx'
 import { AUTH_EXPIRED_EVENT, AuthRequestError, clearAuthSession, currentAuthUser, expireAuthSession, loginWithPms, logoutAuthSession, saveAuthSession, storedAuthSession, type AuthSession } from './auth.ts'
 import { checkServiceReadiness, type ServiceReadiness } from './startup-check.ts'
 import { clearRememberedExecutionInputs } from './studio/execution-input-memory.ts'
@@ -144,6 +145,7 @@ export function App(): ReactNode {
   if (session) return <div className="app-shell">
     {browser && !browser.available ? <div className="environment-banner" role="status"><span>{browser.message}。页面流程和元素拾取暂不可用，其他功能仍可使用。</span><button type="button" disabled={refreshing} onClick={() => { void recheckEnvironment() }}>{refreshing ? '检测中…' : '重新检测'}</button></div> : null}
     <SchedulerHost />
+    <ApprovalContinuationHost />
     <Studio currentUser={session.user} onLogout={logout} />
   </div>
   return <main className="auth-screen"><form className="auth-card" onSubmit={event => { void submit(event) }}>

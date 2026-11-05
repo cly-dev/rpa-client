@@ -490,6 +490,10 @@ textarea { resize: vertical; }
 .approval-list-summary { display: flex; width: max-content; align-items: baseline; gap: 6px; margin: -5px 0 16px; padding: 7px 10px; border: 1px solid #fde68a; border-radius: 8px; background: #fffbeb; color: #92400e; }
 .approval-list-summary strong { font-size: 16px; }
 .approval-list-summary span { font-size: 10px; }
+.approval-view-tabs { display: flex; width: max-content; gap: 4px; margin: 0 0 12px; padding: 4px; border: 1px solid #e7e9f1; border-radius: 9px; background: #f8f9fc; }
+.approval-view-tabs button { border: 0; border-radius: 6px; padding: 7px 13px; background: transparent; color: #667085; font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.approval-view-tabs button.active { background: #fff; color: #344054; box-shadow: 0 1px 4px #1018281a; }
+.approval-view-tabs button span { margin-left: 4px; color: #b54708; }
 .execution-notice { margin: -5px 0 13px; padding: 8px 10px; border: 1px solid #e3e7f0; border-radius: 8px; background: #fff; color: #667085; font-size: 10px; }
 .execution-message { position: fixed; z-index: 200; top: 24px; left: 50%; display: flex; width: min(560px, calc(100vw - 32px)); max-height: min(50vh, 420px); align-items: flex-start; gap: 10px; overflow: auto; padding: 12px 14px; transform: translateX(-50%); border: 1px solid #fecdca; border-radius: 11px; background: #fffafa; box-shadow: 0 14px 40px rgba(16,24,40,.2); color: #b42318; }
 .execution-message-icon { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; border-radius: 50%; background: #d92d20; color: #fff; font-size: 12px; font-weight: 700; }
@@ -554,6 +558,9 @@ textarea { resize: vertical; }
 .execution-status.is-running { background: #eff8ff; color: #1570ef; }
 .execution-status.is-waiting_approval { background: #fffaeb; color: #b54708; }
 .execution-status.is-succeeded { background: #ecfdf3; color: #16804a; }
+.execution-status.is-approved { background: #ecfdf3; color: #16804a; }
+.execution-status.is-rejected { background: #fef3f2; color: #b42318; }
+.execution-status.is-timeout { background: #fffaeb; color: #b54708; }
 .execution-status.is-failed { background: #fef3f2; color: #b42318; }
 .execution-status.is-cancelled, .execution-status.is-interrupted { background: #f2f4f7; color: #667085; }
 .execution-record-list { overflow: hidden; border: 1px solid #e8eaf0; border-radius: 11px; background: #fff; }
@@ -565,6 +572,7 @@ textarea { resize: vertical; }
 .execution-record-main strong { overflow: hidden; color: #344054; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .execution-record-main small, .execution-record-row time { color: #98a2b3; font-size: 9px; }
 .execution-record-row > i { color: #a0a8b7; font-size: 17px; font-style: normal; }
+.approval-history-reason { display: -webkit-box; overflow: hidden; color: #b42318; font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .execution-dialog-backdrop { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(16,24,40,.36); backdrop-filter: blur(3px); }
 .execution-dialog { display: flex; width: min(540px, 100%); max-height: min(740px, 90vh); flex-direction: column; overflow: hidden; border: 1px solid #e6e8ef; border-radius: 15px; background: #fff; box-shadow: 0 24px 70px rgba(16,24,40,.24); }
 .execution-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 17px 19px 13px; border-bottom: 1px solid #eff0f4; }
@@ -632,6 +640,11 @@ textarea { resize: vertical; }
 .approval-detail-list dt, .approval-detail-list dd { margin: 0; padding: 9px 11px; font-size: 10px; }
 .approval-detail-list dt { background: #f8f9fb; color: #667085; font-weight: 650; }
 .approval-detail-list dd { color: #344054; white-space: pre-wrap; overflow-wrap: anywhere; }
+.approval-history-result { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #e7e9ef; border-radius: 9px; background: #fafbfc; }
+.approval-history-result > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 11px; }
+.approval-history-result > div > span { color: #667085; }
+.approval-history-result > div > strong { color: #344054; font-size: 11px; font-weight: 600; }
+.approval-history-result .approval-history-comment .approval-rich-text { color: #b42318; font-size: 11px; }
 .approval-reject { border-color: #fecdca !important; color: #b42318 !important; }
 
 @media (min-width: 1200px) {

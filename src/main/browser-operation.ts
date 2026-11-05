@@ -2,6 +2,8 @@
 export class BrowserOperationGate {
   private active: string | undefined
 
+  isBusy(): boolean { return this.active !== undefined }
+
   begin(label: string): () => void {
     if (this.active !== undefined) throw new Error(`浏览器正在${this.active}，请等待当前操作完成后重试`)
     this.active = label

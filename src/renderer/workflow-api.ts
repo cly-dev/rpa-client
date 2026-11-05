@@ -126,6 +126,8 @@ export interface ExecutionRecord {
   readonly deviceName: string
   readonly executorId?: string | null
   readonly executorName?: string | null
+  readonly parentExecutionId?: string
+  readonly approvalId?: string
   readonly status: ExecutionStatus
   readonly inputs: Readonly<Record<string, JsonValue>>
   readonly outputs?: Readonly<Record<string, JsonValue>>
@@ -140,7 +142,10 @@ export interface ExecutionRecord {
 
 export interface ApprovalRecord extends ApprovalPrompt {
   readonly workspaceId: string
+  readonly workflowName?: string
   readonly status: 'pending' | 'approved' | 'rejected' | 'timeout' | 'cancelled'
+  readonly continuationStatus?: 'pending' | 'ready' | 'claimed' | 'completed' | 'failed' | 'cancelled'
+  readonly continuationExecutionId?: string
   readonly deviceId: string
   readonly deviceName: string
   readonly comment?: string
@@ -469,4 +474,35 @@ export function createApproval(baseUrl: string, prompt: ApprovalPrompt, device: 
 
 export function decideApproval(baseUrl: string, id: string, value: { decision: 'approved' | 'rejected'; comment: string; approverId: string; approverName: string }): Promise<ApprovalRecord> {
   return request(baseUrl, 'approvals', `/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(value) })
+}
+
+export interface ApprovalContinuationClaim {
+  readonly approvalId: string
+  readonly nodeId: string
+  readonly decision: 'approved' | 'rejected' | 'timeout'
+  readonly comment: string
+  readonly approverId?: string
+  readonly approverName: string
+  readonly decidedAt: string
+  readonly continuation: import('@graph/types.ts').ApprovalContinuation
+  readonly executionId: string
+  readonly workflowId: string
+  readonly workflowVersion: number
+  readonly parentExecutionId: string
+}
+
+export function listReadyApprovalContinuations(baseUrl: string, deviceId: string): Promise<{ items: readonly { id: string }[] }> {
+  return request(baseUrl, 'approvals', `/continuations/ready?deviceId=${encodeURIComponent(deviceId)}`)
+}
+
+export function claimApprovalContinuation(baseUrl: string, id: string, device: { deviceId: string; deviceName: string }): Promise<ApprovalContinuationClaim> {
+  return request(baseUrl, 'approvals', `/${encodeURIComponent(id)}/continuation/claim`, { method: 'POST', body: JSON.stringify(device) })
+}
+
+export function renewApprovalContinuation(baseUrl: string, id: string, executionId: string): Promise<{ ok: boolean }> {
+  return request(baseUrl, 'approvals', `/${encodeURIComponent(id)}/continuation/renew`, { method: 'POST', body: JSON.stringify({ executionId }) })
+}
+
+export function completeApprovalContinuation(baseUrl: string, id: string, executionId: string, status: 'succeeded' | 'failed'): Promise<{ ok: boolean }> {
+  return request(baseUrl, 'approvals', `/${encodeURIComponent(id)}/continuation/complete`, { method: 'POST', body: JSON.stringify({ executionId, status }) })
 }

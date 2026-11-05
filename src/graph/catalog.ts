@@ -263,7 +263,7 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'call-subflow':
       return { type: 'call-subflow', workflowId: '', workflowVersion: undefined, inputMappings: [] }
     case 'approval':
-      return { type: 'approval', title: '请确认是否继续执行', description: '请检查以下信息后进行审批。', fields: [], requireCommentOnReject: true, timeoutMinutes: 30 }
+      return { type: 'approval', title: '请确认是否继续执行', description: '请检查以下信息后进行审批。', fields: [], requireCommentOnReject: true, timeoutMinutes: 30, executionMode: 'deferred-in-loop' }
     case 'handoff':
       return { type: 'handoff', note: '' }
     case 'set-variable':

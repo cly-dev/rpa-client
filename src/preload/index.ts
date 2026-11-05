@@ -26,7 +26,7 @@ const studio = {
     return () => { ipcRenderer.removeListener('scheduler:state-changed', listen) }
   },
   checkBrowserReadiness: () => ipcRenderer.invoke('system:browser-readiness') as Promise<{ available: boolean; message: string }>,
-  runWorkflow: (graph: import('../graph/types.ts').WorkflowGraph, options?: { runId?: string; executionId?: string; inputs?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; variables?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; outputs?: Readonly<Record<string, Readonly<Record<string, import('../graph/types.ts').JsonValue>>>>; headless?: boolean; subflows?: readonly import('../graph/types.ts').WorkflowGraph[]; reuseCurrentPage?: boolean; stopAfterNodeId?: string; openDebugBrowserOnPageActionFailure?: boolean }) => ipcRenderer.invoke('workflow:run', { graph, ...options }) as Promise<DryRunState>,
+  runWorkflow: (graph: import('../graph/types.ts').WorkflowGraph, options?: { runId?: string; executionId?: string; inputs?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; variables?: Readonly<Record<string, import('../graph/types.ts').JsonValue>>; outputs?: Readonly<Record<string, Readonly<Record<string, import('../graph/types.ts').JsonValue>>>>; headless?: boolean; subflows?: readonly import('../graph/types.ts').WorkflowGraph[]; reuseCurrentPage?: boolean; stopAfterNodeId?: string; openDebugBrowserOnPageActionFailure?: boolean; resumeApproval?: { nodeId: string; decision: 'approved' | 'rejected' | 'timeout'; comment: string; approverId?: string; approverName: string; decidedAt: string } }) => ipcRenderer.invoke('workflow:run', { graph, ...options }) as Promise<DryRunState>,
   cancelWorkflow: (runId: string, reason: 'user' | 'editor-exit' | 'schedule-paused' = 'user') => ipcRenderer.invoke('workflow:cancel-run', { runId, reason }) as Promise<{ cancelled: boolean }>,
   onRunUpdate: (callback: (value: { runId?: string; state: DryRunState }) => void) => {
     const listen = (_event: unknown, value: { runId?: string; state: DryRunState }): void => { callback(value) }
@@ -39,6 +39,8 @@ const studio = {
     return () => { ipcRenderer.removeListener('workflow:approval-request', listen) }
   },
   respondApproval: (id: string, decision: 'approved' | 'rejected', comment = '') => ipcRenderer.invoke('workflow:approval-respond', { id, decision, comment }) as Promise<{ ok: true }>,
+  acknowledgeApprovalQueued: (id: string, error?: string) => ipcRenderer.invoke('workflow:approval-queued', { id, error }) as Promise<{ ok: boolean }>,
+  canRunContinuation: () => ipcRenderer.invoke('workflow:continuation-ready') as Promise<{ ready: boolean }>,
   onPageEnvironment: (callback: (environment: { url: string; title: string }) => void) => {
     const listen = (_event: unknown, environment: { url: string; title: string }): void => { callback(environment) }
     ipcRenderer.on('browser:page-environment', listen)

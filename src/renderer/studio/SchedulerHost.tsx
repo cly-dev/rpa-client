@@ -67,11 +67,16 @@ export function SchedulerHost(): ReactNode {
       void (async () => {
         try {
           const device = await studio.getDeviceInfo()
-          await createApproval(RPA_SERVICE_URL, prompt, device)
+          const record = await createApproval(RPA_SERVICE_URL, prompt, device)
+          if (prompt.continuation) {
+            if (record.continuationStatus !== 'pending') throw new Error('服务端尚未支持循环审批续跑，请先部署服务端数据库迁移与新版本')
+            await studio.acknowledgeApprovalQueued(prompt.id)
+          }
           window.dispatchEvent(new Event('rpa:schedule-approval-requested'))
         } catch (error) {
           const message = error instanceof Error ? error.message : '创建审批单失败'
-          await studio.respondApproval(prompt.id, 'rejected', `审批服务不可用：${message}`).catch(() => undefined)
+          if (prompt.continuation) await studio.acknowledgeApprovalQueued(prompt.id, `审批服务不可用：${message}`).catch(() => undefined)
+          else await studio.respondApproval(prompt.id, 'rejected', `审批服务不可用：${message}`).catch(() => undefined)
         }
       })()
     })
@@ -152,9 +157,13 @@ export function SchedulerHost(): ReactNode {
             outputs: secrets.length > 0 ? {} : redactExecutionJson(result.variables ?? {}, secrets) as Readonly<Record<string, JsonValue>>,
             error: succeeded ? undefined : occurrenceError,
           }
-          await finishExecution(RPA_SERVICE_URL, executionId, finishPayload)
+          const saved = await finishExecution(RPA_SERVICE_URL, executionId, finishPayload)
           executionFinished = true
-          await completeScheduleOccurrence(RPA_SERVICE_URL, id, occurrenceId, {
+          if (saved.status === 'failed') {
+            occurrenceStatus = 'failed'
+            occurrenceError = saved.error ?? '审批分支执行失败'
+          }
+          if (saved.status !== 'waiting_approval') await completeScheduleOccurrence(RPA_SERVICE_URL, id, occurrenceId, {
             status: occurrenceStatus, executionId, error: occurrenceError,
           })
           occurrenceFinished = true

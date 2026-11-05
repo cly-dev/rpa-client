@@ -43,6 +43,7 @@ const MESSAGES: Record<ValidationIssue['code'], string> = {
   'webhook-url-invalid': 'Webhook 地址必须是有效的 HTTP(S) URL',
   'webhook-url-missing': '已启用通知，请先在流程 Webhook 设置中填写地址',
   'webhook-body-invalid': 'Webhook 消息体模板无效',
+  'deferred-approval-branch-invalid': '循环内异步审批分支需要独立续跑，不能依赖审批前的浏览器页面，也不能再次进入审批节点',
 }
 
 function validApiUrl(url: string): boolean {
@@ -291,6 +292,48 @@ export function validatePublishConnections(graph: WorkflowGraph): ValidationIssu
     const edges = edgesBySource.get(edge.sourceNodeId) ?? []
     edges.push(edge)
     edgesBySource.set(edge.sourceNodeId, edges)
+  }
+
+  const insideLoop = new Set<string>()
+  for (const loop of graph.nodes.filter(node => node.type === 'for-each')) {
+    const body = (edgesBySource.get(loop.id) ?? []).find(edge => edge.sourcePort === 'body')?.targetNodeId
+    const pending = body ? [body] : []
+    const seen = new Set<string>()
+    while (pending.length) {
+      const id = pending.pop()!
+      if (seen.has(id) || id === loop.id) continue
+      seen.add(id)
+      const node = nodeById.get(id)
+      if (!node || node.type === 'continue-loop' || node.type === 'end') continue
+      insideLoop.add(id)
+      for (const edge of edgesBySource.get(id) ?? []) pending.push(edge.targetNodeId)
+    }
+  }
+  for (const approval of graph.nodes.filter(node => node.config.type === 'approval' && node.config.executionMode !== 'blocking' && insideLoop.has(node.id))) {
+    for (const port of ['approved', 'rejected', 'timeout']) {
+      const targetId = (edgesBySource.get(approval.id) ?? []).find(edge => edge.sourcePort === port)?.targetNodeId
+      if (!targetId) continue
+      const pending: { id: string; pageReady: boolean }[] = [{ id: targetId, pageReady: false }]
+      const seen = new Set<string>()
+      while (pending.length) {
+        const { id, pageReady } = pending.pop()!
+        const key = `${id}:${pageReady}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const node = nodeById.get(id)
+        if (!node || node.type === 'continue-loop' || node.type === 'end') continue
+        const browserDependent = ['click', 'type', 'extract', 'page-action', 'list-row-action', 'api-listen'].includes(node.type)
+          || node.config.type === 'wait' && node.config.mode !== 'duration'
+          || node.config.type === 'condition' && node.config.mode === 'element'
+        const invalid = node.type === 'approval' || browserDependent && !pageReady || node.type === 'open-page' && node.config.type === 'open-page' && !node.config.url.trim()
+        if (invalid) {
+          issues.push({ ...issue('deferred-approval-branch-invalid', { nodeId: node.id }), message: `审批「${approval.name}」的「${port}」分支中，节点「${node.name}」不能在独立续跑时使用当前页面；请先打开页面，或将审批方式改为等待审批` })
+          break
+        }
+        const nextPageReady = pageReady || node.type === 'open-page'
+        for (const edge of edgesBySource.get(id) ?? []) pending.push({ id: edge.targetNodeId, pageReady: nextPageReady })
+      }
+    }
   }
 
   for (const node of graph.nodes) {

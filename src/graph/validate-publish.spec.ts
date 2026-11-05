@@ -60,4 +60,21 @@ describe('publish connection validation', () => {
     expect(validatePublishConnections({ ...graph, edges: graph.edges.filter(edge => edge.sourcePort !== 'done') }))
       .toContainEqual(expect.objectContaining({ code: 'unconnected-output', nodeId: loop.id }))
   })
+
+  it('requires a fresh page before browser actions in a deferred approval branch', () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = createNode('for-each', { x: 100, y: 0 })
+    const approval = createNode('approval', { x: 200, y: 0 })
+    const click = createNode('click', { x: 300, y: 0 })
+    const open = createNode('open-page', { x: 250, y: 50 })
+    const next = createNode('continue-loop', { x: 400, y: 0 })
+    const end = createNode('end', { x: 500, y: 0 })
+    const base = { ...createDefaultTemplate(), entryNodeId: start.id,
+      nodes: [start, loop, approval, click, next, end],
+      edges: [createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', approval.id), createEdge(loop.id, 'done', end.id), createEdge(approval.id, 'approved', click.id), createEdge(approval.id, 'rejected', next.id), createEdge(approval.id, 'timeout', next.id), createEdge(click.id, 'default', next.id)] }
+    expect(validatePublishConnections(base)).toContainEqual(expect.objectContaining({ code: 'deferred-approval-branch-invalid', nodeId: click.id }))
+    const withOpen = { ...base, nodes: [...base.nodes, { ...open, config: { type: 'open-page' as const, url: 'https://example.com' } }],
+      edges: base.edges.map(edge => edge.sourceNodeId === approval.id && edge.sourcePort === 'approved' ? createEdge(approval.id, 'approved', open.id) : edge).concat(createEdge(open.id, 'default', click.id)) }
+    expect(validatePublishConnections(withOpen).some(item => item.code === 'deferred-approval-branch-invalid')).toBe(false)
+  })
 })

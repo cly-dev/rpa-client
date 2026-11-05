@@ -5,7 +5,7 @@ import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { parseWorkflow } from '@graph/parse.ts'
 import { RPA_SERVICE_URL, ServiceAuthExpiredError, loadServiceLlmConfigs, withServiceLlms } from '@graph/service-llms.ts'
 import type { ApprovalDecision, ApprovalPrompt, JsonValue, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
-import { runBrowser } from '@runner/browser-run.ts'
+import { runBrowser, type BrowserRunOptions } from '@runner/browser-run.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from '@runner/page-requirement.ts'
 import type { RunState } from '@runner/walk.ts'
 import { createHttpOnlyDriver, openPlaywrightSession, type PlaywrightSession } from '@runner/playwright-driver.ts'
@@ -139,6 +139,19 @@ app.whenReady().then(() => {
   })
   const activeRuns = new Map<string, { readonly controller: AbortController; readonly senderId: number }>()
   const pendingApprovals = new Map<string, { readonly resolve: (decision: ApprovalDecision) => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
+  const pendingApprovalQueues = new Map<string, { readonly resolve: () => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
+  ipcMain.handle('workflow:approval-queued', (event, raw: unknown) => {
+    const value = typeof raw === 'object' && raw !== null ? raw as { id?: unknown; error?: unknown } : {}
+    if (typeof value.id !== 'string') throw new Error('审批标识无效')
+    const pending = pendingApprovalQueues.get(value.id)
+    if (!pending || pending.senderId !== event.sender.id) return { ok: false }
+    clearTimeout(pending.timer)
+    pendingApprovalQueues.delete(value.id)
+    if (typeof value.error === 'string' && value.error) pending.reject(new Error(value.error))
+    else pending.resolve()
+    return { ok: true }
+  })
+  ipcMain.handle('workflow:continuation-ready', () => ({ ready: activeRuns.size === 0 && !browserGate.isBusy() }))
   ipcMain.handle('workflow:approval-respond', (_event, raw: unknown) => {
     const value = typeof raw === 'object' && raw !== null ? raw as { id?: unknown; decision?: unknown; comment?: unknown } : {}
     if (typeof value.id !== 'string' || (value.decision !== 'approved' && value.decision !== 'rejected')) throw new Error('审批结果无效')
@@ -166,6 +179,12 @@ app.whenReady().then(() => {
       pendingApprovals.delete(approvalId)
       approval.reject(reason)
     }
+    for (const [approvalId, approval] of pendingApprovalQueues) {
+      if (approval.runId !== runId) continue
+      clearTimeout(approval.timer)
+      pendingApprovalQueues.delete(approvalId)
+      approval.reject(reason)
+    }
     await closeCurrentSession().catch(() => undefined)
     return { cancelled: true }
   })
@@ -184,7 +203,7 @@ app.whenReady().then(() => {
     try {
     pickerProgress = undefined
     const payload = typeof raw === 'object' && raw !== null && 'graph' in raw
-      ? raw as { graph: unknown; runId?: unknown; executionId?: unknown; inputs?: unknown; variables?: unknown; outputs?: unknown; headless?: unknown; subflows?: unknown; reuseCurrentPage?: unknown; stopAfterNodeId?: unknown; openDebugBrowserOnPageActionFailure?: unknown }
+      ? raw as { graph: unknown; runId?: unknown; executionId?: unknown; inputs?: unknown; variables?: unknown; outputs?: unknown; headless?: unknown; subflows?: unknown; reuseCurrentPage?: unknown; stopAfterNodeId?: unknown; openDebugBrowserOnPageActionFailure?: unknown; resumeApproval?: unknown }
       : { graph: raw }
     const runId = typeof payload.runId === 'string' && payload.runId.trim() !== '' ? payload.runId : undefined
     if (runId !== undefined) {
@@ -216,6 +235,10 @@ app.whenReady().then(() => {
     const { configs: serviceLlms, token: serviceToken } = await loadMainServiceLlms(event)
     const graph = withServiceLlms(admit(payload.graph), serviceLlms, serviceToken)
     const executionId = typeof payload.executionId === 'string' ? payload.executionId : undefined
+    const resumeValue = typeof payload.resumeApproval === 'object' && payload.resumeApproval !== null ? payload.resumeApproval as { nodeId?: unknown; decision?: unknown; comment?: unknown; approverId?: unknown; approverName?: unknown; decidedAt?: unknown } : undefined
+    const resumeApproval: BrowserRunOptions['resumeApproval'] = resumeValue && typeof resumeValue.nodeId === 'string' && (resumeValue.decision === 'approved' || resumeValue.decision === 'rejected' || resumeValue.decision === 'timeout') && typeof resumeValue.decidedAt === 'string'
+      ? { nodeId: resumeValue.nodeId, decision: resumeValue.decision as 'approved' | 'rejected' | 'timeout', comment: typeof resumeValue.comment === 'string' ? resumeValue.comment : '', approverId: typeof resumeValue.approverId === 'string' ? resumeValue.approverId : undefined, approverName: typeof resumeValue.approverName === 'string' ? resumeValue.approverName : '当前执行人', decidedAt: resumeValue.decidedAt }
+      : undefined
     const inputs = typeof payload.inputs === 'object' && payload.inputs !== null && !Array.isArray(payload.inputs)
       ? payload.inputs as Readonly<Record<string, JsonValue>>
       : undefined
@@ -235,7 +258,7 @@ app.whenReady().then(() => {
     const entryHasUrl = entry?.config.type === 'start' && entry.config.url.trim() !== ''
     const stopAtEmptyStart = !entryHasUrl && entry?.config.type === 'start' && payload.stopAfterNodeId === entry.id
     const reuseCurrentPage = !entryHasUrl && !headless && payload.reuseCurrentPage === true && session !== undefined && usablePageUrl(currentUrl)
-    if (needsExistingPage && !reuseCurrentPage && !stopAtEmptyStart) {
+    if (!resumeApproval && needsExistingPage && !reuseCurrentPage && !stopAtEmptyStart) {
       throw new Error('当前节点没有可用页面。请先运行父流程打开目标页面，或在子流程开始节点填写初始 URL。')
     }
     if (!reuseCurrentPage && !stopAtEmptyStart && session !== undefined) {
@@ -277,7 +300,14 @@ app.whenReady().then(() => {
           pendingApprovals.set(prompt.id, { resolve, reject, timer, senderId: sender.id, runId })
           sender.send('workflow:approval-request', prompt)
         }),
-      }, { executionId, inputs, variables, outputs, subflows, allowExistingPage: reuseCurrentPage, stopAfterNodeId: typeof payload.stopAfterNodeId === 'string' ? payload.stopAfterNodeId : undefined })
+        queueApproval: (prompt: ApprovalPrompt) => new Promise<void>((resolve, reject) => {
+          try { throwIfCancelled() } catch (error) { reject(error); return }
+          if (sender.isDestroyed()) { reject(new Error('审批窗口已关闭')); return }
+          const timer = setTimeout(() => { pendingApprovalQueues.delete(prompt.id); reject(new Error('创建审批单超时')) }, 30_000)
+          pendingApprovalQueues.set(prompt.id, { resolve, reject, timer, senderId: sender.id, runId })
+          sender.send('workflow:approval-request', prompt)
+        }),
+      }, { executionId, inputs, variables, outputs, subflows, allowExistingPage: reuseCurrentPage, stopAfterNodeId: typeof payload.stopAfterNodeId === 'string' ? payload.stopAfterNodeId : undefined, resumeApproval })
       const runSession = lazy.getSession()
       if (headless && payload.openDebugBrowserOnPageActionFailure === true && failedAtPageAction(result)) {
         if (runSession === undefined || !runSession.isUsable()) {
@@ -311,7 +341,7 @@ app.whenReady().then(() => {
     const endpoint = resolveLlmEndpoint(config?.baseUrl, (config as { chatPath?: string } | undefined)?.chatPath)
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (config.apiKey?.trim() !== '') headers.Authorization = `Bearer ${config.apiKey}`
+      if (config?.apiKey?.trim()) headers.Authorization = `Bearer ${config.apiKey}`
       const response = await fetch(endpoint, {
         method: 'POST',
         headers,

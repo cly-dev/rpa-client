@@ -37,3 +37,15 @@ it('only restores fields still declared in the current published version and cle
   clearRememberedExecutionInputs()
   expect(initialExecutionInputText('flow-a', [{ name: 'orderId', type: 'string' }], [], true).inputs.orderId).toBe('')
 })
+
+it('remembers scheduled inputs separately from manual run inputs', () => {
+  const inputs: WorkflowContextVariable[] = [{ name: 'orderId', type: 'string', defaultValue: 'DEFAULT' }]
+  rememberExecutionInputText('flow-a', { orderId: 'RUN-1' }, {}, 'run')
+  rememberExecutionInputText('flow-a', { orderId: 'SCHEDULE-1' }, {}, 'schedule')
+
+  expect(initialExecutionInputText('flow-a', inputs, [], true, 'run').inputs.orderId).toBe('RUN-1')
+  expect(initialExecutionInputText('flow-a', inputs, [], true, 'schedule').inputs.orderId).toBe('SCHEDULE-1')
+  expect(initialExecutionInputText('flow-b', inputs, [], true, 'schedule').inputs.orderId).toBe('DEFAULT')
+  clearRememberedExecutionInputs()
+  expect(initialExecutionInputText('flow-a', inputs, [], true, 'schedule').inputs.orderId).toBe('DEFAULT')
+})
