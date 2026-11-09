@@ -13,6 +13,7 @@ import { ClearableNumberInput } from './ClearableNumberInput.tsx'
 import { RequestBodyEditor, availableVariables } from './RequestBodyEditor.tsx'
 import { WebhookTestButton } from './WebhookTestButton.tsx'
 import { notificationContentError } from '@graph/webhook-body-template.ts'
+import { selectedWebhookDestinations, webhookDestinations } from '@graph/webhook-destinations.ts'
 import { displaySubflowReferences, outputReferenceAliases, storeSubflowReferences } from './SubflowReferenceLabels.ts'
 import { availableSubflowVariableNames } from './subflow-variables.ts'
 import { upstreamNodes } from './upstream-nodes.ts'
@@ -81,8 +82,8 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
   const hasNotificationTrigger = node.notifications?.onSuccess === true || node.notifications?.onFailure === true || node.notifications?.onApprovalPending === true || node.notifications?.onApprovalApproved === true || node.notifications?.onApprovalRejected === true || node.notifications?.onApprovalTimeout === true
   const notificationEnabled = node.notifications?.enabled ?? hasNotificationTrigger
   const notificationOptions: readonly { readonly trigger: NodeNotificationTrigger; readonly label: string }[] = [
-    { trigger: 'onSuccess', label: '节点成功' },
-    { trigger: 'onFailure', label: node.type === 'for-each' ? '任意一轮执行失败（首次通知）' : '节点失败' },
+    { trigger: 'onSuccess', label: node.type === 'call-subflow' ? '子流程执行成功' : '节点成功' },
+    { trigger: 'onFailure', label: node.type === 'for-each' ? '任意一轮执行失败（每次通知）' : node.type === 'call-subflow' ? '子流程执行失败' : '节点失败' },
     ...(node.type === 'approval' ? [
       { trigger: 'onApprovalPending' as const, label: '待审批' },
       { trigger: 'onApprovalApproved' as const, label: '审批通过' },
@@ -122,14 +123,23 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
           onChange(node.id, { notifications: { ...node.notifications, enabled, ...(enabled && !hasNotificationTrigger ? node.type === 'approval' ? { onApprovalPending: true } : { onSuccess: true } : {}) } })
         }} />启用 Webhook</label></div>
         {notificationEnabled ? <>
-          <p className="properties-hint">发送到流程设置中的钉钉机器人地址；仅执行中心运行已发布版本时发送。</p>
-          {node.type === 'for-each' ? <p className="properties-hint">开启“任意一轮执行失败”后，循环体首次失败立即触发一次通知；无论失败策略是跳过还是停止，后续失败仍会记录在运行日志中。通知内容可使用 {'{{event.message}}'} 获取轮次、失败节点和原因。</p> : null}
-          {hasNotificationTrigger && !graph.webhook?.url.trim() ? <p className="properties-hint node-notification-warning">已启用节点通知，请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
+          <p className="properties-hint">选择一个或多个流程 Webhook 目标；仅执行中心运行已发布版本时发送。</p>
+          {node.type === 'for-each' ? <p className="properties-hint">开启后，循环体每一轮执行失败都会立即发送通知；失败策略为“跳过”时，后续轮次若再次失败也会分别通知。通知内容可使用 {'{{event.message}}'} 获取轮次、失败节点和原因。</p> : null}
+          {hasNotificationTrigger && webhookDestinations(graph.webhook).length === 0 ? <p className="properties-hint node-notification-warning">已启用节点通知，请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
           {notificationOptions.map(({ trigger, label }) => {
             const checked = node.notifications?.[trigger] === true
             const template = node.notifications?.messageTemplates?.[trigger] ?? node.notifications?.messageTemplate ?? ''
             const templateError = notificationContentError(template)
-            return <div key={trigger} className="node-notification-status"><label className="node-notification-option"><input type="checkbox" checked={checked} onChange={event => { onChange(node.id, { notifications: { ...node.notifications, [trigger]: event.target.checked } }) }} />{label}</label>{checked && (graph.webhook?.provider ?? 'dingtalk') === 'dingtalk' ? <div className="node-notification-message"><label>{label}通知内容<textarea spellCheck={false} value={template} placeholder="留空则使用系统默认文案" onChange={event => { onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: event.target.value } } }) }} /></label><p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。仅在“{label}”状态下使用；流程通知前缀会自动拼接。</p><select aria-label={`插入${label}通知变量`} value="" onChange={event => { if (event.target.value) onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: `${template}{{${event.target.value}}}` } } }) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>{templateError ? <p className="webhook-body-error">{templateError}</p> : null}<WebhookTestButton url={graph.webhook?.url ?? ''} prefixTemplate={graph.webhook?.messageTemplate ?? ''} messageTemplate={template} workflowName={graph.name} nodeName={node.name} /></div> : null}</div>
+            return <div key={trigger} className="node-notification-status">
+              <label className="node-notification-option"><input type="checkbox" checked={checked} onChange={event => { onChange(node.id, { notifications: { ...node.notifications, [trigger]: event.target.checked } }) }} />{label}</label>
+              {checked ? <NotificationTargets graph={graph} node={node} trigger={trigger} onChange={onChange} /> : null}
+              {checked && (graph.webhook?.provider ?? 'dingtalk') === 'dingtalk' ? <div className="node-notification-message">
+                <label>{label}通知内容<textarea spellCheck={false} value={template} placeholder="留空则使用系统默认文案" onChange={event => { onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: event.target.value } } }) }} /></label>
+                <div className="node-notification-edit-tools"><p className="properties-hint">支持 {'{{inputs.orderId}}'}、{'{{event.message}}'} 等变量，发送时自动拼接流程前缀。</p><select aria-label={`插入${label}通知变量`} value="" onChange={event => { if (event.target.value) onChange(node.id, { notifications: { ...node.notifications, messageTemplates: { ...node.notifications?.messageTemplates, [trigger]: `${template}{{${event.target.value}}}` } } }) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select></div>
+                {templateError ? <p className="webhook-body-error">{templateError}</p> : null}
+                <NotificationTests graph={graph} node={node} trigger={trigger} template={template} />
+              </div> : null}
+            </div>
           })}
         </> : <p className="properties-hint">开启后可设置通知时机和内容。</p>}
       </section>}
@@ -180,6 +190,33 @@ export function Properties({ graph, node, subflows = [], subflowError, llmError,
   )
 }
 
+function NotificationTargets({ graph, node, trigger, onChange }: {
+  readonly graph: WorkflowGraph
+  readonly node: WorkflowNode
+  readonly trigger: NodeNotificationTrigger
+  readonly onChange: Props['onChange']
+}): ReactNode {
+  const destinations = webhookDestinations(graph.webhook)
+  const selected = selectedWebhookDestinations(graph.webhook, node.notifications?.destinationIds?.[trigger]).map(item => item.id)
+  return <div className="webhook-target-choices"><span>发送到 <small>已选 {selected.length} 个 · 可多选</small></span>{destinations.length === 0 ? <p className="properties-hint">请先到流程 Webhook 设置中添加目标。</p> : destinations.map(destination =>
+    <label className={selected.includes(destination.id) ? 'webhook-target-chip is-selected' : 'webhook-target-chip'} key={destination.id}><input type="checkbox" checked={selected.includes(destination.id)} onChange={event => {
+      const ids = event.target.checked ? [...selected, destination.id] : selected.filter(id => id !== destination.id)
+      onChange(node.id, { notifications: { ...node.notifications, destinationIds: { ...node.notifications?.destinationIds, [trigger]: ids } } })
+    }} />{destination.name || destination.url}</label>,
+  )}{destinations.length > 0 && selected.length === 0 ? <p className="webhook-target-warning">至少选择一个通知目标</p> : null}</div>
+}
+
+function NotificationTests({ graph, node, trigger, template }: {
+  readonly graph: WorkflowGraph
+  readonly node: WorkflowNode
+  readonly trigger: NodeNotificationTrigger
+  readonly template: string
+}): ReactNode {
+  const destinations = selectedWebhookDestinations(graph.webhook, node.notifications?.destinationIds?.[trigger])
+  if (destinations.length === 0) return null
+  return <details className="node-notification-tests"><summary>测试所选 Webhook（{destinations.length}）</summary><div>{destinations.map(destination => <div className="node-notification-test-row" key={destination.id}><span>{destination.name}</span><WebhookTestButton url={destination.url} prefixTemplate={graph.webhook?.messageTemplate ?? ''} messageTemplate={template} workflowName={graph.name} nodeName={node.name} /></div>)}</div></details>
+}
+
 function NotificationNodeSettings({ graph, node, subflowVariableNames, onChange }: {
   readonly graph: WorkflowGraph
   readonly node: WorkflowNode
@@ -202,14 +239,15 @@ function NotificationNodeSettings({ graph, node, subflowVariableNames, onChange 
     })
   }
   return <>
-    <p className="properties-hint">流程运行到这里时会触发一次通知，服务端异步发送到流程共用的钉钉机器人地址；流程不等待发送结果。仅执行中心运行已发布版本时投递。</p>
-    {!graph.webhook?.url.trim() ? <p className="properties-hint node-notification-warning">请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
+    <p className="properties-hint">流程运行到这里时会触发通知，可同时发送到多个 Webhook；流程不等待发送结果。仅执行中心运行已发布版本时投递。</p>
+    {webhookDestinations(graph.webhook).length === 0 ? <p className="properties-hint node-notification-warning">请在右上角「更多操作 → Webhook 通知设置」填写地址后发布。</p> : null}
+    <NotificationTargets graph={graph} node={node} trigger="onSuccess" onChange={onChange} />
     <label>通知内容<textarea spellCheck={false} rows={5} value={content} placeholder="例如：订单 {{inputs.orderId}} 需要人工处理" onChange={event => { setContent(event.target.value) }} /></label>
     <p className="properties-hint">支持变量，例如 {'{{event.node.name}}'}、{'{{inputs.orderId}}'}、{'{{变量名}}'}。留空则使用系统默认文案；流程通知前缀会自动拼接。</p>
     <select aria-label="插入通知变量" value="" onChange={event => { if (event.target.value) setContent(`${content}{{${event.target.value}}}`) }}><option value="">＋ 插入变量</option><option value="event.node.name">节点名称</option><option value="event.message">事件说明</option>{availableVariables(graph, node.id, subflowVariableNames).map(name => <option key={name} value={name}>{name}</option>)}</select>
     {contentError ? <p className="webhook-body-error" role="alert">{contentError}</p> : null}
-    <WebhookTestButton url={graph.webhook?.url ?? ''} prefixTemplate={graph.webhook?.messageTemplate ?? ''} messageTemplate={content} workflowName={graph.name} nodeName={node.name} />
-    <p className="properties-hint">测试发送只验证 Webhook 地址；运行时变量会在实际执行时解析。</p>
+    <NotificationTests graph={graph} node={node} trigger="onSuccess" template={content} />
+    <p className="properties-hint">测试使用示例变量；实际执行时才会解析运行变量。</p>
   </>
 }
 

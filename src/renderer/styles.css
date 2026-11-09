@@ -788,19 +788,20 @@ textarea { resize: vertical; }
 .context-panel { display: flex; flex-direction: column; gap: 12px; padding: 12px; border-right: 1px solid var(--line); background: var(--panel); overflow: auto; }
 .context-overlay { position: absolute; z-index: 40; inset: 0; display: flex; justify-content: center; padding: 12px; background: rgba(16,24,40,.24); }
 .context-overlay .context-panel { width: min(390px, 100%); max-height: 100%; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 42px rgba(16,24,40,.2); }
-.workflow-webhook-panel { align-self: flex-start; margin-top: 50px; padding: 18px !important; }
+.workflow-webhook-panel { align-self: flex-start; margin-top: 30px; padding: 0 !important; gap: 0; background: #f7f9fc; }
 .workflow-webhook-panel label { display: flex; flex-direction: column; gap: 6px; color: #344054; font-size: 11px; font-weight: 600; }
 .workflow-webhook-panel input[type="url"] { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 7px; padding: 8px 10px; font: inherit; }
 .workflow-webhook-panel label > select { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 7px; padding: 8px 10px; background: #fff; color: #344054; font: inherit; }
-.context-overlay .workflow-webhook-panel { width: min(640px, 100%); }
+.context-overlay .workflow-webhook-panel { width: min(700px, 100%); }
 .workflow-webhook-panel .webhook-body-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #344054; font-size: 12px; }
 .workflow-webhook-panel .webhook-body-heading button, .workflow-webhook-panel .webhook-body-insert select { border: 1px solid #d0d5dd; border-radius: 7px; padding: 6px 8px; background: #fff; color: #344054; font-size: 11px; cursor: pointer; }
-.workflow-webhook-panel textarea { box-sizing: border-box; width: 100%; min-height: 210px; resize: vertical; border: 1px solid #d0d5dd; border-radius: 7px; padding: 10px; background: #fbfcff; color: #1e293b; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.workflow-webhook-panel textarea { box-sizing: border-box; width: 100%; min-height: 84px; resize: vertical; border: 1px solid #d0d5dd; border-radius: 7px; padding: 10px; background: #fbfcff; color: #1e293b; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .workflow-webhook-panel .webhook-body-error { margin: 0; color: #b42318; font-size: 11px; }
 .node-notification-message { margin-top: 10px; padding-top: 10px; border-top: 1px solid #dbe3f4; }
 .node-notification-message label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-weight: 600; color: #344054; }
 .node-notification-message textarea { width: 100%; box-sizing: border-box; min-height: 100px; padding: 8px; border: 1px solid #d0d5dd; border-radius: 7px; resize: vertical; font: inherit; font-size: 12px; line-height: 1.5; }
 .node-notification-message select { max-width: 100%; padding: 6px; border: 1px solid #d0d5dd; border-radius: 7px; background: #fff; }
+.node-notification-status { padding: 10px; border: 1px solid #dbe3f4; border-radius: 9px; background: #fff; }
 .node-notification-status + .node-notification-status { margin-top: 8px; }
 .agent-structured-field { display: grid; gap: 10px; padding: 12px; border: 1px solid #dbe3f4; border-radius: 9px; background: #f8faff; }
 .agent-structured-field + .agent-structured-field { margin-top: 10px; }
@@ -809,6 +810,47 @@ textarea { resize: vertical; }
 .webhook-test-action button { padding: 6px 10px; border: 1px solid #818cf8; border-radius: 7px; background: #eef2ff; color: #4338ca; cursor: pointer; }
 .webhook-test-action button:disabled { opacity: .5; cursor: default; }
 .webhook-test-action span { color: #475467; font-size: 11px; }
+.webhook-panel-heading { position: sticky; top: 0; z-index: 1; padding: 20px 22px 17px; background: #fff; border-bottom: 1px solid #e5eaf2; }
+.webhook-eyebrow { display: block; margin-bottom: 4px; color: #6366f1; font-size: 10px; font-weight: 700; letter-spacing: .08em; }
+.workflow-webhook-panel .webhook-panel-heading h2 { color: #1d2939; font-size: 17px; }
+.workflow-webhook-panel .webhook-panel-heading p { margin: 5px 0 0; }
+.workflow-webhook-panel .webhook-settings-section { margin: 14px 18px 0; padding: 16px; gap: 12px; border: 1px solid #e3e8f1; border-radius: 11px; background: #fff; }
+.webhook-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.webhook-section-heading h3 { margin: 0; color: #1d2939; font-size: 13px; }
+.webhook-section-heading h3 span { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; margin-left: 5px; padding: 1px 5px; border-radius: 999px; background: #eef2ff; color: #4f46e5; font-size: 10px; }
+.workflow-webhook-panel .webhook-section-heading p { margin: 5px 0 0; }
+.webhook-add-button { flex: 0 0 auto; padding: 7px 10px; border: 1px solid #a5b4fc; border-radius: 7px; background: #eef2ff; color: #4338ca; font-size: 11px; font-weight: 700; cursor: pointer; }
+.webhook-destination-card { padding: 13px; border: 1px solid #dce4f0; border-radius: 10px; background: #fbfcff; }
+.webhook-destination-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.webhook-destination-index { display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px; border-radius: 6px; background: #e0e7ff; color: #4338ca; font-size: 10px; font-weight: 700; }
+.webhook-destination-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #344054; font-size: 12px; }
+.webhook-destination-state { margin-left: auto; padding: 3px 7px; border-radius: 999px; background: #fff4e5; color: #a15c00; font-size: 10px; }
+.webhook-destination-state.is-ready { background: #e8f8ef; color: #067647; }
+.webhook-remove-button { padding: 4px 7px; border: 0; background: transparent; color: #b42318; font-size: 11px; cursor: pointer; }
+.webhook-destination-fields { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(0, 1.5fr); gap: 10px; }
+.webhook-destination-fields input { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 7px; padding: 8px 10px; font: inherit; }
+.webhook-destination-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; padding-top: 8px; border-top: 1px solid #e9edf5; color: #667085; font-size: 10px; }
+.webhook-destination-footer .webhook-test-action { margin-top: 0; }
+.workflow-webhook-panel .webhook-section-footnote { margin: 0; color: #667085; font-size: 10px; }
+.workflow-webhook-panel .webhook-panel-warning { margin: 12px 18px 0; padding: 9px 11px; border-radius: 8px; background: #fff7ed; color: #9a3412; }
+.workflow-webhook-panel .webhook-panel-footnote { margin: 12px 20px 18px; color: #667085; font-size: 10px; }
+.workflow-webhook-panel .webhook-empty-state { margin: 0; padding: 20px; border: 1px dashed #cbd5e1; border-radius: 9px; text-align: center; }
+.webhook-switch, .workflow-webhook-panel .webhook-switch { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+.webhook-switch input { margin: 0; accent-color: #4f46e5; }
+.webhook-target-choices { display: flex; flex-wrap: wrap; gap: 7px; margin: 9px 0 4px; font-size: 11px; }
+.webhook-target-choices > span { flex-basis: 100%; margin-bottom: 2px; font-weight: 700; color: #344054; }
+.webhook-target-choices > span small { margin-left: 4px; color: #667085; font-size: 10px; font-weight: 400; }
+.webhook-target-chip, .workflow-webhook-panel .webhook-target-chip { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; max-width: 100%; padding: 6px 9px; border: 1px solid #d0d5dd; border-radius: 8px; background: #fff; color: #475467; cursor: pointer; }
+.webhook-target-chip.is-selected, .workflow-webhook-panel .webhook-target-chip.is-selected { border-color: #a5b4fc; background: #eef2ff; color: #3730a3; }
+.webhook-target-chip input { flex: 0 0 auto; margin: 0; accent-color: #4f46e5; }
+.webhook-target-warning { flex-basis: 100%; margin: 0; color: #b42318; font-size: 10px; }
+.node-notification-edit-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.node-notification-edit-tools .properties-hint { flex: 1 1 150px; margin: 0; }
+.node-notification-tests { margin-top: 10px; padding: 8px 10px; border: 1px solid #e4e7ec; border-radius: 7px; background: #f9fafb; }
+.node-notification-tests summary { color: #475467; font-size: 11px; font-weight: 600; cursor: pointer; }
+.node-notification-test-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.node-notification-test-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667085; font-size: 10px; }
+@media (max-width: 600px) { .webhook-destination-fields { grid-template-columns: 1fr; } .webhook-destination-footer { align-items: flex-start; flex-direction: column; } }
 .node-notification-config { margin-top: 14px; padding: 11px; border: 1px solid #dbe3f4; border-radius: 9px; background: #f8faff; }
 .node-notification-config h3 { margin: 0 0 8px; color: #344054; font-size: 12px; }
 .node-notification-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

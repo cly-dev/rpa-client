@@ -396,12 +396,28 @@ function setLoopVariables(context: WorkflowContext, config: Extract<WorkflowNode
   for (const name of config.declaredVariables ?? []) if (name.trim() !== '') assignVariable(context, name, walkJsonPath(item, name))
 }
 
+interface LoopProgress {
+  index: number
+  total: number
+  successCount: number
+  failureCount: number
+  itemActive: boolean
+  itemFailed: boolean
+}
+
+function setLoopCounts(context: WorkflowContext, nodeId: string, successCount: number, failureCount: number): void {
+  context.variables.successCount = successCount
+  context.variables.failureCount = failureCount
+  context.variables[`successCount_${nodeId}`] = successCount
+  context.variables[`failureCount_${nodeId}`] = failureCount
+}
+
 async function liveStep(
   node: WorkflowNode,
   outputs: Readonly<Record<string, NodeOutputs>>,
   driver: BrowserDriver,
   context: WorkflowContext,
-  loops: Map<string, { index: number; total: number }>,
+  loops: Map<string, LoopProgress>,
 ): Promise<StepResult> {
   // 页面可能在上一个点击、提交或脚本执行后发生了重定向。
   // 条件节点和变量绑定都应该读取当前页面，而不是上一个节点留下的快照。
@@ -420,7 +436,14 @@ async function liveStep(
   if (node.config.type === 'for-each') {
     const collection = resolveBindingInContext(node.config.collection, context)
     const items = Array.isArray(collection) ? collection : []
-    const state = loops.get(node.id) ?? { index: 0, total: loopIterationTotal(node.config, items.length) }
+    const state = loops.get(node.id) ?? { index: 0, total: loopIterationTotal(node.config, items.length), successCount: 0, failureCount: 0, itemActive: false, itemFailed: false }
+    if (state.itemActive) {
+      if (state.itemFailed) state.failureCount += 1
+      else state.successCount += 1
+      state.itemActive = false
+      state.itemFailed = false
+    }
+    setLoopCounts(context, node.id, state.successCount, state.failureCount)
     if (state.index >= state.total) {
       loops.delete(node.id)
       const completedCount = Math.min(state.index, state.total)
@@ -446,7 +469,7 @@ async function liveStep(
       setLoopVariables(context, node.config, lastItem, lastIndex)
       return { message: `循环条件不满足，共处理 ${completedCount} 项`, branch: 'done', outputs: loopValues(node.config, lastItem, lastIndex) }
     }
-    loops.set(node.id, { index: index + 1, total: state.total })
+    loops.set(node.id, { ...state, index: index + 1, itemActive: true })
     return { message: `开始处理第 ${index + 1}/${state.total} 项`, branch: 'body', outputs: loopValues(node.config, item, index) }
   }
   if (node.config.type === 'end') {
@@ -1009,6 +1032,15 @@ export async function runBrowser(
     llm: runnableGraph.llm,
     llms: Object.fromEntries((runnableGraph.llms ?? (runnableGraph.llm === undefined ? [] : [runnableGraph.llm])).map(item => [item.id, item])),
   }
+  const hasLoop = runnableGraph.nodes.some(node => node.type === 'for-each')
+  let latestLoopCounts = {
+    successCount: Number(context.variables.successCount ?? 0),
+    failureCount: Number(context.variables.failureCount ?? 0),
+  }
+  if (hasLoop) {
+    context.variables.successCount = latestLoopCounts.successCount
+    context.variables.failureCount = latestLoopCounts.failureCount
+  }
   const notificationValuesFor = (nodeId: string, event?: NonNullable<import('./walk.ts').RunLogLine['notificationEvent']>): Record<string, import('@graph/types.ts').JsonValue> => {
     const node = runnableGraph.nodes.find(item => item.id === nodeId)
     const nodeParts = nodeId.split('::')
@@ -1054,7 +1086,7 @@ export async function runBrowser(
     context.page.url = url
     if (latestState !== undefined) handlers.onUpdate({ ...latestState, page: { ...context.page } })
   })
-  const loops = new Map<string, { index: number; total: number }>()
+  const loops = new Map<string, LoopProgress>()
   const state = await walkGraph(runnableGraph, {
     ...handlers,
     onUpdate: next => {
@@ -1089,6 +1121,27 @@ export async function runBrowser(
     if (options.resumeApproval && node.type === 'approval') throw new Error('异步审批续跑分支暂不支持再次进入审批节点；请拆分为独立流程')
     const beforeUrl = context.page.url
     const result = await liveStep(node, { ...initialOutputs, ...outputs }, driver, context, loops)
+    if (hasLoop) {
+      if (node.type === 'for-each') {
+        latestLoopCounts = {
+          successCount: Number(context.variables.successCount ?? 0),
+          failureCount: Number(context.variables.failureCount ?? 0),
+        }
+      } else {
+        const failed = result.halt === 'failed' || result.status === 'failed' || result.status === 'waiting-user'
+        if (failed) {
+          const activeLoop = [...loops].reverse().find(([, progress]) => progress.itemActive)
+          if (activeLoop) {
+            const [loopId, progress] = activeLoop
+            progress.itemFailed = true
+            setLoopCounts(context, loopId, progress.successCount, progress.failureCount + 1)
+            latestLoopCounts = { successCount: progress.successCount, failureCount: progress.failureCount + 1 }
+          }
+        }
+        context.variables.successCount = latestLoopCounts.successCount
+        context.variables.failureCount = latestLoopCounts.failureCount
+      }
+    }
     if (driver.currentUrl !== undefined) context.page.url = driver.currentUrl()
     // The page title is diagnostic metadata. A tab closing during this read
     // must not turn an otherwise successful node into a page.title failure.
@@ -1117,8 +1170,8 @@ export async function runBrowser(
     if (result.halt !== 'failed' && result.status !== 'failed' && result.status !== 'waiting-user') {
       const count = Number(context.successes[node.id] ?? 0) + 1
       context.successes[node.id] = count
-      context.variables.successCount = count
-      context.variables[`successCount_${node.id}`] = count
+      if (!hasLoop) context.variables.successCount = count
+      if (node.type !== 'for-each') context.variables[`successCount_${node.id}`] = count
     }
     const logs: string[] = [...(result.logs ?? [])]
     if (beforeUrl !== context.page.url) {

@@ -176,7 +176,14 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
   const [serviceWorkflowId, setServiceWorkflowId] = useState<string>()
   const [workflowMeta, setWorkflowMeta] = useState<Pick<WorkflowListItem, 'publishedVersion' | 'status'>>()
-  const [notice, setNotice] = useState<string>()
+  const [notice, setNoticeState] = useState<string>()
+  const [noticeVersion, setNoticeVersion] = useState(0)
+  const setNotice = (message: string | undefined): void => { setNoticeState(message); setNoticeVersion(version => version + 1) }
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => { setNotice(undefined) }, 5_000)
+    return () => { window.clearTimeout(timer) }
+  }, [notice, noticeVersion])
   const [run, setRun] = useState<DryRunState>()
   const [editorSubflows, setEditorSubflows] = useState<WorkflowGraph[]>([])
   const [serviceLlms, setServiceLlms] = useState<WorkflowLlmConfig[]>([])

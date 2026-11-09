@@ -6,6 +6,7 @@ import { validateGraph } from '@graph/validate.ts'
 import type { WorkflowGraph } from '@graph/types.ts'
 import { walkGraph } from './walk.ts'
 import { runBrowser } from './browser-run.ts'
+import { selectedWebhookDestinations } from '@graph/webhook-destinations.ts'
 
 const noPageDriver = {
   async openPage() {}, async click() {}, async type() {}, async extract() { return '' }, async waitFor() {},
@@ -90,6 +91,32 @@ describe('workflow webhook notifications', () => {
     expect(failed.logs.filter(line => line.notificationEvent).map(line => line.notificationEvent)).toEqual(['node.failed'])
   })
 
+  it('round-trips multiple Webhook targets and validates each trigger selection', () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const end = createNode('end', { x: 100, y: 0 })
+    const webhook = {
+      url: 'https://oapi.dingtalk.com/robot/send?access_token=one', provider: 'dingtalk' as const,
+      destinations: [
+        { id: 'first', name: '客服', url: 'https://oapi.dingtalk.com/robot/send?access_token=one' },
+        { id: 'second', name: '运营', url: 'https://oapi.dingtalk.com/robot/send?access_token=two' },
+      ], onFinished: true, onFinishedDestinationIds: ['second'],
+    }
+    const workflow: WorkflowGraph = {
+      workflowId: 'multi-webhook', name: '多目标通知', version: 1, entryNodeId: start.id,
+      nodes: [{ ...start, notifications: { enabled: true, onSuccess: true, destinationIds: { onSuccess: ['first', 'second'] } } }, end],
+      edges: [createEdge(start.id, 'default', end.id)], webhook,
+    }
+    const parsed = parseWorkflow(JSON.parse(JSON.stringify(workflow)))
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.graph.webhook?.destinations).toEqual(webhook.destinations)
+      expect(parsed.graph.nodes[0]?.notifications?.destinationIds?.onSuccess).toEqual(['first', 'second'])
+      expect(selectedWebhookDestinations(parsed.graph.webhook, parsed.graph.webhook?.onFinishedDestinationIds).map(item => item.id)).toEqual(['second'])
+      expect(validateGraph(parsed.graph)).toEqual([])
+      expect(validateGraph({ ...parsed.graph, nodes: [{ ...parsed.graph.nodes[0]!, notifications: { ...parsed.graph.nodes[0]!.notifications, destinationIds: { onSuccess: ['missing'] } } }, end] }).map(issue => issue.code)).toContain('webhook-url-invalid')
+    }
+  })
+
   it('attaches the actual failure reason to result-based node notifications', async () => {
     const original = graph()
     const failed = await walkGraph(original, { onUpdate() {}, wait: async () => {} }, async () => ({ message: '页面按钮不可见', halt: 'failed' }))
@@ -128,7 +155,7 @@ describe('workflow webhook notifications', () => {
     expect(state.logs.find(line => line.notificationEvent === 'node.failed')?.notificationValues).toEqual({ total: 12 })
   })
 
-  it('captures the failed loop item variables for one Webhook event', async () => {
+  it('captures the failed loop item variables for every Webhook event', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const loop = createNode('for-each', { x: 100, y: 0 })
     const action = createNode('type', { x: 200, y: 0 })
@@ -150,10 +177,145 @@ describe('workflow webhook notifications', () => {
     }, { onUpdate() {}, wait: async () => {} })
     expect(state.status).toBe('succeeded')
     const events = state.logs.filter(line => line.nodeId === loop.id && line.notificationEvent === 'node.failed')
-    expect(events).toHaveLength(1)
+    expect(events).toHaveLength(2)
     expect(events[0]?.message).toContain('第 1 轮执行失败')
     expect(events[0]?.message).toContain('节点「输入」：失败，已停下来等人：输入框不可用')
     expect(events[0]?.notificationValues).toEqual({ currentIndex: 0 })
+    expect(events[1]?.message).toContain('第 2 轮执行失败')
+    expect(events[1]?.notificationValues).toEqual({ currentIndex: 1 })
+  })
+
+  it('reports completed loop item counts in a notification on the done exit', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = createNode('for-each', { x: 100, y: 0 })
+    const action = createNode('type', { x: 200, y: 0 })
+    const continueLoop = createNode('continue-loop', { x: 300, y: 0 })
+    const notification = createNode('handoff', { x: 400, y: 0 })
+    const end = createNode('end', { x: 500, y: 0 })
+    const workflow: WorkflowGraph = {
+      workflowId: 'loop-done-counts', name: '循环完成统计', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: 'https://example.com' } },
+        { ...loop, config: { ...loop.config, type: 'for-each', collection: { kind: 'literal', value: ['A', 'B', 'C'] }, onItemError: 'skip' } },
+        { ...action, config: { type: 'type', selector: '#field', text: { kind: 'literal', value: '{{currentItem}}' }, path: '' } },
+        continueLoop,
+        { ...notification, notifications: { enabled: true, onSuccess: true, messageTemplate: '本轮共成功{{successCount}}条，失败{{failureCount}}条' } },
+        end,
+      ],
+      edges: [
+        createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', action.id),
+        createEdge(action.id, 'default', continueLoop.id), createEdge(loop.id, 'done', notification.id),
+        createEdge(notification.id, 'default', end.id),
+      ],
+      webhook: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', provider: 'dingtalk' },
+    }
+    const run = (failOnB: boolean) => runBrowser(workflow, {
+      ...noPageDriver,
+      async type(_selector: string, value: string) { if (failOnB && value === 'B') throw new Error('输入失败') },
+    }, { onUpdate() {}, wait: async () => {} })
+
+    const partiallyFailed = await run(true)
+    expect(partiallyFailed.status).toBe('succeeded')
+    expect(partiallyFailed.variables?.[`successCount_${loop.id}`]).toBe(2)
+    expect(partiallyFailed.variables?.[`failureCount_${loop.id}`]).toBe(1)
+    expect(partiallyFailed.logs.find(line => line.nodeId === notification.id && line.notificationEvent === 'node.succeeded')?.notificationValues)
+      .toEqual({ successCount: 2, failureCount: 1 })
+
+    const allSucceeded = await run(false)
+    expect(allSucceeded.status).toBe('succeeded')
+    expect(allSucceeded.variables?.[`failureCount_${loop.id}`]).toBe(0)
+    expect(allSucceeded.logs.find(line => line.nodeId === notification.id && line.notificationEvent === 'node.succeeded')?.notificationValues)
+      .toEqual({ successCount: 3, failureCount: 0 })
+  })
+
+  it('notifies a call-subflow node only after its child finishes, and reports child failure', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const call = createNode('call-subflow', { x: 100, y: 0 })
+    const end = createNode('end', { x: 200, y: 0 })
+    const childStart = createNode('start', { x: 0, y: 0 })
+    const childAction = createNode('type', { x: 100, y: 0 })
+    const childEnd = createNode('end', { x: 200, y: 0 })
+    const parent: WorkflowGraph = {
+      workflowId: 'notify-call-parent', name: 'Parent', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: 'https://example.com' } },
+        { ...call, config: { type: 'call-subflow', workflowId: 'notify-call-child', workflowVersion: 1, inputMappings: [] }, notifications: { enabled: true, onSuccess: true, onFailure: true, messageTemplate: '子流程状态：{{event.status}}' } },
+        end,
+      ],
+      edges: [createEdge(start.id, 'default', call.id), createEdge(call.id, 'default', end.id)],
+      webhook: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', provider: 'dingtalk' },
+    }
+    const child: WorkflowGraph = {
+      workflowId: 'notify-call-child', name: 'Child', version: 1, entryNodeId: childStart.id,
+      nodes: [
+        { ...childStart, config: { type: 'start', url: '' } },
+        { ...childAction, config: { type: 'type', selector: '#field', text: { kind: 'literal', value: 'hello' }, path: '' } },
+        childEnd,
+      ],
+      edges: [createEdge(childStart.id, 'default', childAction.id), createEdge(childAction.id, 'default', childEnd.id)],
+    }
+    const run = (fails: boolean) => runBrowser(parent, {
+      ...noPageDriver,
+      async type() { if (fails) throw new Error('子流程输入失败') },
+    }, { onUpdate() {}, wait: async () => {} }, { subflows: [child] })
+
+    const succeeded = await run(false)
+    expect(succeeded.status).toBe('succeeded')
+    const successEventIndex = succeeded.logs.findIndex(line => line.nodeId === call.id && line.notificationEvent === 'node.succeeded')
+    const childReturnIndex = succeeded.logs.findIndex(line => line.nodeId.endsWith(`::${childEnd.id}`) && line.message.includes('状态：succeeded'))
+    expect(successEventIndex).toBeGreaterThan(childReturnIndex)
+
+    const failed = await run(true)
+    expect(failed.status).toBe('failed')
+    expect(failed.nodes[call.id]).toBe('failed')
+    expect(failed.logs.some(line => line.nodeId === call.id && line.notificationEvent === 'node.succeeded')).toBe(false)
+    expect(failed.logs.some(line => line.nodeId === call.id && line.notificationEvent === 'node.failed')).toBe(true)
+  })
+
+  it('notifies every successful child call made by a loop', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const loop = createNode('for-each', { x: 100, y: 0 })
+    const call = createNode('call-subflow', { x: 200, y: 0 })
+    const continueLoop = createNode('continue-loop', { x: 300, y: 0 })
+    const end = createNode('end', { x: 400, y: 0 })
+    const childStart = createNode('start', { x: 0, y: 0 })
+    const childCall = createNode('call-subflow', { x: 100, y: 0 })
+    const childEnd = createNode('end', { x: 200, y: 0 })
+    const grandchildStart = createNode('start', { x: 0, y: 0 })
+    const grandchildEnd = createNode('end', { x: 100, y: 0 })
+    const parent: WorkflowGraph = {
+      workflowId: 'loop-call-notify-parent', name: 'Parent', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: '' } },
+        { ...loop, config: { ...loop.config, type: 'for-each', collection: { kind: 'literal', value: ['A', 'B'] } } },
+        { ...call, config: { type: 'call-subflow', workflowId: 'loop-call-notify-child', workflowVersion: 1, inputMappings: [] }, notifications: { enabled: true, onSuccess: true } },
+        continueLoop, end,
+      ],
+      edges: [
+        createEdge(start.id, 'default', loop.id), createEdge(loop.id, 'body', call.id),
+        createEdge(call.id, 'default', continueLoop.id), createEdge(loop.id, 'done', end.id),
+      ],
+      webhook: { url: 'https://oapi.dingtalk.com/robot/send?access_token=test', provider: 'dingtalk' },
+    }
+    const child: WorkflowGraph = {
+      workflowId: 'loop-call-notify-child', name: 'Child', version: 1, entryNodeId: childStart.id,
+      nodes: [
+        { ...childStart, config: { type: 'start', url: '' } },
+        { ...childCall, config: { type: 'call-subflow', workflowId: 'loop-call-notify-grandchild', workflowVersion: 1, inputMappings: [] }, notifications: { enabled: true, onSuccess: true } },
+        childEnd,
+      ],
+      edges: [createEdge(childStart.id, 'default', childCall.id), createEdge(childCall.id, 'default', childEnd.id)],
+      webhook: { url: 'https://oapi.dingtalk.com/robot/send?access_token=child', provider: 'dingtalk' },
+    }
+    const grandchild: WorkflowGraph = {
+      workflowId: 'loop-call-notify-grandchild', name: 'Grandchild', version: 1, entryNodeId: grandchildStart.id,
+      nodes: [{ ...grandchildStart, config: { type: 'start', url: '' } }, grandchildEnd],
+      edges: [createEdge(grandchildStart.id, 'default', grandchildEnd.id)],
+    }
+    const state = await runBrowser(parent, noPageDriver, { onUpdate() {}, wait: async () => {} }, { subflows: [child, grandchild] })
+    expect(state.status).toBe('succeeded')
+    expect(state.logs.filter(line => line.nodeId === call.id && line.notificationEvent === 'node.succeeded')).toHaveLength(2)
+    expect(state.logs.filter(line => line.nodeId.endsWith(`::${childCall.id}`) && line.notificationEvent === 'node.succeeded')).toHaveLength(2)
   })
 
   it('keeps webhook settings but does not notify or require an address when disabled', async () => {

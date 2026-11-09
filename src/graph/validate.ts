@@ -5,6 +5,7 @@ import { subflowInputTypeWarning } from './subflow-input-types.ts'
 import { jsonRequestBodyTemplateError } from './json-request-template.ts'
 import { notificationContentError, validDingTalkRobotUrl, webhookBodyTemplateError } from './webhook-body-template.ts'
 import { DEFAULT_IMAGE_RECOGNITION_MAX_IMAGES, MAX_IMAGE_RECOGNITION_MAX_IMAGES } from './image-recognition-limits.ts'
+import { webhookDestinations, selectedWebhookDestinations } from './webhook-destinations.ts'
 
 const MESSAGES: Record<ValidationIssue['code'], string> = {
   'empty-name': '节点名称不能为空',
@@ -109,16 +110,21 @@ function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
  */
 export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowGraph[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = []
-  const webhookUrl = graph.webhook?.url.trim() ?? ''
+  const destinations = webhookDestinations(graph.webhook)
+  const destinationIds = new Set(destinations.map(item => item.id))
   const hasNotifications = graph.webhook?.onFinished === true || graph.nodes.some(node => node.type === 'handoff' || node.notifications?.enabled !== false && (node.notifications?.onSuccess || node.notifications?.onFailure || node.notifications?.onApprovalPending || node.notifications?.onApprovalApproved || node.notifications?.onApprovalRejected || node.notifications?.onApprovalTimeout))
-  if (hasNotifications && webhookUrl === '') issues.push(issue('webhook-url-missing'))
-  if (webhookUrl !== '') {
+  if (hasNotifications && destinations.length === 0) issues.push(issue('webhook-url-missing'))
+  if (destinations.some(item => !item.id.trim() || !item.name.trim()) || destinationIds.size !== destinations.length) issues.push({ ...issue('webhook-url-invalid'), message: 'Webhook 名称和标识不能为空且不能重复' })
+  for (const destination of destinations) {
+    const webhookUrl = destination.url.trim()
+    if (!webhookUrl) { issues.push({ ...issue('webhook-url-invalid'), message: `Webhook「${destination.name || '未命名'}」需要填写地址` }); continue }
     try {
       const parsed = new URL(webhookUrl)
       if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) issues.push(issue('webhook-url-invalid'))
     } catch { issues.push(issue('webhook-url-invalid')) }
+    if (graph.webhook?.provider === 'dingtalk' && !validDingTalkRobotUrl(webhookUrl)) issues.push({ ...issue('webhook-url-invalid'), message: `Webhook「${destination.name}」应为钉钉机器人地址` })
   }
-  if (graph.webhook?.provider === 'dingtalk' && webhookUrl !== '' && !validDingTalkRobotUrl(webhookUrl)) issues.push({ ...issue('webhook-url-invalid'), message: '钉钉机器人地址应为 https://oapi.dingtalk.com/robot/send?access_token=...' })
+  if (graph.webhook?.onFinished && selectedWebhookDestinations(graph.webhook, graph.webhook.onFinishedDestinationIds).length === 0) issues.push({ ...issue('webhook-url-missing'), message: '流程结束通知至少选择一个 Webhook' })
   const webhookBodyError = graph.webhook?.provider === 'dingtalk'
     ? notificationContentError(graph.webhook.messageTemplate ?? '')
     : webhookBodyTemplateError(graph.webhook?.bodyTemplate ?? '', graph.webhook?.provider)
@@ -130,6 +136,11 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
   const notificationTriggers: readonly NodeNotificationTrigger[] = ['onSuccess', 'onFailure', 'onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout']
 
   for (const node of graph.nodes) {
+    for (const trigger of notificationTriggers) {
+      if (node.notifications?.enabled === false || node.notifications?.[trigger] !== true) continue
+      const selected = node.notifications.destinationIds?.[trigger]
+      if (selected !== undefined && (selected.length === 0 || selected.some(id => !destinationIds.has(id)))) issues.push({ ...issue('webhook-url-invalid', { nodeId: node.id }), message: '通知目标无效，请重新选择 Webhook' })
+    }
     const notificationTemplates = node.type === 'handoff'
       ? [node.notifications?.messageTemplate || node.notifications?.messageTemplates?.onSuccess || (node.config.type === 'handoff' ? node.config.note : '')]
       : node.notifications === undefined ? [] : notificationTriggers

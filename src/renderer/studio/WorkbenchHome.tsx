@@ -162,8 +162,15 @@ export function WorkbenchHome({
   const [dependencyBulkPreview, setDependencyBulkPreview] = useState<DependencyBulkPreview>();
   const [dependencySelectedParents, setDependencySelectedParents] = useState<readonly string[]>([]);
   const [dependencyBulkResult, setDependencyBulkResult] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeState] = useState("");
+  const [noticeVersion, setNoticeVersion] = useState(0);
+  const setNotice = (message: string): void => { setNoticeState(message); setNoticeVersion(version => version + 1); };
   const [noticeTone, setNoticeTone] = useState<"success" | "error">("success");
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => { setNotice(""); }, 5_000);
+    return () => { window.clearTimeout(timer); };
+  }, [notice, noticeVersion]);
   const [selectedExportIds, setSelectedExportIds] = useState<readonly string[]>([]);
   const [archiveSelectionMode, setArchiveSelectionMode] = useState(false);
   const [selectedArchiveIds, setSelectedArchiveIds] = useState<readonly string[]>([]);

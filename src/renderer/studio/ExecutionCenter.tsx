@@ -197,7 +197,14 @@ export function ExecutionCenter({
   const lastRefreshInputs = useRef({ page, scope, showDeletedSchedules: false, appliedHistoryQuery: '' });
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeState] = useState("");
+  const [noticeVersion, setNoticeVersion] = useState(0);
+  const setNotice = (message: string): void => { setNoticeState(message); setNoticeVersion(version => version + 1); };
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => { setNotice(""); }, 5_000);
+    return () => { window.clearTimeout(timer); };
+  }, [notice, noticeVersion]);
   const [runMessage, setRunMessage] = useState("");
   const [launchFlow, setLaunchFlow] = useState<WorkflowListItem>();
   const [launchGraph, setLaunchGraph] = useState<WorkflowGraph>();

@@ -35,8 +35,8 @@ export function VariablesPanel({ graph, subflows = [], outputs, inputs: runtimeI
   const inputs = graph.context?.inputs ?? []
   const grouped = groupNodeVariables(graph.nodes, outputs)
   const special = graph.nodes.filter(node => node.type === 'for-each').flatMap(node => [
-    { path: `failureCount_${node.id}`, type: `${node.name} · 失败次数` },
-    { path: `successCount_${node.id}`, type: `${node.name} · 成功次数` },
+    { path: `failureCount_${node.id}`, type: `${node.name} · 失败轮数` },
+    { path: `successCount_${node.id}`, type: `${node.name} · 成功轮数` },
   ])
   const knownRuntimeNames = new Set([
     ...globals.map(item => item.name),

@@ -68,6 +68,8 @@ export interface NodeNotificationConfig {
   readonly onApprovalApproved?: boolean
   readonly onApprovalRejected?: boolean
   readonly onApprovalTimeout?: boolean
+  /** Each trigger may fan out to several workflow Webhook destinations. */
+  readonly destinationIds?: Readonly<Partial<Record<NodeNotificationTrigger, readonly string[]>>>
   /** Status-specific content. Keys match the corresponding notification switches. */
   readonly messageTemplates?: Readonly<Partial<Record<NodeNotificationTrigger, string>>>
   /** Legacy shared content retained as a fallback for older workflows. */
@@ -76,7 +78,9 @@ export interface NodeNotificationConfig {
 
 export interface WorkflowWebhookConfig {
   readonly url: string
+  readonly destinations?: readonly { readonly id: string; readonly name: string; readonly url: string }[]
   readonly onFinished?: boolean
+  readonly onFinishedDestinationIds?: readonly string[]
   readonly bodyTemplate?: string
   readonly provider?: 'generic' | 'dingtalk'
   /** DingTalk prefix prepended to every workflow/node notification. */

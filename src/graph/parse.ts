@@ -176,6 +176,8 @@ export function parseWorkflow(value: unknown): ParseResult {
       const position = isRecord(raw.position) ? raw.position : {}
       const notificationsRaw = isRecord(raw.notifications) ? raw.notifications : undefined
       const templatesRaw = isRecord(notificationsRaw?.messageTemplates) ? notificationsRaw.messageTemplates : undefined
+      const destinationIdsRaw = isRecord(notificationsRaw?.destinationIds) ? notificationsRaw.destinationIds : undefined
+      const notificationTriggers = ['onSuccess', 'onFailure', 'onApprovalPending', 'onApprovalApproved', 'onApprovalRejected', 'onApprovalTimeout'] as const
       return normalizeNotificationNode({
         id: asString(raw.id, `nodes[${index}].id`),
         type,
@@ -196,6 +198,8 @@ export function parseWorkflow(value: unknown): ParseResult {
           onApprovalApproved: notificationsRaw?.onApprovalApproved === true,
           onApprovalRejected: notificationsRaw?.onApprovalRejected === true,
           onApprovalTimeout: notificationsRaw?.onApprovalTimeout === true,
+          destinationIds: destinationIdsRaw === undefined ? undefined : Object.fromEntries(notificationTriggers.flatMap(trigger =>
+            Array.isArray(destinationIdsRaw[trigger]) ? [[trigger, (destinationIdsRaw[trigger] as unknown[]).filter((id): id is string => typeof id === 'string')]] : [])),
           messageTemplates: templatesRaw !== undefined ? {
             onSuccess: typeof templatesRaw.onSuccess === 'string' ? templatesRaw.onSuccess : undefined,
             onFailure: typeof templatesRaw.onFailure === 'string' ? templatesRaw.onFailure : undefined,
@@ -235,7 +239,11 @@ export function parseWorkflow(value: unknown): ParseResult {
         edges,
         webhook: isRecord(value.webhook) ? {
           url: typeof value.webhook.url === 'string' ? value.webhook.url : '',
+          destinations: Array.isArray(value.webhook.destinations) ? value.webhook.destinations.filter(isRecord).map(item => ({
+            id: typeof item.id === 'string' ? item.id : '', name: typeof item.name === 'string' ? item.name : '', url: typeof item.url === 'string' ? item.url : '',
+          })) : undefined,
           onFinished: value.webhook.onFinished === true,
+          onFinishedDestinationIds: Array.isArray(value.webhook.onFinishedDestinationIds) ? value.webhook.onFinishedDestinationIds.filter((id): id is string => typeof id === 'string') : undefined,
           bodyTemplate: typeof value.webhook.bodyTemplate === 'string' ? value.webhook.bodyTemplate : undefined,
           provider: value.webhook.provider === 'dingtalk' ? 'dingtalk' : 'generic',
           messageTemplate: typeof value.webhook.messageTemplate === 'string' ? value.webhook.messageTemplate : undefined,

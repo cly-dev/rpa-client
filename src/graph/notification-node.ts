@@ -13,7 +13,7 @@ export function normalizeNotificationNode(node: WorkflowNode): WorkflowNode {
   return {
     ...node,
     name,
-    notifications: { enabled: true, onSuccess: true, onFailure: false, messageTemplate: content },
+    notifications: { enabled: true, onSuccess: true, onFailure: false, messageTemplate: content, destinationIds: node.notifications?.destinationIds },
   }
 }
 

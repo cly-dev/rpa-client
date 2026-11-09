@@ -48,7 +48,7 @@ describe('walkGraph loop control', () => {
     expect(state.nodes[approval.id]).toBe('pending')
     expect(state.nodes[continueLoop.id]).toBe('succeeded')
   })
-  it('notifies the loop once for the first failed item while skip continues the run', async () => {
+  it('notifies the loop for every failed item while skip continues the run', async () => {
     const start = createNode('start', { x: 0, y: 0 })
     const loop = { ...createNode('for-each', { x: 100, y: 0 }), notifications: { enabled: true, onFailure: true } }
     const action = createNode('set-variable', { x: 200, y: 0 })
@@ -69,8 +69,12 @@ describe('walkGraph loop control', () => {
     })
     expect(state.status).toBe('succeeded')
     const notifications = state.logs.filter(line => line.nodeId === loop.id && line.notificationEvent === 'node.failed')
-    expect(notifications).toHaveLength(1)
-    expect(notifications[0]?.message).toContain('第 1 轮执行失败')
+    expect(notifications).toHaveLength(3)
+    expect(notifications.map(line => line.message)).toEqual(expect.arrayContaining([
+      expect.stringContaining('第 1 轮执行失败'),
+      expect.stringContaining('第 2 轮执行失败'),
+      expect.stringContaining('第 3 轮执行失败'),
+    ]))
     expect(state.logs.filter(line => line.nodeId === loop.id && line.message.includes('执行失败：节点')).length).toBe(3)
   })
 

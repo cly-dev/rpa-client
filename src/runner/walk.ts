@@ -118,6 +118,40 @@ export async function walkGraph(
     return event
   }
 
+  const isExpandedCall = (node: WorkflowNode): boolean => node.type === 'call-subflow'
+    && graph.edges.some(edge => edge.sourceNodeId === node.id && edge.id.startsWith(`${node.id}::chain::`))
+
+  const notifyCall = (node: WorkflowNode, event: NonNullable<RunLogLine['notificationEvent']>): RunLogLine['notificationEvent'] =>
+    node.notifications?.enabled !== false && (event === 'node.succeeded' ? node.notifications?.onSuccess : node.notifications?.onFailure) ? event : undefined
+
+  const enclosingCalls = (nodeId: string): WorkflowNode[] => {
+    const parts = nodeId.split('::')
+    const calls: WorkflowNode[] = []
+    for (let length = 1; length < parts.length - 1; length += 2) {
+      const id = parts.slice(0, length).join('::')
+      const call = graph.nodes.find(item => item.id === id)
+      if (call && isExpandedCall(call)) calls.push(call)
+    }
+    return calls
+  }
+
+  const failEnclosingCalls = (node: WorkflowNode, reason: string, handledByLoopId?: string): void => {
+    for (const call of enclosingCalls(node.id).reverse()) {
+      if (handledByLoopId?.startsWith(`${call.id}::`)) continue
+      nodes[call.id] = 'failed'
+      log(call.id, call.name, `子流程执行失败：节点「${node.name}」：${reason}`, notifyCall(call, 'node.failed'))
+    }
+  }
+
+  const completeEnclosingCall = (node: WorkflowNode): WorkflowNode | undefined => {
+    if (!graph.edges.some(edge => edge.sourceNodeId === node.id && edge.id.startsWith(`${node.id}::return::`))) return undefined
+    const call = enclosingCalls(node.id).at(-1)
+    if (!call || nodes[call.id] !== 'running') return undefined
+    nodes[call.id] = 'succeeded'
+    log(call.id, call.name, '子流程已执行完成', notifyCall(call, 'node.succeeded'))
+    return call
+  }
+
   const logLoopItemFailure = (failedNode: WorkflowNode, reason: string): void => {
     for (const loopId of activeLoopIds) {
       const loop = graph.nodes.find(item => item.id === loopId)
@@ -126,7 +160,8 @@ export async function walkGraph(
       const iteration = typeof currentIndex === 'number' && Number.isInteger(currentIndex) && currentIndex >= 0
         ? `第 ${currentIndex + 1} 轮`
         : '当前轮'
-      log(loop.id, loop.name, `${iteration}执行失败：节点「${failedNode.name}」：${reason}`, notifyOnce(loop, 'node.failed'))
+      const notify = loop.notifications?.enabled !== false && loop.notifications?.onFailure === true
+      log(loop.id, loop.name, `${iteration}执行失败：节点「${failedNode.name}」：${reason}`, notify ? 'node.failed' : undefined)
     }
   }
 
@@ -136,6 +171,7 @@ export async function walkGraph(
       log(node.id, node.name, '检测到环，已停止')
       nodes[node.id] = 'failed'
       logLoopItemFailure(node, '检测到环，已停止')
+      failEnclosingCalls(node, '检测到环，已停止')
       return emit('failed', node.id)
     }
     if (node.type === 'for-each' && visited.has(node.id)) visited.clear()
@@ -187,6 +223,7 @@ export async function walkGraph(
       log(node.id, node.name, detail, notifyOnce(node, 'node.failed'))
       nodes[node.id] = 'failed'
       logLoopItemFailure(node, reason)
+      failEnclosingCalls(node, reason)
       return emit('failed', node.id)
     }
     log(node.id, node.name, result.message)
@@ -196,7 +233,8 @@ export async function walkGraph(
       const entries = Object.entries(result.outputs)
       log(node.id, node.name, `产出概要：${entries.length === 0 ? '无' : entries.slice(0, 20).map(([name, value]) => `${name}=${outputShape(value)}`).join('，')}${entries.length > 20 ? `，另有 ${entries.length - 20} 项` : ''}（不记录具体值）`)
     } else log(node.id, node.name, '产出概要：无')
-    nodes[node.id] = result.status ?? (result.halt === 'failed' ? 'failed' : 'succeeded')
+    const expandedCall = isExpandedCall(node)
+    nodes[node.id] = expandedCall ? 'running' : result.status ?? (result.halt === 'failed' ? 'failed' : 'succeeded')
     const failed = result.halt === 'failed' || nodes[node.id] === 'failed' || nodes[node.id] === 'waiting-user'
     log(node.id, node.name, `执行耗时：${Date.now() - startedAt}ms；状态：${nodes[node.id]}`, nodes[node.id] === 'succeeded' && !failed ? notifyOnce(node, 'node.succeeded') : undefined)
     if (failed) {
@@ -207,14 +245,22 @@ export async function walkGraph(
       const activeLoopId = activeLoopIds.at(-1)
       const loop = activeLoopId === undefined ? undefined : graph.nodes.find(item => item.id === activeLoopId)
       if (result.halt === 'failed' && loop?.config.type === 'for-each' && loop.config.onItemError === 'skip') {
+        failEnclosingCalls(node, result.message, loop.id)
         log(node.id, node.name, '当前循环项失败，已跳过并继续下一项')
         current = loop
         continue
       }
+      if (result.halt === 'failed') failEnclosingCalls(node, result.message)
       return emit(result.halt, node.id)
     }
 
-    if (node.id === options.stopAfterNodeId) {
+    const completedCall = completeEnclosingCall(node)
+    if (completedCall && completedCall.id === options.stopAfterNodeId) {
+      log(completedCall.id, completedCall.name, '目标子流程执行完成，已停止本次运行')
+      return emit('succeeded', completedCall.id)
+    }
+
+    if (node.id === options.stopAfterNodeId && !expandedCall) {
       if (nodes[node.id] === 'failed') return emit('failed', node.id)
       log(node.id, node.name, '目标节点执行完成，已停止本次运行')
       return emit('succeeded', node.id)
@@ -230,6 +276,7 @@ export async function walkGraph(
       if (loop?.type !== 'for-each') {
         log(node.id, node.name, '本次循环结束节点只能在循环体内使用')
         nodes[node.id] = 'failed'
+        failEnclosingCalls(node, '本次循环结束节点只能在循环体内使用')
         return emit('failed', node.id)
       }
       log(node.id, node.name, '本次循环已结束，返回循环节点判断下一轮')
@@ -254,6 +301,7 @@ export async function walkGraph(
     if (next === undefined) {
       log(node.id, node.name, `出口「${port}」没有有效的后续连线，流程中断`)
       logLoopItemFailure(node, `出口「${port}」没有有效的后续连线，流程中断`)
+      failEnclosingCalls(node, `出口「${port}」没有有效的后续连线，流程中断`)
       return emit('failed', node.id)
     }
     log(node.id, node.name, `出口「${port}」→ 下一节点「${next.name}」（${next.type}）`)
