@@ -242,6 +242,35 @@ describe('runBrowser', () => {
     expect(extract !== undefined && state.outputs[extract.id]?.text).toBe('Example Domain')
   })
 
+  it('downloads a selected URL variable and uploads it through a page-action step', async () => {
+    const calls: string[] = []
+    const start = createNode('start', { x: 0, y: 0 })
+    const request = createNode('api-request', { x: 100, y: 0 })
+    const action = createNode('page-action', { x: 200, y: 0 })
+    const end = createNode('end', { x: 300, y: 0 })
+    const imageUrl = 'https://images.example.com/product.png?signature=secret'
+    const graph: WorkflowGraph = {
+      workflowId: newId('wf'), name: 'upload linked image', version: 1, entryNodeId: start.id,
+      nodes: [
+        { ...start, config: { type: 'start', url: 'https://example.com' } },
+        { ...request, config: { type: 'api-request', url: 'https://api.example.com/image', method: 'GET', body: '', responseType: 'json', jsonPath: '', outputName: 'imageInfo', fields: [{ name: 'pictureUrl', path: 'data.image.url' }], timeoutMs: 1000 } },
+        { ...action, config: { type: 'page-action', steps: [{ type: 'upload', selector: 'input[type=file]', file: { kind: 'node-output', nodeId: request.id, port: 'pictureUrl' } }] } },
+        end,
+      ],
+      edges: [createEdge(start.id, 'default', request.id), createEdge(request.id, 'default', action.id), createEdge(action.id, 'default', end.id)],
+    }
+    const driver = fakeDriver(calls)
+    driver.requestApi = async () => ({ data: { data: { image: { url: imageUrl } } }, url: 'https://api.example.com/image', status: 200 })
+    driver.uploadFileFromUrl = async (selector, url) => {
+      calls.push(`upload:${selector}=${url}`)
+      return { fileName: 'product.png', mimeType: 'image/png', size: 1234 }
+    }
+    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} })
+    expect(state.status).toBe('succeeded')
+    expect(calls).toContain('upload:input[type=file]=https://images.example.com/product.png?signature=secret')
+    expect(state.logs.some(log => log.message.includes('signature=secret'))).toBe(false)
+  })
+
   it('exposes declared loop fields directly by their names', async () => {
     const calls: string[] = []
     const start = createNode('start', { x: 0, y: 0 })

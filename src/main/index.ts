@@ -357,13 +357,14 @@ app.whenReady().then(() => {
     const release = browserGate.begin('拾取元素')
     try {
     pickerProgress = undefined
-    const payload = typeof url === 'object' && url !== null ? url as { url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown } : { url }
+    const payload = typeof url === 'object' && url !== null ? url as { url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown; rowOffset?: unknown } : { url }
     const targetUrl = typeof payload.url === 'string' ? payload.url : undefined
     const mode = payload.mode === 'list' || payload.mode === 'list-container' || payload.mode === 'list-row' || payload.mode === 'row-element' ? payload.mode : 'element'
     const pickOptions = {
       scopeSelector: typeof payload.scopeSelector === 'string' ? payload.scopeSelector : undefined,
       rowSelectorMode: payload.rowSelectorMode === 'class-contains' ? 'class-contains' as const : 'css' as const,
       rowSelector: typeof payload.rowSelector === 'string' ? payload.rowSelector : undefined,
+      rowOffset: payload.rowOffset === -1 || payload.rowOffset === 1 ? payload.rowOffset : 0,
     }
     await discardClosedSession()
     if (session === undefined) session = await openPlaywrightSession({ packaged: app.isPackaged })
@@ -386,7 +387,7 @@ app.whenReady().then(() => {
   ipcMain.handle('browser:prepare-and-pick', async (event, raw: unknown) => {
     const release = browserGate.begin('准备并拾取元素')
     try {
-    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown; inputs?: unknown; pickerContext?: unknown; runId?: unknown } : {}
+    const payload = typeof raw === 'object' && raw !== null ? raw as { preparedGraph?: unknown; subflows?: unknown; url?: unknown; mode?: unknown; scopeSelector?: unknown; rowSelectorMode?: unknown; rowSelector?: unknown; rowOffset?: unknown; inputs?: unknown; pickerContext?: unknown; runId?: unknown } : {}
     const serviceLlms = payload.preparedGraph === undefined ? undefined : await loadMainServiceLlms(event)
     const preparedGraph = payload.preparedGraph === undefined || serviceLlms === undefined
       ? undefined : withServiceLlms(admit(payload.preparedGraph), serviceLlms.configs, serviceLlms.token)
@@ -398,6 +399,7 @@ app.whenReady().then(() => {
       scopeSelector: typeof payload.scopeSelector === 'string' ? payload.scopeSelector : undefined,
       rowSelectorMode: payload.rowSelectorMode === 'class-contains' ? 'class-contains' as const : 'css' as const,
       rowSelector: typeof payload.rowSelector === 'string' ? payload.rowSelector : undefined,
+      rowOffset: payload.rowOffset === -1 || payload.rowOffset === 1 ? payload.rowOffset : 0,
     }
     const inputs = typeof payload.inputs === 'object' && payload.inputs !== null && !Array.isArray(payload.inputs)
       ? payload.inputs as Readonly<Record<string, JsonValue>>

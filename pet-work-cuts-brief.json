@@ -1,0 +1,51 @@
+{
+  "$schema": "dyeh.h5.creation-brief/v1",
+  "schemaVersion": 1,
+  "briefId": "pet-work-cuts",
+  "revision": 2,
+  "authoringMode": "new",
+  "authoringPreference": "hyperframes",
+  "runtimeTarget": "hyperframes-runtime",
+  "conversionPolicy": "require",
+  "determinismPolicy": {
+    "wallClock": "forbid",
+    "uncontrolledRandom": "forbid",
+    "uncontrolledRafTimer": "forbid",
+    "networkSideEffects": "forbid",
+    "seekSafeRequired": true
+  },
+  "composition": {
+    "durationMs": 12000,
+    "timeline": "simple"
+  },
+  "slots": [
+    {
+      "slotId": "original",
+      "assetPath": "assets/original.png",
+      "required": true
+    },
+    {
+      "slotId": "packing",
+      "assetPath": "assets/packing.jpg",
+      "required": true
+    },
+    {
+      "slotId": "cashier",
+      "assetPath": "assets/cashier.jpg",
+      "required": true
+    },
+    {
+      "slotId": "cart",
+      "assetPath": "assets/cart.jpg",
+      "required": true
+    }
+  ],
+  "project": {
+    "existingProjectRef": null
+  },
+  "delivery": {
+    "convertRequested": true,
+    "importRequested": true
+  },
+  "fieldEvidence": {}
+}

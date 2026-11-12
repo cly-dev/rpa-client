@@ -222,7 +222,11 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
     if (node.config.type === 'list-row-action') {
       const config = node.config
       const matchFieldsValid = config.matchFields.length > 0 && config.matchFields.every(field => field.rowSelector.trim() !== '' && field.dataPath.trim() !== '' && (field.readMode !== 'attribute' || (field.attribute ?? '').trim() !== ''))
-      const actionsValid = config.matchedActions.every(action => action.selector.trim() !== '' && (action.type === 'click' || action.value.trim() !== '' || (action.dataPath ?? '').trim() !== ''))
+      const actionsValid = config.matchedActions.every(action => {
+        if (action.type === 'click') return action.selector.trim() !== ''
+        if (action.type === 'upload') return (action.selector.trim() !== '' || (action.triggerSelector ?? '').trim() !== '') && (action.dataPath ?? '').trim() !== ''
+        return action.selector.trim() !== '' && (action.value.trim() !== '' || (action.dataPath ?? '').trim() !== '')
+      })
       const deleteEnabled = config.unmatchedMode === 'delete' || config.emptySourceAction === 'delete-all'
       const deleteValid = !deleteEnabled || (config.deleteSelector.trim() !== '' && Number.isFinite(config.maxDeleteCount) && config.maxDeleteCount > 0)
       if (config.rowSelector.trim() === '' || !matchFieldsValid || !actionsValid || !deleteValid || config.outputName.trim() === '') issues.push(issue('list-row-action-invalid', { nodeId: node.id }))

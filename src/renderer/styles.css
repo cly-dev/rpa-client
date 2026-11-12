@@ -1064,6 +1064,14 @@ textarea { resize: vertical; }
 .api-form-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #334155; font-size: 12px; }
 .api-form-heading span { color: #94a3b8; font-size: 10px; font-weight: 400; }
 .api-form-heading button { border: 0; border-radius: 6px; padding: 5px 8px; background: #eef2ff; color: #4338ca; font-size: 11px; }
+.list-action-advanced { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; padding: 10px 12px; border: 1px solid #dbeafe; border-radius: 9px; background: #f8fbff; }
+.list-action-advanced-toggle { width: fit-content; margin: 1px 0; padding: 7px 9px; border-radius: 7px; background: #f1f5f9; color: #475569; }
+.list-action-advanced { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.list-action-advanced > label { margin: 0; }
+.list-action-advanced select, .list-action-advanced textarea { width: 100%; }
+.list-action-advanced:has(textarea) > label:last-child { padding: 9px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.list-action-advanced:has(textarea) > label textarea { min-height: 64px; resize: vertical; }
+@media (max-width: 560px) { .list-action-advanced { grid-template-columns: 1fr; } .list-action-advanced > label, .list-action-advanced > label:first-of-type { grid-column: 1; } }
 .api-pair-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr) auto; gap: 5px; }
 .api-pair-row input { min-width: 0; padding: 6px 7px; font-size: 11px; }
 .api-pair-row button { border: 0; border-radius: 6px; padding: 5px 7px; background: #fef2f2; color: #b91c1c; font-size: 11px; }

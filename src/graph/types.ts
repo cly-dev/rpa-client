@@ -99,8 +99,9 @@ export interface OpenPageConfig {
 
 export type PageActionStep =
   | { readonly type: 'open'; readonly url: string; readonly waitAfterMs?: number }
-  | { readonly type: 'click'; readonly selector: string | ElementLocator; readonly beforeHover?: string | ElementLocator; readonly waitForVisible?: string | ElementLocator; readonly optionValue?: string; readonly waitAfterMs?: number }
+  | { readonly type: 'click'; readonly selector: string | ElementLocator; readonly beforeHover?: string | ElementLocator; readonly waitForVisible?: string | ElementLocator; readonly waitUntilEnabled?: boolean; readonly optionValue?: string; readonly waitAfterMs?: number }
   | { readonly type: 'type'; readonly selector: string | ElementLocator; readonly value: ValueBinding; readonly inputMode?: 'replace' | 'append'; readonly ai?: GenerateTextConfig; readonly waitAfterMs?: number }
+  | { readonly type: 'upload'; readonly selector: string | ElementLocator; readonly triggerSelector?: string | ElementLocator; readonly file: ValueBinding; readonly waitAfterMs?: number }
   | { readonly type: 'hover'; readonly selector: string | ElementLocator; readonly waitAfterMs?: number }
   | { readonly type: 'wait'; readonly ms: number; readonly selector?: string | ElementLocator; readonly waitAfterMs?: number }
   | { readonly type: 'extract'; readonly selector: string | ElementLocator; readonly outputName: string; readonly outputMode?: OutputVariableMode; readonly updateVariable?: string; readonly mode: 'text' | 'value' | 'html'; readonly ai?: ExtractAiConfig; readonly waitAfterMs?: number }
@@ -118,9 +119,10 @@ export interface ListRowMatchField {
   readonly ignoreCase?: boolean
 }
 export type ListRowMatchedAction =
-  | { readonly type: 'type'; readonly selector: string; readonly value: string; readonly dataPath?: string; readonly inputMode?: 'replace' | 'append' }
-  | { readonly type: 'click'; readonly selector: string }
-  | { readonly type: 'select'; readonly selector: string; readonly value: string; readonly dataPath?: string }
+  | { readonly type: 'type'; readonly selector: string; readonly value: string; readonly dataPath?: string; readonly inputMode?: 'replace' | 'append'; readonly advancedEnabled?: boolean; readonly applyTo?: 'all' | 'first' | 'remaining'; readonly firstValue?: string; readonly remainingValue?: string }
+  | { readonly type: 'click'; readonly selector: string; readonly advancedEnabled?: boolean; readonly applyTo?: 'all' | 'first' | 'remaining' }
+  | { readonly type: 'select'; readonly selector: string; readonly value: string; readonly dataPath?: string; readonly advancedEnabled?: boolean; readonly applyTo?: 'all' | 'first' | 'remaining'; readonly firstValue?: string; readonly remainingValue?: string }
+  | { readonly type: 'upload'; readonly selector: string; readonly triggerSelector?: string; readonly dataPath?: string; readonly advancedEnabled?: boolean; readonly applyTo?: 'all' | 'first' | 'remaining' }
 export interface ListRowActionConfig {
   readonly type: 'list-row-action'
   readonly source: ValueBinding
@@ -128,6 +130,7 @@ export interface ListRowActionConfig {
   readonly containerSelector?: string
   readonly rowSelectorMode?: 'css' | 'class-contains'
   readonly rowSelector: string
+  readonly actionRowOffset?: -1 | 0 | 1
   readonly matchFields: readonly ListRowMatchField[]
   readonly matchedActions: readonly ListRowMatchedAction[]
   readonly unmatchedMode: 'keep' | 'delete'
@@ -136,7 +139,7 @@ export interface ListRowActionConfig {
   readonly waitAfterDeleteMs: number
   readonly maxDeleteCount: number
   readonly missingMatchAction: 'skip' | 'stop'
-  readonly duplicateMatchAction: 'first' | 'all'
+  readonly duplicateMatchAction: 'first' | 'all' | 'split-first-rest'
   readonly emptySourceAction: 'keep' | 'delete-all' | 'stop'
   readonly outputName: string
 }
@@ -160,6 +163,7 @@ export interface ClickConfig {
   readonly selector: string | ElementLocator
   readonly beforeHover?: string | ElementLocator
   readonly waitForVisible?: string | ElementLocator
+  readonly waitUntilEnabled?: boolean
 }
 
 export interface TypeConfig {

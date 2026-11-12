@@ -64,4 +64,17 @@ describe('lazy browser driver', () => {
     expect(operateListRows).toHaveBeenCalledOnce()
     expect(result.matchedCount).toBe(1)
   })
+
+  it('launches Chromium and forwards file upload operations', async () => {
+    const uploadFileFromUrl = vi.fn(async () => ({ fileName: 'image.png', mimeType: 'image/png', size: 128 }))
+    const page: BrowserDriver = { ...fakeDriver([]), uploadFileFromUrl }
+    const openSession = vi.fn(async () => ({ driver: page }))
+    const { driver } = createLazyBrowserDriver(fakeDriver([]), openSession)
+
+    const result = await driver.uploadFileFromUrl?.('#image-file', 'https://example.com/image.png')
+
+    expect(openSession).toHaveBeenCalledOnce()
+    expect(uploadFileFromUrl).toHaveBeenCalledWith('#image-file', 'https://example.com/image.png')
+    expect(result).toEqual({ fileName: 'image.png', mimeType: 'image/png', size: 128 })
+  })
 })

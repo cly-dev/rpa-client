@@ -23,6 +23,7 @@ export interface ElementPickOptions {
   readonly scopeSelector?: string
   readonly rowSelectorMode?: 'css' | 'class-contains'
   readonly rowSelector?: string
+  readonly rowOffset?: -1 | 0 | 1
 }
 
 export interface PickedElement {
@@ -898,6 +899,7 @@ export function createHttpOnlyDriver(): BrowserDriver {
     async openPage(url: string): Promise<void> { baseUrl = url },
     async click(): Promise<void> { noPage() },
     async type(): Promise<void> { noPage() },
+    async uploadFileFromUrl(): Promise<{ fileName: string; mimeType: string; size: number }> { return noPage() },
     async extract(): Promise<string> { return noPage() },
     async waitFor(): Promise<void> { noPage() },
     currentUrl(): string { return baseUrl },
@@ -1073,6 +1075,44 @@ function createDriver(page: Page): BrowserDriver {
       }
       return result
     }
+    const uploadListRowFile = async (input: Locator, url: string, trigger?: Locator): Promise<void> => {
+      let source: URL
+      try { source = new URL(url, page.url()) } catch { throw new Error('行内图片链接不是有效网址，也无法相对当前页面解析') }
+      if (source.protocol !== 'http:' && source.protocol !== 'https:') throw new Error('行内图片链接只支持 HTTP 或 HTTPS')
+      const response = await page.context().request.get(source.toString(), { timeout: request.timeoutMs })
+      if (!response.ok()) throw new Error(`行内图片下载失败：HTTP ${response.status()}`)
+      const maxBytes = 25 * 1024 * 1024
+      const length = Number(response.headers()['content-length'] ?? 0)
+      if (length > maxBytes) throw new Error('行内图片超过 25 MB，已停止下载')
+      const buffer = await response.body()
+      if (buffer.byteLength === 0) throw new Error('行内图片下载内容为空')
+      if (buffer.byteLength > maxBytes) throw new Error('行内图片超过 25 MB，已停止上传')
+      const headers = response.headers()
+      let mimeType = (headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim() || 'application/octet-stream'
+      if (mimeType === 'application/octet-stream') {
+        if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) mimeType = 'image/jpeg'
+        else if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) mimeType = 'image/png'
+        else if (buffer.subarray(0, 4).toString() === 'GIF8') mimeType = 'image/gif'
+        else if (buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP') mimeType = 'image/webp'
+      }
+      let fileName = source.pathname.split('/').at(-1) || 'image'
+      try { fileName = decodeURIComponent(fileName) } catch { /* retain encoded file name */ }
+      fileName = fileName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+      const payload = { name: fileName, mimeType, buffer }
+      if (trigger !== undefined) {
+        const chooserPromise = page.waitForEvent('filechooser', { timeout: request.timeoutMs })
+        try {
+          await trigger.click({ timeout: request.timeoutMs })
+          await (await chooserPromise).setFiles(payload)
+        } catch (error) {
+          void chooserPromise.catch(() => undefined)
+          throw error
+        }
+      } else {
+        if (await input.count() === 0) throw new Error('当前行未找到文件控件')
+        await input.first().setInputFiles(payload, { timeout: request.timeoutMs })
+      }
+    }
 
     trace(`开始列表行操作：容器=${request.containerSelector.trim() || '整个页面'}；实际行选择器=${rowSelector}`)
     request.matchFields.forEach((field, index) => { trace(`页面匹配字段 ${index + 1}：选择器=${field.selector || '当前行'}；匹配方式=${field.matchMode === 'contains' ? '页面字段包含目标值' : '完全匹配'}；读取方式=${field.readMode}${field.readMode === 'attribute' ? `(${field.attribute ?? ''})` : ''}；去空格=${field.trim}；忽略大小写=${field.ignoreCase}`) })
@@ -1102,25 +1142,43 @@ function createDriver(page: Page): BrowserDriver {
       }
       if (matches.length > 1) {
         duplicateItems.push(item.index)
-        trace(`目标数据第 ${item.index + 1} 条存在重复页面行；处理策略=${request.duplicateMatchAction === 'first' ? 'first' : 'all'}`)
+        trace(`目标数据第 ${item.index + 1} 条存在重复页面行；处理策略=${request.duplicateMatchAction === 'first' ? '只操作首行' : '操作全部'}`)
         if (request.duplicateMatchAction === 'first') matches = matches.slice(0, 1)
       }
       matchedCount += matches.length
       for (let occurrence = 0; occurrence < matches.length; occurrence += 1) {
+        let rowUpdated = false
         for (const [actionIndex, action] of request.actions.entries()) {
+          if (action.applyTo === 'first' && occurrence !== 0 && action.remainingValue === undefined || action.applyTo === 'remaining' && occurrence === 0) continue
           const currentMatches = (await scan()).filter(row => valuesMatch(row.values, item.matchValues))
           const current = currentMatches[Math.min(occurrence, currentMatches.length - 1)]
           if (current === undefined) throw new Error(`操作过程中页面行已消失（目标数据第 ${item.index + 1} 条）`)
           const row = rows().nth(current.index)
-          const target = action.selector.trim() === '' ? row : row.locator(action.selector).first()
-          const actionValue = item.actionValues[actionIndex] ?? ''
-          trace(`目标数据第 ${item.index + 1} 条 → 页面第 ${current.index + 1} 行：执行操作 ${actionIndex + 1}/${request.actions.length} ${action.type}（${action.selector || '当前行'}）${action.type === 'type' ? `，输入长度 ${actionValue.length}，方式=${action.inputMode}` : action.type === 'select' ? `，选项=${preview(actionValue, 60)}` : ''}`)
+          const offset = request.actionRowOffset ?? 0
+          let actionRow = row
+          if (offset !== 0) {
+            const tag = await row.evaluate(element => element.tagName.toLowerCase())
+            const direction = offset > 0 ? 'following' : 'preceding'
+            actionRow = row.locator(`xpath=${direction}-sibling::${tag}[${Math.abs(offset)}]`)
+            if (await actionRow.count() === 0) throw new Error(`目标数据第 ${item.index + 1} 条没有找到${offset > 0 ? '下一' : '上一'}条关联行`)
+          }
+          const target = action.selector.trim() === '' ? actionRow : actionRow.locator(action.selector).first()
+          const actionValue = action.applyTo === 'first' && occurrence > 0 && action.remainingValue !== undefined
+            ? item.remainingActionValues?.[actionIndex] ?? ''
+            : item.actionValues[actionIndex] ?? ''
+          trace(`目标数据第 ${item.index + 1} 条 → 页面第 ${current.index + 1} 行：执行操作 ${actionIndex + 1}/${request.actions.length} ${action.type}（${action.selector || '当前行'}）${action.type === 'type' ? `，输入长度 ${actionValue.length}，方式=${action.inputMode}` : action.type === 'select' ? `，选项=${preview(actionValue, 60)}` : action.type === 'upload' ? '，上传行数据对应的图片' : ''}`)
           if (action.type === 'type') await typeIntoLocator(target, actionValue, request.timeoutMs, action.inputMode)
           else if (action.type === 'select') await target.selectOption(actionValue, { timeout: request.timeoutMs })
+          else if (action.type === 'upload') {
+            if (!actionValue.trim()) throw new Error('当前行图片链接为空；请检查“图片链接字段”配置')
+            const trigger = action.triggerSelector?.trim() ? actionRow.locator(action.triggerSelector).first() : undefined
+            await uploadListRowFile(target, actionValue, trigger)
+          }
           else await clickResolvedLocator(target, request.timeoutMs)
           trace(`目标数据第 ${item.index + 1} 条：操作 ${actionIndex + 1} 完成`)
+          rowUpdated = true
         }
-        if (request.actions.length > 0) updatedCount += 1
+        if (rowUpdated) updatedCount += 1
       }
     }
 
@@ -1206,6 +1264,15 @@ function createDriver(page: Page): BrowserDriver {
         page.waitForTimeout(180),
       ])
     },
+    async waitUntilEnabled(selector: string, timeoutMs = 30_000): Promise<void> {
+      const locator = await resolveTargetLocator(page, selector, timeoutMs)
+      await locator.waitFor({ state: 'visible', timeout: timeoutMs })
+      const deadline = Date.now() + timeoutMs
+      while (!(await locator.isEnabled())) {
+        if (Date.now() >= deadline) throw new Error(`等待元素变为可点击状态超时（${timeoutMs}ms）：${displaySelector(selector)}`)
+        await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())))
+      }
+    },
     async selectOption(selector: string, value: string, timeoutMs = 30_000): Promise<void> {
       await (await resolveTargetLocator(page, selector, timeoutMs)).selectOption(value, { timeout: timeoutMs })
     },
@@ -1215,6 +1282,53 @@ function createDriver(page: Page): BrowserDriver {
     async type(selector: string, text: string, timeoutMs = 30_000, inputMode: 'replace' | 'append' = 'replace'): Promise<void> {
       const target = await resolveTargetLocator(page, selector, timeoutMs)
       await typeIntoLocator(target, text, timeoutMs, inputMode)
+    },
+    async uploadFileFromUrl(selector: string, url: string, timeoutMs = 30_000, triggerSelector?: string): Promise<{ fileName: string; mimeType: string; size: number }> {
+      let source: URL
+      try { source = new URL(url, page.url()) } catch { throw new Error('文件链接不是有效网址，也无法相对当前页面解析') }
+      if (source.protocol !== 'http:' && source.protocol !== 'https:') throw new Error('文件链接只支持 HTTP 或 HTTPS')
+      const response = await page.context().request.get(source.toString(), { timeout: timeoutMs })
+      if (!response.ok()) throw new Error(`下载文件失败：HTTP ${response.status()}`)
+      const length = Number(response.headers()['content-length'] ?? 0)
+      const maxBytes = 25 * 1024 * 1024
+      if (length > maxBytes) throw new Error('文件超过 25 MB，已停止下载')
+      const buffer = await response.body()
+      if (buffer.byteLength === 0) throw new Error('下载到的文件为空')
+      if (buffer.byteLength > maxBytes) throw new Error('文件超过 25 MB，已停止上传')
+      const headers = response.headers()
+      let mimeType = (headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim() || 'application/octet-stream'
+      if (mimeType === 'application/octet-stream') {
+        if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) mimeType = 'image/jpeg'
+        else if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) mimeType = 'image/png'
+        else if (buffer.subarray(0, 4).toString() === 'GIF8') mimeType = 'image/gif'
+        else if (buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP') mimeType = 'image/webp'
+      }
+      const disposition = headers['content-disposition'] ?? ''
+      const encodedName = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+      const quotedName = /filename\s*=\s*"([^"]+)"/i.exec(disposition)?.[1]
+      const plainName = /filename\s*=\s*([^;]+)/i.exec(disposition)?.[1]?.trim()
+      let urlName = source.pathname.split('/').at(-1) ?? ''
+      try { urlName = decodeURIComponent(urlName) } catch { /* use the encoded path segment as a safe fallback */ }
+      let fileName = (encodedName ? decodeURIComponent(encodedName) : quotedName ?? plainName ?? urlName).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim()
+      const extension = mimeType === 'image/jpeg' ? '.jpg' : mimeType === 'image/png' ? '.png' : mimeType === 'image/webp' ? '.webp' : mimeType === 'image/gif' ? '.gif' : mimeType === 'image/bmp' ? '.bmp' : mimeType === 'image/svg+xml' ? '.svg' : ''
+      if (!fileName || fileName === '.' || fileName === '..') fileName = `image${extension}`
+      else if (!/\.[A-Za-z0-9]{1,8}$/.test(fileName) && extension) fileName += extension
+      const payload = { name: fileName, mimeType, buffer }
+      if (triggerSelector?.trim()) {
+        const chooserPromise = page.waitForEvent('filechooser', { timeout: timeoutMs })
+        try {
+          await (await resolveTargetLocator(page, triggerSelector, timeoutMs)).click({ timeout: timeoutMs })
+          const chooser = await chooserPromise
+          await chooser.setFiles(payload)
+        } catch (error) {
+          void chooserPromise.catch(() => undefined)
+          throw error
+        }
+      } else {
+        if (!selector.trim()) throw new Error('请填写隐藏文件控件选择器，或选择页面上的上传按钮')
+        await page.locator(selector).first().setInputFiles(payload, { timeout: timeoutMs })
+      }
+      return { fileName, mimeType, size: buffer.byteLength }
     },
     async extract(selector: string): Promise<string> {
       return (await (await resolveTargetLocator(page, selector, 30_000)).innerText()).trim()
@@ -1376,7 +1490,14 @@ async function pickElement(page: Page, url?: string, mode: ElementPickMode = 'el
           : options.rowSelector
         const rows = scope.locator(configuredRowSelector)
         if (await rows.count() === 0) throw new Error(`当前页面没有找到列表行：${options.rowSelector}`)
-        await rows.evaluateAll((elements, attribute) => { elements.forEach(element => { element.setAttribute(attribute, 'true') }) }, rowAttribute)
+        await rows.evaluateAll((elements, args) => {
+          const primaryRows = Array.from(elements)
+          primaryRows.forEach((element, index) => {
+            const siblings = Array.from(element.parentElement?.children ?? []).filter(item => item.tagName === element.tagName)
+            const related = args.rowOffset === 0 ? element : siblings[siblings.indexOf(element) + args.rowOffset]
+            related?.setAttribute(args.attribute, 'true')
+          })
+        }, { attribute: rowAttribute, rowOffset: options.rowOffset ?? 0 })
       }
     }
   let validationMessage = ''
@@ -1753,6 +1874,18 @@ async function pickElement(page: Page, url?: string, mode: ElementPickMode = 'el
       return parts.join(' > ') || tag
     }
     const rowRule = (element: Element, root: Element): { mode: 'css' | 'class-contains'; value: string; selector: string } => {
+      // Arco and similar table libraries often reuse the same `tr` class in
+      // the header and body. A bare `tr.some-class` is therefore reusable but
+      // also matches the header; preserve the tbody boundary when the picked
+      // row is a native table row.
+      if (element.tagName.toLowerCase() === 'tr' && element.parentElement?.tagName.toLowerCase() === 'tbody') {
+        const rowClasses = Array.from(element.classList).filter(stableClass).slice(0, 2)
+        const bodyClasses = Array.from(element.parentElement.classList).filter(stableClass).slice(0, 1)
+        const rowPart = `tr${rowClasses.map(name => `.${CSS.escape(name)}`).join('')}`
+        const bodyPart = `tbody${bodyClasses.map(name => `.${CSS.escape(name)}`).join('')}`
+        const selector = `${bodyPart} > ${rowPart}`
+        if (Array.from(root.querySelectorAll(selector)).includes(element)) return { mode: 'css', value: selector, selector }
+      }
       const classFragment = cssModuleClassFragment(element)
       if (classFragment !== undefined) {
         const selector = `[class*="${cssString(`${classFragment}--`)}"]`

@@ -1,0 +1,41 @@
+{
+  "$schema": "dyeh.h5.creation-brief/v1",
+  "schemaVersion": 1,
+  "briefId": "pet-work-double11",
+  "revision": 1,
+  "authoringMode": "new",
+  "authoringPreference": "hyperframes",
+  "runtimeTarget": "hyperframes-runtime",
+  "conversionPolicy": "require",
+  "determinismPolicy": {
+    "wallClock": "forbid",
+    "uncontrolledRandom": "forbid",
+    "uncontrolledRafTimer": "forbid",
+    "networkSideEffects": "forbid",
+    "seekSafeRequired": true
+  },
+  "composition": {
+    "durationMs": 8000,
+    "timeline": "simple"
+  },
+  "slots": [
+    {
+      "slotId": "original",
+      "assetPath": "assets/original.png",
+      "required": true
+    },
+    {
+      "slotId": "shopkeeper",
+      "assetPath": "assets/shopkeeper.jpg",
+      "required": true
+    }
+  ],
+  "project": {
+    "existingProjectRef": null
+  },
+  "delivery": {
+    "convertRequested": true,
+    "importRequested": true
+  },
+  "fieldEvidence": {}
+}

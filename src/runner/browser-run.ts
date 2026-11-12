@@ -59,9 +59,10 @@ export interface ListRowOperationRequest {
   readonly containerSelector: string
   readonly rowSelectorMode: 'css' | 'class-contains'
   readonly rowSelector: string
+  readonly actionRowOffset?: -1 | 0 | 1
   readonly matchFields: readonly { readonly selector: string; readonly matchMode: 'exact' | 'contains'; readonly readMode: 'text' | 'value' | 'attribute'; readonly attribute?: string; readonly trim: boolean; readonly ignoreCase: boolean }[]
-  readonly items: readonly { readonly index: number; readonly matchValues: readonly string[]; readonly actionValues: readonly string[] }[]
-  readonly actions: readonly ({ readonly type: 'type'; readonly selector: string; readonly inputMode: 'replace' | 'append' } | { readonly type: 'click'; readonly selector: string } | { readonly type: 'select'; readonly selector: string })[]
+  readonly items: readonly { readonly index: number; readonly matchValues: readonly string[]; readonly actionValues: readonly string[]; readonly firstActionValues?: readonly string[]; readonly remainingActionValues?: readonly string[] }[]
+  readonly actions: readonly ({ readonly type: 'type'; readonly selector: string; readonly inputMode: 'replace' | 'append'; readonly applyTo?: 'all' | 'first' | 'remaining'; readonly remainingValue?: string } | { readonly type: 'click'; readonly selector: string; readonly applyTo?: 'all' | 'first' | 'remaining' } | { readonly type: 'select'; readonly selector: string; readonly applyTo?: 'all' | 'first' | 'remaining'; readonly remainingValue?: string } | { readonly type: 'upload'; readonly selector: string; readonly triggerSelector?: string; readonly applyTo?: 'all' | 'first' | 'remaining' })[]
   readonly unmatchedMode: 'keep' | 'delete'
   readonly deleteSelector: string
   readonly confirmSelector: string
@@ -90,8 +91,10 @@ export interface BrowserDriver {
   openPage(url: string, timeoutMs?: number): Promise<void>
   hover?(selector: string, timeoutMs?: number): Promise<void>
   click(selector: string, timeoutMs?: number): Promise<void>
+  waitUntilEnabled?(selector: string, timeoutMs?: number): Promise<void>
   selectOption?(selector: string, value: string, timeoutMs?: number): Promise<void>
   type(selector: string, text: string, timeoutMs?: number, inputMode?: 'replace' | 'append'): Promise<void>
+  uploadFileFromUrl?(selector: string, url: string, timeoutMs?: number, triggerSelector?: string): Promise<{ fileName: string; mimeType: string; size: number }>
   extract(selector: string): Promise<string>
   extractList?(rowSelector: string, fields: readonly { name: string; selector: string; attribute?: string }[]): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
   extractListAuto?(containerSelector: string): Promise<readonly Record<string, import('@graph/types.ts').JsonValue>[]>
@@ -124,13 +127,14 @@ export interface BrowserRunOptions {
   readonly resumeApproval?: { readonly nodeId: string; readonly decision: 'approved' | 'rejected' | 'timeout'; readonly comment: string; readonly approverId?: string; readonly approverName: string; readonly decidedAt: string }
 }
 
-const SENSITIVE_LOG_KEY = /password|passwd|pwd|secret|token|authorization|cookie|api[-_]?key|access[-_]?key|session|密码|令牌|密钥|口令|凭证/i
+const SENSITIVE_LOG_KEY = /password|passwd|pwd|secret|token|authorization|cookie|api[-_]?key|access[-_]?key|session|sign(?:ature)?|auth[_-]?key|x-amz-(?:credential|signature)|密码|令牌|密钥|口令|凭证/i
 
 function redactLogValue(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(redactLogValue)
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, SENSITIVE_LOG_KEY.test(key) ? '******' : redactLogValue(item)]))
   }
+  if (typeof value === 'string' && /^https?:\/\//i.test(value)) return redactLogUrl(value)
   return value
 }
 
@@ -139,7 +143,7 @@ function formatLogValue(value: JsonValue | string, limit = 3_600): string {
   if (typeof value === 'string') {
     try { formatted = JSON.stringify(redactLogValue(JSON.parse(value) as JsonValue), null, 2) }
     catch {
-      formatted = value
+      formatted = /^https?:\/\//i.test(value) ? redactLogUrl(value) : value
         .replace(/("(?:password|passwd|pwd|secret|token|authorization|cookie|api[-_]?key|access[-_]?key|session|密码|令牌|密钥|口令|凭证)"\s*:\s*)"[^"]*"/gi, '$1"******"')
         .replace(/((?:password|passwd|pwd|secret|token|api[-_]?key|密码|令牌|密钥|口令|凭证)\s*[:=]\s*)[^\s&,}]+/gi, '$1******')
     }
@@ -179,7 +183,7 @@ function resolveRowTemplate(template: string, item: JsonValue, index: number, co
 }
 
 function resolveMatchedActionValue(action: ListRowMatchedAction, item: JsonValue, index: number, context: WorkflowContext): string {
-  if (action.type === 'click') return ''
+  if (action.type === 'click' || action.type === 'upload' && !action.dataPath?.trim()) return ''
   const dataPath = action.dataPath?.trim() ?? ''
   if (dataPath !== '') return rowTemplateText(walkJsonPath(item, dataPath))
   return resolveRowTemplate(action.value, item, index, context)
@@ -748,6 +752,8 @@ async function liveStep(
         index,
         matchValues: config.matchFields.map(field => rowTemplateText(walkJsonPath(item, field.dataPath))),
         actionValues: config.matchedActions.map(action => resolveMatchedActionValue(action, item, index, context)),
+        firstActionValues: config.matchedActions.map(action => action.type === 'type' || action.type === 'select' ? resolveRowTemplate(action.firstValue ?? '', item, index, context) : ''),
+        remainingActionValues: config.matchedActions.map(action => action.type === 'type' || action.type === 'select' ? resolveRowTemplate(action.remainingValue ?? '', item, index, context) : ''),
       }))
       const classContainsSelector = (value: string): string => {
         const normalized = value.trim()
@@ -758,6 +764,7 @@ async function liveStep(
       }
       trace(`准备同步列表：目标数据 ${items.length} 条；匹配字段 ${config.matchFields.length} 个；匹配后操作 ${config.matchedActions.length} 个`)
       trace(`列表作用域：容器=${config.containerSelector?.trim() || '整个页面'}；行规则=${config.rowSelectorMode === 'class-contains' ? `class 包含「${config.rowSelector}」` : config.rowSelector}`)
+      trace(`关联操作行：${config.actionRowOffset === 1 ? '主行的下一条同级行' : config.actionRowOffset === -1 ? '主行的上一条同级行' : '主行'}`)
       config.matchFields.forEach((field, index) => { trace(`匹配字段 ${index + 1}：页面=${field.selectorMode === 'class-contains' ? `class 包含「${field.rowSelector}」` : field.rowSelector}；数据路径=${field.dataPath}；匹配=${field.matchMode === 'contains' ? '包含' : '完全匹配'}；读取=${field.readMode}`) })
       config.matchedActions.forEach((action, index) => { trace(`匹配后操作 ${index + 1}：${action.type}；行内目标=${action.selector}${action.type !== 'click' && action.dataPath?.trim() ? `；数据字段=${action.dataPath.trim()}` : ''}`) })
       trace(`异常策略：缺失=${config.missingMatchAction}；重复=${config.duplicateMatchAction}；空数据=${config.emptySourceAction}；未匹配页面行=${config.unmatchedMode}`)
@@ -765,12 +772,13 @@ async function liveStep(
         containerSelector: String(resolveExpression(config.containerSelector ?? '', context)),
         rowSelectorMode: config.rowSelectorMode === 'class-contains' ? 'class-contains' : 'css',
         rowSelector: requireText(String(resolveExpression(config.rowSelector, context)), '行选择器'),
+        actionRowOffset: config.actionRowOffset === -1 || config.actionRowOffset === 1 ? config.actionRowOffset : 0,
         matchFields: config.matchFields.map(field => {
           const selectorValue = String(resolveExpression(field.rowSelector, context))
           return { selector: field.selectorMode === 'class-contains' ? classContainsSelector(selectorValue) : selectorValue, matchMode: field.matchMode === 'contains' ? 'contains' : 'exact', readMode: field.readMode, attribute: field.attribute, trim: field.trim !== false, ignoreCase: field.ignoreCase === true }
         }),
         items,
-        actions: config.matchedActions.map(action => action.type === 'type' ? { type: 'type', selector: String(resolveExpression(action.selector, context)), inputMode: action.inputMode ?? 'replace' } : action.type === 'select' ? { type: 'select', selector: String(resolveExpression(action.selector, context)) } : { type: 'click', selector: String(resolveExpression(action.selector, context)) }),
+        actions: config.matchedActions.map(action => action.type === 'type' ? { type: 'type', selector: String(resolveExpression(action.selector, context)), inputMode: action.inputMode ?? 'replace', applyTo: action.applyTo ?? 'all', remainingValue: action.remainingValue } : action.type === 'select' ? { type: 'select', selector: String(resolveExpression(action.selector, context)), applyTo: action.applyTo ?? 'all', remainingValue: action.remainingValue } : action.type === 'upload' ? { type: 'upload', selector: String(resolveExpression(action.selector, context)), triggerSelector: String(resolveExpression(action.triggerSelector ?? '', context)), applyTo: action.applyTo ?? 'all' } : { type: 'click', selector: String(resolveExpression(action.selector, context)), applyTo: action.applyTo ?? 'all' }),
         unmatchedMode: config.unmatchedMode,
         deleteSelector: String(resolveExpression(config.deleteSelector, context)),
         confirmSelector: String(resolveExpression(config.confirmSelector ?? '', context)),
@@ -817,7 +825,13 @@ async function liveStep(
             if (step.waitForVisible) await driver.waitFor(node.execution.timeoutMs, String(resolveExpression(selectorText(step.waitForVisible), context)))
             const target = String(resolveExpression(selectorText(step.selector), context))
             if (step.optionValue !== undefined && driver.selectOption !== undefined) await driver.selectOption(target, String(resolveExpression(step.optionValue, context)), node.execution.timeoutMs)
-            else await driver.click(target, node.execution.timeoutMs)
+            else {
+              if (step.waitUntilEnabled === true) {
+                if (driver.waitUntilEnabled === undefined) throw new Error('当前浏览器驱动不支持等待按钮可点击')
+                await driver.waitUntilEnabled(target, node.execution.timeoutMs)
+              }
+              await driver.click(target, node.execution.timeoutMs)
+            }
           }
           if (step.type === 'type') {
             let text: string
@@ -836,6 +850,17 @@ async function liveStep(
             const inputMode = step.inputMode ?? 'replace'
             trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 输入方式：${inputMode === 'append' ? '拼接到原内容后面' : '替换原内容'}`)
             await driver.type(String(resolveExpression(selectorText(step.selector), context)), text, node.execution.timeoutMs, inputMode)
+          }
+          if (step.type === 'upload') {
+            if (driver.uploadFileFromUrl === undefined) throw new Error('当前浏览器驱动不支持从链接上传文件')
+            const source = resolveBindingInContext(step.file, context)
+            const url = requireText(typeof source === 'string' ? source : String(source), '文件链接')
+            const selector = String(resolveExpression(selectorText(step.selector), context)).trim()
+            const triggerSelector = String(resolveExpression(selectorText(step.triggerSelector ?? ''), context)).trim()
+            if (selector === '' && triggerSelector === '') throw new Error('请填写隐藏文件控件选择器，或选择页面上的上传按钮')
+            trace('正在从所选链接下载文件，并交给浏览器上传控件')
+            const uploaded = await driver.uploadFileFromUrl(selector, url, node.execution.timeoutMs, triggerSelector || undefined)
+            trace(`文件已上传：${uploaded.fileName} · ${uploaded.mimeType} · ${uploaded.size} 字节`)
           }
           if (step.type === 'extract') {
             const selectedLlm = step.ai?.llmId !== undefined ? context.llms?.[step.ai.llmId] : context.llm
@@ -876,6 +901,10 @@ async function liveStep(
       }
       const waitVisible = String(resolveExpression(selectorText(config.waitForVisible ?? ''), context))
       if (waitVisible.trim() !== '') await driver.waitFor(node.execution.timeoutMs, waitVisible)
+      if (config.waitUntilEnabled === true) {
+        if (driver.waitUntilEnabled === undefined) throw new Error('当前浏览器驱动不支持等待按钮可点击')
+        await driver.waitUntilEnabled(selector, node.execution.timeoutMs)
+      }
       await driver.click(selector)
       return { message: `已点击 ${displaySelector(selector)}` }
     }

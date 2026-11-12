@@ -3,8 +3,8 @@ import type { BrowserDriver } from '@runner/browser-run.ts'
 interface BrowserSession { readonly driver: BrowserDriver }
 
 const PAGE_METHODS = new Set([
-  'openPage', 'hover', 'click', 'selectOption', 'type', 'extract',
-  'extractList', 'extractListAuto', 'extractListAi', 'operateListRows', 'waitForResponse',
+  'openPage', 'hover', 'click', 'waitUntilEnabled', 'selectOption', 'type', 'extract',
+  'uploadFileFromUrl', 'extractList', 'extractListAuto', 'extractListAi', 'operateListRows', 'waitForResponse',
   'waitForUrl', 'elementState', 'waitForPageSettled',
 ])
 

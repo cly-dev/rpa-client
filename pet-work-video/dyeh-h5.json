@@ -1,0 +1,15 @@
+{
+  "contractVersion": 2,
+  "slots": [
+    {
+      "slotId": "original",
+      "assetPath": "assets/original.png",
+      "required": true
+    },
+    {
+      "slotId": "shopkeeper",
+      "assetPath": "assets/shopkeeper.jpg",
+      "required": true
+    }
+  ]
+}

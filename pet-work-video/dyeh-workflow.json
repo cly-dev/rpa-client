@@ -1,0 +1,47 @@
+{
+  "contractVersion": 2,
+  "workflow": {
+    "name": "双十一主子打工养我"
+  },
+  "inputs": [
+    {
+      "id": "pet-photo",
+      "mediaType": "image"
+    }
+  ],
+  "imageAlgorithms": [
+    {
+      "id": "pet-shopkeeper",
+      "algorithmId": "7704367533566230537",
+      "baseModelId": "7704367533566230537",
+      "capabilityRevisionAtAuthoring": "sha256:9f53a5b67e0d32fa5ef69d748388b8b369b491817daf5f14ed23fe694e045d29",
+      "input": "pet-photo",
+      "params": {
+        "prompt": "以参考照片里的宠物为唯一主角，严格保留原宠物的物种、脸型、眼睛颜色、毛色和独特花纹，制作真实毛发质感的可爱拟人小店长。竖屏9:16中景，宠物位于画面中部，脸完整无遮挡，头戴小巧橘色店员帽，穿奶油色围裙，两只前爪自然搭在木质柜台上，柜台中间放一只无字橘色工资信封。背景是暖色的微缩宠物杂货小店，货架小罐头与纸箱，柔和电影灯光，温暖搞笑，双十一为主人打工赚钱的氛围。不要人类，不增加额外宠物，不改变花纹，不出现文字数字标志和水印，不要多余肢体。"
+      }
+    }
+  ],
+  "h5Render": {
+    "id": "pet-work-film",
+    "slots": [
+      {
+        "slotId": "original",
+        "assetPath": "assets/original.png",
+        "required": true,
+        "source": {
+          "kind": "input",
+          "id": "pet-photo"
+        }
+      },
+      {
+        "slotId": "shopkeeper",
+        "assetPath": "assets/shopkeeper.jpg",
+        "required": true,
+        "source": {
+          "kind": "imageAlgorithm",
+          "id": "pet-shopkeeper"
+        }
+      }
+    ]
+  }
+}

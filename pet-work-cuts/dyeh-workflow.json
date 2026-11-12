@@ -1,0 +1,85 @@
+{
+  "contractVersion": 2,
+  "workflow": {
+    "name": "主子打工养我·干活切片加强版"
+  },
+  "inputs": [
+    {
+      "id": "pet-photo",
+      "mediaType": "image"
+    }
+  ],
+  "imageAlgorithms": [
+    {
+      "id": "pet-packing",
+      "algorithmId": "7704367533566230537",
+      "baseModelId": "7704367533566230537",
+      "capabilityRevisionAtAuthoring": "sha256:9f53a5b67e0d32fa5ef69d748388b8b369b491817daf5f14ed23fe694e045d29",
+      "input": "pet-photo",
+      "params": {
+        "prompt": "参考照片为唯一宠物身份依据，严格保留它的脸型、金黄色眼睛、白色身体、深灰头顶与背部深色斑块，三段统一橘色小帽和奶油围裙，真实毛发、可爱拟人微缩小店、暖色电影灯光。竖屏9:16，中景展示完整脸与前爪，宠物居中，头部放画面高度40%至55%，上方20%干净留白，底部20%留字幕区。不要文字水印、不要人类、不要多余肢体。宠物在快递打包台认真工作，一只前爪按住纸箱另一只前爪扶胶带架，完整纸箱、胶带、堆叠快递包裹清晰可见，表情认真又有点疲惫。"
+      }
+    },
+    {
+      "id": "pet-cashier",
+      "algorithmId": "7704367533566230537",
+      "baseModelId": "7704367533566230537",
+      "capabilityRevisionAtAuthoring": "sha256:9f53a5b67e0d32fa5ef69d748388b8b369b491817daf5f14ed23fe694e045d29",
+      "input": "pet-photo",
+      "params": {
+        "prompt": "参考照片为唯一宠物身份依据，严格保留它的脸型、金黄色眼睛、白色身体、深灰头顶与背部深色斑块，三段统一橘色小帽和奶油围裙，真实毛发、可爱拟人微缩小店、暖色电影灯光。竖屏9:16，中景展示完整脸与前爪，宠物居中，头部放画面高度40%至55%，上方20%干净留白，底部20%留字幕区。不要文字水印、不要人类、不要多余肢体。宠物在小店收银台认真工作，一只前爪轻搭计算器按键，另一只前爪扶柜台，桌面有计算器、收银机和无字橘色工资信封，旁边堆着罐头，表情一本正经。"
+      }
+    },
+    {
+      "id": "pet-cart",
+      "algorithmId": "7704367533566230537",
+      "baseModelId": "7704367533566230537",
+      "capabilityRevisionAtAuthoring": "sha256:9f53a5b67e0d32fa5ef69d748388b8b369b491817daf5f14ed23fe694e045d29",
+      "input": "pet-photo",
+      "params": {
+        "prompt": "参考照片为唯一宠物身份依据，严格保留它的脸型、金黄色眼睛、白色身体、深灰头顶与背部深色斑块，三段统一橘色小帽和奶油围裙，真实毛发、可爱拟人微缩小店、暖色电影灯光。竖屏9:16，中景展示完整脸与前爪，宠物居中，头部放画面高度40%至55%，上方20%干净留白，底部20%留字幕区。不要文字水印、不要人类、不要多余肢体。宠物作为小店补货员，两只前爪搭着迷你手推车扶手，推车里堆满宠物罐头，车轮与货物完整可见，三分之四侧面朝右构图，宠物回头看镜头，表情努力又可爱。"
+      }
+    }
+  ],
+  "h5Render": {
+    "id": "pet-work-cuts",
+    "slots": [
+      {
+        "slotId": "original",
+        "assetPath": "assets/original.png",
+        "required": true,
+        "source": {
+          "kind": "input",
+          "id": "pet-photo"
+        }
+      },
+      {
+        "slotId": "packing",
+        "assetPath": "assets/packing.jpg",
+        "required": true,
+        "source": {
+          "kind": "imageAlgorithm",
+          "id": "pet-packing"
+        }
+      },
+      {
+        "slotId": "cashier",
+        "assetPath": "assets/cashier.jpg",
+        "required": true,
+        "source": {
+          "kind": "imageAlgorithm",
+          "id": "pet-cashier"
+        }
+      },
+      {
+        "slotId": "cart",
+        "assetPath": "assets/cart.jpg",
+        "required": true,
+        "source": {
+          "kind": "imageAlgorithm",
+          "id": "pet-cart"
+        }
+      }
+    ]
+  }
+}

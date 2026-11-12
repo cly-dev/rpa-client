@@ -193,7 +193,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [running, setRunning] = useState(false)
   const [bulkUpdatingSubflow, setBulkUpdatingSubflow] = useState(false)
   const [runtimeInputDialog, setRuntimeInputDialog] = useState(false)
-  type PickerField = 'selector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField'
+  type PickerField = 'selector' | 'triggerSelector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField' | 'listMatchedActionTrigger'
     | 'listContainerSelector' | 'listRowSelector' | 'listMatchField' | 'listMatchedAction' | 'listDeleteSelector' | 'listConfirmSelector'
   const [runtimeRunRequest, setRuntimeRunRequest] = useState<{ type: 'workflow' } | { type: 'picker'; nodeId: string; field: PickerField; stepIndex?: number }>()
   const [runtimeInputValues, setRuntimeInputValues] = useState<Record<string, string>>({})
@@ -957,13 +957,14 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
           ? 'list-container'
         : field === 'listRowSelector'
           ? 'list-row'
-          : field === 'listMatchField' || field === 'listMatchedAction' || field === 'listDeleteSelector'
+          : field === 'listMatchField' || field === 'listMatchedAction' || field === 'listMatchedActionTrigger' || field === 'listDeleteSelector'
             ? 'row-element'
             : 'element'
       const pickOptions = listConfig === undefined ? undefined : {
         scopeSelector: listConfig.containerSelector,
         rowSelectorMode: listConfig.rowSelectorMode,
         rowSelector: listConfig.rowSelector,
+        rowOffset: field === 'listMatchedAction' || field === 'listMatchedActionTrigger' ? listConfig.actionRowOffset ?? 0 : 0,
       }
       const picked = window.studio.prepareAndPickElement !== undefined
         ? await window.studio.prepareAndPickElement(prep, prep === undefined ? (stepUrl || startUrl) : undefined, pickMode, subflows, inputs, shouldPrepareInsideAction ? { workflowId: graph.workflowId, nodeId, stepIndex } : undefined, pickerRunId, pickOptions)
@@ -984,6 +985,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         else if (field === 'listRowSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, rowSelectorMode: picked.rowSelectorMode ?? 'css', rowSelector: picked.rowSelectorValue ?? value } }))
         else if (field === 'listMatchField' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, matchFields: config.matchFields.map((item, index) => index === stepIndex ? { ...item, selectorMode: picked.relativeSelectorMode ?? 'css', rowSelector: picked.relativeSelectorValue ?? value } : item) } }))
         else if (field === 'listMatchedAction' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, matchedActions: config.matchedActions.map((item, index) => index === stepIndex ? { ...item, selector: value } : item) } }))
+        else if (field === 'listMatchedActionTrigger' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, matchedActions: config.matchedActions.map((item, index) => index === stepIndex && item.type === 'upload' ? { ...item, triggerSelector: value } : item) } }))
         else if (field === 'listDeleteSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, deleteSelector: value } }))
         else if (field === 'listConfirmSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, confirmSelector: value } }))
       }
@@ -992,6 +994,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       else if (config.type === 'page-action' && stepIndex !== undefined) {
         setGraph(current => patchNode(current, nodeId, { config: { ...config, steps: config.steps.flatMap((step, index) => {
           if (index !== stepIndex || !('selector' in step)) return [step]
+          if (step.type === 'upload' && field === 'triggerSelector') return [{ ...step, triggerSelector: value }]
           if (step.type === 'click' && picked.triggerSelector !== undefined && picked.optionSelector !== undefined) {
             const previousClickSelectors = config.steps.slice(0, index).flatMap(previous => previous.type === 'click'
               ? [typeof previous.selector === 'string' ? previous.selector : previous.selector.value]

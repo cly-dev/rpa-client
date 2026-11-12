@@ -1,0 +1,25 @@
+{
+  "contractVersion": 2,
+  "slots": [
+    {
+      "slotId": "original",
+      "assetPath": "assets/original.png",
+      "required": true
+    },
+    {
+      "slotId": "packing",
+      "assetPath": "assets/packing.jpg",
+      "required": true
+    },
+    {
+      "slotId": "cashier",
+      "assetPath": "assets/cashier.jpg",
+      "required": true
+    },
+    {
+      "slotId": "cart",
+      "assetPath": "assets/cart.jpg",
+      "required": true
+    }
+  ]
+}
