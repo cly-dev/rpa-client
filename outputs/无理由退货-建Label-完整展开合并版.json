@@ -1,0 +1,4141 @@
+{
+  "format": "rpa-workflow-package",
+  "formatVersion": 1,
+  "exportedAt": "2026-11-16T08:14:38.915Z",
+  "roots": [
+    {
+      "sourceId": "wf_f790297d-9559-481d-b74f-3524fb17e85e",
+      "sourceVersion": 1
+    }
+  ],
+  "workflows": [
+    {
+      "sourceId": "wf_f790297d-9559-481d-b74f-3524fb17e85e",
+      "sourceVersion": 1,
+      "name": "无理由退货RPA-建Label-完整展开合并版（测试）",
+      "kind": "main",
+      "graph": {
+        "workflowId": "wf_f790297d-9559-481d-b74f-3524fb17e85e",
+        "name": "无理由退货RPA-建Label-完整展开合并版（测试）",
+        "version": 1,
+        "entryNodeId": "start_5dfc93f4",
+        "nodes": [
+          {
+            "id": "start_5dfc93f4",
+            "type": "start",
+            "name": "开始",
+            "position": {
+              "x": 12,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "start",
+              "url": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "onSuccess": false,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "热点"
+            }
+          },
+          {
+            "id": "condition_0bb3dcd7",
+            "type": "condition",
+            "name": "是否登录成功",
+            "position": {
+              "x": 3052,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": true,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "runtime",
+                    "path": "page.url"
+                  },
+                  "path": "",
+                  "operator": "contains",
+                  "value": "welcome"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "end_dd7c523b",
+            "type": "end",
+            "name": "结束",
+            "position": {
+              "x": 3432,
+              "y": 557
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "end"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0",
+            "type": "page-action",
+            "name": "进入 登录PMS v1",
+            "position": {
+              "x": 392,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468",
+            "type": "page-action",
+            "name": "进入 登录OMS v2",
+            "position": {
+              "x": 3432,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "page-action_46872c06",
+            "type": "page-action",
+            "name": "页面操作",
+            "position": {
+              "x": 7612,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "url": "https://ytoms.cht-group.net/salesorder-management?filter=%7B%22platformOrderNumberList%22%3A%5B%22US20261012e0b3da870005bb%22%5D%7D&workOrderId=280395&saleAccount=ourplatform_A-premium&status=6",
+                  "type": "open"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "wait_e4a8e533",
+            "type": "wait",
+            "name": "等待条件",
+            "position": {
+              "x": 7992,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "wait",
+              "mode": "visible",
+              "ms": 10000,
+              "selector": "text-exact:提示 · 父级:html > body:nth-of-type(1) > div:nth-of-type(5)"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "page-action_80412873",
+            "type": "page-action",
+            "name": "页面操作",
+            "position": {
+              "x": 8372,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:取消 · 父级:html > body:nth-of-type(1) > div:nth-of-type(5)"
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:SO1060909682 · 父级:#root > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div.arco-table.arco-table-size-default.arco-table-border:nth-of-type(1) > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div.arco-table-container:nth-of-type(1) > div.arco-table-content-scroll:nth-of-type(1) > div.arco-table-content-inner:nth-of-type(1) > div.arco-table-body:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div.arco-table-tr:nth-of-type(1) > div.arco-table-td.colTitle-salesOrderNo:nth-of-type(2) > div.arco-table-cell:nth-of-type(1) > span.arco-table-cell-wrap-value:nth-of-type(1) > div:nth-of-type(1) > div.arco-descriptions.arco-descriptions-layout-horizontal:nth-of-type(1) > div.arco-descriptions-body:nth-of-type(1) > table.arco-descriptions-table:nth-of-type(1) > tbody:nth-of-type(1) > tr.arco-descriptions-row:nth-of-type(1)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "page-action_605136f8",
+            "type": "page-action",
+            "name": "页面操作",
+            "position": {
+              "x": 8752,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:SO1060909682 · 父级:#root > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div.arco-table.arco-table-size-default.arco-table-border:nth-of-type(1) > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div.arco-table-container:nth-of-type(1) > div.arco-table-content-scroll:nth-of-type(1) > div.arco-table-content-inner:nth-of-type(1) > div.arco-table-body:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div.arco-table-tr:nth-of-type(1) > div.arco-table-td.colTitle-salesOrderNo:nth-of-type(2) > div.arco-table-cell:nth-of-type(1) > span.arco-table-cell-wrap-value:nth-of-type(1) > div:nth-of-type(1) > div.arco-descriptions.arco-descriptions-layout-horizontal:nth-of-type(1) > div.arco-descriptions-body:nth-of-type(1) > table.arco-descriptions-table:nth-of-type(1) > tbody:nth-of-type(1) > tr.arco-descriptions-row:nth-of-type(1)"
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:售后单 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(4) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div.arco-tabs.arco-tabs-horizontal.arco-tabs-line:nth-of-type(1) > div.arco-tabs-header-nav.arco-tabs-header-nav-horizontal.arco-tabs-header-nav-top:nth-of-type(1) > div.arco-tabs-header-scroll:nth-of-type(1) > div.arco-tabs-header-wrapper:nth-of-type(1) > div.arco-tabs-header:nth-of-type(1) > div.arco-tabs-header-title:nth-of-type(6)"
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:ASS1013833481 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(4) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div.arco-table.arco-table-size-default.arco-table-border:nth-of-type(1) > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div.arco-table-container:nth-of-type(1) > div.arco-table-content-scroll:nth-of-type(1) > div.arco-table-content-inner:nth-of-type(1) > div.arco-table-body:nth-of-type(1) > table:nth-of-type(1) > tbody:nth-of-type(1) > tr.arco-table-tr:nth-of-type(1)",
+                  "waitAfterMs": 5000
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "api-request_206cd466",
+            "type": "api-request",
+            "name": "请求工单详情",
+            "position": {
+              "x": 6472,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "api-request",
+              "url": "{{api}}/customer/seller/work-order/{{inputs.workId}}",
+              "method": "GET",
+              "queryParams": [],
+              "headers": [
+                {
+                  "name": "x-shop-id",
+                  "value": "{{shopId}}"
+                },
+                {
+                  "name": "authorization",
+                  "value": "Bearer {{token}}"
+                }
+              ],
+              "body": "",
+              "responseType": "json",
+              "jsonPath": "orderId",
+              "outputName": "orderId",
+              "outputMode": "produce",
+              "updateVariable": "",
+              "rawOutputName": "workOrderDetail",
+              "fields": [
+                {
+                  "name": "problem",
+                  "path": "detail"
+                },
+                {
+                  "name": "imageUrl",
+                  "path": "imageUrl"
+                },
+                {
+                  "name": "email",
+                  "path": "email"
+                },
+                {
+                  "name": "requestUniqueCode",
+                  "path": "requestUniqueCode"
+                }
+              ],
+              "timeoutMs": 15000
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "api-request_c2c97f66",
+            "type": "api-request",
+            "name": "请求退货单详情",
+            "position": {
+              "x": 6852,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "api-request",
+              "url": "{{api}}/order/seller/fulfillment/return/detail",
+              "method": "GET",
+              "queryParams": [
+                {
+                  "name": "requisitionCode",
+                  "value": "{{requestUniqueCode}}"
+                }
+              ],
+              "headers": [
+                {
+                  "name": "x-shop-id",
+                  "value": "{{shopId}}"
+                },
+                {
+                  "name": "authorization",
+                  "value": " Bearer {{token}}"
+                }
+              ],
+              "body": "",
+              "responseType": "json",
+              "jsonPath": "data.afterSalesOption",
+              "outputName": "afterSalesOption",
+              "outputMode": "produce",
+              "updateVariable": "",
+              "rawOutputName": "",
+              "fields": [
+                {
+                  "name": "refund_items",
+                  "path": "data.items"
+                },
+                {
+                  "name": "carInfo",
+                  "path": "data.carInfo"
+                }
+              ],
+              "timeoutMs": 15000
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "api-request_29be0074",
+            "type": "api-request",
+            "name": "请求订单详情",
+            "position": {
+              "x": 7232,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "api-request",
+              "url": "{{api}}/order/seller/v2/order",
+              "method": "GET",
+              "queryParams": [
+                {
+                  "name": "orderId",
+                  "value": "{{orderId}}"
+                }
+              ],
+              "headers": [
+                {
+                  "name": "x-shop-id",
+                  "value": "{{shopId}}"
+                },
+                {
+                  "name": "authorization",
+                  "value": "Bearer {{token}}"
+                }
+              ],
+              "body": "",
+              "responseType": "json",
+              "jsonPath": "data",
+              "outputName": "orderDetail",
+              "outputMode": "produce",
+              "updateVariable": "",
+              "rawOutputName": "",
+              "fields": [
+                {
+                  "name": "disputing",
+                  "path": "data.disputing"
+                },
+                {
+                  "name": "paymentTime",
+                  "path": "data.paymentTime"
+                },
+                {
+                  "name": "shippingTime",
+                  "path": "data.shippingTime"
+                },
+                {
+                  "name": "custom_name",
+                  "path": "data.cosInfo.name"
+                },
+                {
+                  "name": "deliveredGroups",
+                  "path": "data.deliveredGroups"
+                },
+                {
+                  "name": "address",
+                  "path": "data.cosInfo.address"
+                }
+              ],
+              "timeoutMs": 15000
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label",
+            "name": "进入 建label子流程-测试专用 v1",
+            "type": "page-action",
+            "position": {
+              "x": 9132,
+              "y": 387.00000000000006
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            },
+            "config": {
+              "type": "page-action",
+              "steps": []
+            }
+          },
+          {
+            "id": "merge_end",
+            "name": "流程结束",
+            "type": "end",
+            "position": {
+              "x": 24332,
+              "y": 45.33333333333333
+            },
+            "config": {
+              "type": "end"
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::inject::0",
+            "type": "set-variable",
+            "name": "注入 用户账号",
+            "position": {
+              "x": 772,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "workflow-input",
+                "name": "pmsUserName"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_call_subflow_41a6a3b0_userId",
+              "value": {
+                "kind": "workflow-input",
+                "name": "pmsUserName"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "用户账号",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::inject::1",
+            "type": "set-variable",
+            "name": "注入 用户密码",
+            "position": {
+              "x": 1152,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "workflow-input",
+                "name": "pmsPassword"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_call_subflow_41a6a3b0_password",
+              "value": {
+                "kind": "workflow-input",
+                "name": "pmsPassword"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "用户密码",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::start_fd9aa322",
+            "type": "page-action",
+            "name": "登录PMS · 开始",
+            "position": {
+              "x": 1532,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "open",
+                  "url": "https://pms.a-premium.com/#/login"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::page-action_c800434a",
+            "type": "page-action",
+            "name": "登录PMS · 页面操作",
+            "position": {
+              "x": 1912,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "type",
+                  "value": {
+                    "kind": "literal",
+                    "value": "{{subflow_call_subflow_41a6a3b0_userId}}"
+                  },
+                  "selector": "#basic_username",
+                  "inputMode": "replace"
+                },
+                {
+                  "type": "type",
+                  "value": {
+                    "kind": "literal",
+                    "value": "{{subflow_call_subflow_41a6a3b0_password}}"
+                  },
+                  "selector": "#basic_password",
+                  "inputMode": "replace"
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:登录"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::api-listen_0bfd39e5",
+            "type": "api-listen",
+            "name": "登录PMS · 接口监听",
+            "position": {
+              "x": 2292,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "api-listen",
+              "urlPattern": "/seller/login",
+              "matchMode": "contains",
+              "method": "ANY",
+              "responseType": "json",
+              "jsonPath": "token",
+              "outputName": "token",
+              "outputMode": "produce",
+              "updateVariable": "",
+              "rawOutputName": "authData",
+              "fields": [],
+              "requestParams": [],
+              "timeoutMs": 10000
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::end_15d96ea1",
+            "type": "page-action",
+            "name": "登录PMS · 返回父流程",
+            "position": {
+              "x": 2672,
+              "y": 403.66666666666674
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::inject::0",
+            "type": "set-variable",
+            "name": "注入 oms用户账号",
+            "position": {
+              "x": 3812,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "workflow-input",
+                "name": "omsUserName"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_call_subflow_10c0b468_oms_userId",
+              "value": {
+                "kind": "workflow-input",
+                "name": "omsUserName"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "oms用户账号",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::inject::1",
+            "type": "set-variable",
+            "name": "注入 oms用户密码",
+            "position": {
+              "x": 4192,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "workflow-input",
+                "name": "omsPassword"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_call_subflow_10c0b468_oms_password",
+              "value": {
+                "kind": "workflow-input",
+                "name": "omsPassword"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "oms用户密码",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::start_b8724363",
+            "type": "page-action",
+            "name": "登录OMS · 开始",
+            "position": {
+              "x": 4572,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "open",
+                  "url": "https://ytoms.cht-group.net/login"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::page-action_3297ebaa",
+            "type": "page-action",
+            "name": "登录OMS · 页面操作",
+            "position": {
+              "x": 4952,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "type",
+                  "value": {
+                    "kind": "literal",
+                    "value": "{{subflow_call_subflow_10c0b468_oms_userId}}"
+                  },
+                  "selector": "#account_input",
+                  "inputMode": "replace"
+                },
+                {
+                  "ai": {
+                    "enabled": false,
+                    "prompt": ""
+                  },
+                  "type": "type",
+                  "value": {
+                    "kind": "literal",
+                    "value": "{{subflow_call_subflow_10c0b468_oms_password}}"
+                  },
+                  "selector": "#loginpw_input",
+                  "inputMode": "replace"
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:登录",
+                  "waitAfterMs": 0
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::condition_c98eef8c",
+            "type": "condition",
+            "name": "登录OMS · 条件",
+            "position": {
+              "x": 5332,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": true,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "runtime",
+                    "path": "page.url"
+                  },
+                  "path": "",
+                  "operator": "contains",
+                  "value": "/salesorder-management"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_100899ad",
+            "type": "page-action",
+            "name": "登录OMS · 返回父流程",
+            "position": {
+              "x": 6092,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_1f3785c5",
+            "type": "set-variable",
+            "name": "登录OMS · 设置变量",
+            "position": {
+              "x": 5712,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "set-variable",
+              "name": "is_login_oms",
+              "value": {
+                "kind": "literal",
+                "value": "false"
+              },
+              "path": "",
+              "interpolate": false
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_c0f7baff",
+            "type": "page-action",
+            "name": "登录OMS · 返回父流程",
+            "position": {
+              "x": 6092,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_871436a1",
+            "type": "set-variable",
+            "name": "登录OMS · 设置变量",
+            "position": {
+              "x": 5712,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "literal",
+                "value": "true"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "is_login_oms",
+              "value": {
+                "kind": "literal",
+                "value": "true"
+              },
+              "path": "",
+              "interpolate": false
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::inject::0",
+            "type": "set-variable",
+            "name": "注入 工单Id",
+            "position": {
+              "x": 9512,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "workflow-input",
+                "name": "workId"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label_workId",
+              "value": {
+                "kind": "workflow-input",
+                "name": "workId"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "工单Id",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            }
+          },
+          {
+            "id": "merge_label::inject::1",
+            "type": "set-variable",
+            "name": "注入 退货商品",
+            "position": {
+              "x": 9892,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "refund_items"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label_refundItems",
+              "value": {
+                "kind": "variable",
+                "name": "refund_items"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "退货商品",
+                "type": "array"
+              }
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            }
+          },
+          {
+            "id": "merge_label::inject::2",
+            "type": "set-variable",
+            "name": "注入 订单详情",
+            "position": {
+              "x": 10272,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "orderDetail"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label_orderDetail",
+              "value": {
+                "kind": "variable",
+                "name": "orderDetail"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "订单详情",
+                "type": "object"
+              }
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            }
+          },
+          {
+            "id": "merge_label::inject::3",
+            "type": "set-variable",
+            "name": "注入 salesType",
+            "position": {
+              "x": 10652,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "literal",
+                "value": "refund"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label_salesType",
+              "value": {
+                "kind": "literal",
+                "value": "refund"
+              },
+              "path": "",
+              "interpolate": true,
+              "requiredInput": {
+                "name": "salesType",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "onError": "human-handoff",
+              "timeoutMs": 30000,
+              "maxAttempts": 1
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::start_5dfc93f4",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 开始",
+            "position": {
+              "x": 11032,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "onSuccess": false,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "热点"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_676da5a8",
+            "type": "wait",
+            "name": "建label子流程-测试专用 · 等待条件",
+            "position": {
+              "x": 12172,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "wait",
+              "mode": "visible",
+              "ms": 10000,
+              "selector": "text-exact:创建退货登记 · 父级:html > body:nth-of-type(1) > div:nth-of-type(6)"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9b7fb607",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 13692,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:确定 · 父级:html > body:nth-of-type(1) > div:nth-of-type(6)",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_a80a5ad9",
+            "type": "switch",
+            "name": "建label子流程-测试专用 · 多路判断",
+            "position": {
+              "x": 17492,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "switch",
+              "mode": "value",
+              "left": {
+                "kind": "node-output",
+                "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_93963681",
+                "port": "solution"
+              },
+              "path": "",
+              "cases": [
+                "RETURN_AND_REFUND"
+              ],
+              "caseTypes": [
+                "string"
+              ],
+              "caseIds": [
+                "case_e615cea3"
+              ],
+              "casePrompts": [],
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "aiSystemPrompt": "",
+              "aiContext": "",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_4111ac4f",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 18252,
+              "y": 693.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:退款 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(1)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7b7ae1e2",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 18252,
+              "y": 523.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:部分退款 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(3)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_0dfa67dd",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作 ",
+            "position": {
+              "x": 17872,
+              "y": 693.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#followUpSolution_input",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7d9e70fd",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作 ",
+            "position": {
+              "x": 17872,
+              "y": 523.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#followUpSolution_input",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06247a66",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 11792,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:新建退货单 · 父级:#drawerContent > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div.arco-tabs.arco-tabs-horizontal.arco-tabs-line:nth-of-type(1) > div.arco-tabs-content.arco-tabs-content-horizontal:nth-of-type(2) > div.arco-tabs-content-inner:nth-of-type(1) > div.arco-tabs-content-item.arco-tabs-content-item-active:nth-of-type(1) > div.arco-tabs-pane:nth-of-type(1) > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div:nth-of-type(1) > span.arco-typography.arco-typography-secondary:nth-of-type(1)",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_cd5db5d7",
+            "type": "list-row-action",
+            "name": "建label子流程-测试专用 · 列表行操作",
+            "position": {
+              "x": 14832,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {
+              "source": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              }
+            },
+            "config": {
+              "type": "list-row-action",
+              "source": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              },
+              "sourcePath": "",
+              "containerSelector": "[class*=\"ReturnForm__form--\"]",
+              "rowSelectorMode": "css",
+              "rowSelector": "tbody > tr.arco-table-tr.arco-table-row-expanded",
+              "actionRowOffset": 1,
+              "matchFields": [
+                {
+                  "selectorMode": "css",
+                  "rowSelector": "td.arco-table-td:nth-of-type(2)",
+                  "dataPath": "ibayBarcode",
+                  "matchMode": "contains",
+                  "readMode": "text",
+                  "attribute": "",
+                  "trim": true,
+                  "ignoreCase": true
+                }
+              ],
+              "matchedActions": [
+                {
+                  "type": "type",
+                  "selector": "div.arco-col.arco-col-12:nth-of-type(1) > div.arco-row.arco-row-align-start > div.arco-col.arco-col-19:nth-of-type(2) > div.arco-form-item-control-wrapper > div.arco-form-item-control > div.arco-form-item-control-children > div.arco-input-group-wrapper.arco-input-group-wrapper-default > span.arco-input-group > span.arco-input-inner-wrapper.arco-input-inner-wrapper-default:nth-of-type(2) > input.arco-input.arco-input-size-default",
+                  "value": "",
+                  "dataPath": "returnedCount",
+                  "inputMode": "replace",
+                  "advancedEnabled": false,
+                  "applyTo": "all"
+                },
+                {
+                  "type": "upload",
+                  "selector": "",
+                  "triggerSelector": "div.arco-upload-trigger > div > button.arco-btn.arco-btn-outline",
+                  "dataPath": "imageUrl",
+                  "advancedEnabled": false,
+                  "applyTo": "all"
+                }
+              ],
+              "unmatchedMode": "keep",
+              "deleteSelector": "",
+              "confirmSelector": "",
+              "waitAfterDeleteMs": 300,
+              "maxDeleteCount": 20,
+              "missingMatchAction": "stop",
+              "duplicateMatchAction": "all",
+              "emptySourceAction": "stop",
+              "outputName": "listOperationResult"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 3,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_14f4701a",
+            "type": "switch",
+            "name": "建label子流程-测试专用 · 没有图片",
+            "position": {
+              "x": 16352,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "switch",
+              "mode": "value",
+              "left": {
+                "kind": "variable",
+                "name": "subflow_merge_label_salesType"
+              },
+              "path": "",
+              "cases": [
+                "refund",
+                "exchange"
+              ],
+              "caseTypes": [
+                "string",
+                "string"
+              ],
+              "caseIds": [
+                "case_702cedfd",
+                "case_737dfc4a"
+              ],
+              "casePrompts": [
+                ""
+              ],
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "aiSystemPrompt": "",
+              "aiContext": "",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_93963681",
+            "type": "code",
+            "name": "建label子流程-测试专用 · 用户代码",
+            "position": {
+              "x": 17112,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "orderDetail",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "orderDetail"
+                  }
+                },
+                {
+                  "name": "refund_items",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "refund_items"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "solution",
+                  "valueType": "any",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const orderDetail = input.orderDetail || {};\nconst returnItems = input.refund_items || [];\n\nconst orderMap = {};\nconst keys = ['deliveredGroups', 'toDeliverGroups', 'returnedGroups'];\nfor (let i = 0; i < keys.length; i++) {\n  const groups = orderDetail[keys[i]] || [];\n  for (let j = 0; j < groups.length; j++) {\n    const items = (groups[j] && groups[j].items) || [];\n    for (let k = 0; k < items.length; k++) {\n      const item = items[k] || {};\n      const barCode = String(item.barCode || item.barcode || '').trim();\n      if (!barCode) continue;\n      let qty = Number(\n        item.itemCount != null ? item.itemCount : item.quantity != null ? item.quantity : 1,\n      );\n      if (!isFinite(qty)) qty = 1;\n      orderMap[barCode] = (orderMap[barCode] || 0) + qty;\n    }\n  }\n}\n\nconst returnMap = {};\nfor (let r = 0; r < returnItems.length; r++) {\n  const ri = returnItems[r] || {};\n  const rb = String(ri.barCode || ri.barcode || '').trim();\n  if (!rb) continue;\n  let rq = Number(\n    ri.returnedCount != null ? ri.returnedCount : ri.itemCount != null ? ri.itemCount : 1,\n  );\n  if (!isFinite(rq)) rq = 1;\n  returnMap[rb] = (returnMap[rb] || 0) + rq;\n}\n\nconst orderBarCodes = Object.keys(orderMap);\nconst returnBarCodes = Object.keys(returnMap);\n\nlet solution = null;\nif (orderBarCodes.length && returnBarCodes.length) {\n  let returnAll = true;\n  for (let o = 0; o < orderBarCodes.length; o++) {\n    const code = orderBarCodes[o];\n    if ((returnMap[code] || 0) < orderMap[code]) {\n      returnAll = false;\n      break;\n    }\n  }\n  if (returnAll) {\n    for (let t = 0; t < returnBarCodes.length; t++) {\n      if (!orderMap[returnBarCodes[t]]) {\n        returnAll = false;\n        break;\n      }\n    }\n  }\n  solution = returnAll ? 'RETURN_AND_REFUND' : 'PARTIAL_REFUND';\n}\n\nreturn { solution };",
+              "outputName": "solution",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_6a573322",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 16732,
+              "y": 710.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#followUpSolution_input",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_81f2877b",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 页面操作",
+            "position": {
+              "x": 16732,
+              "y": 200.33333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#followUpSolution_input",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9edffffb",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 换货",
+            "position": {
+              "x": 17112,
+              "y": 710.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:换货 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option.arco-select-option-hover:nth-of-type(2)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06535c0c",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 待定",
+            "position": {
+              "x": 17112,
+              "y": 200.33333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:方案待定 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option.arco-select-option-hover:nth-of-type(4)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9d7f5b35",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 固定操作点击",
+            "position": {
+              "x": 15592,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#logisticsProvider_input",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:仓库物流 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1)",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                },
+                {
+                  "type": "click",
+                  "selector": "#logisticsProductId_input",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                },
+                {
+                  "type": "click",
+                  "selector": "text-exact:UPS_RETURN · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1)",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 3,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec",
+            "type": "code",
+            "name": "建label子流程-测试专用 · 判断用户是否是多退货商品",
+            "position": {
+              "x": 15972,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "refundItems",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "subflow_merge_label_refundItems"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "hasMoreItems",
+                  "valueType": "any",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const refundItems=input.refundItems;\nconst hasMoreItems=refundItems.length > 1;\nreturn { hasMoreItems };",
+              "outputName": "hasMoreItems",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_4ca9e604",
+            "type": "condition",
+            "name": "建label子流程-测试专用 · 条件",
+            "position": {
+              "x": 17492,
+              "y": 217
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": false,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "node-output",
+                    "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec",
+                    "port": "hasMoreItems"
+                  },
+                  "path": "",
+                  "operator": "equals",
+                  "value": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_b650be8d",
+            "type": "condition",
+            "name": "建label子流程-测试专用 · 条件",
+            "position": {
+              "x": 16732,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": false,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "node-output",
+                    "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec",
+                    "port": "hasMoreItems"
+                  },
+                  "path": "",
+                  "operator": "equals",
+                  "value": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21",
+            "type": "page-action",
+            "name": "进入 无理由退货RPA-建label-多商品 v4",
+            "position": {
+              "x": 18632,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e",
+            "type": "page-action",
+            "name": "进入 建label-单商品-子流程 v9",
+            "position": {
+              "x": 17872,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_857956a8",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 单商品",
+            "position": {
+              "x": 17112,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#followUpSolution_input",
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_cf625b36",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 单商品退货",
+            "position": {
+              "x": 17492,
+              "y": 12
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:退款 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(1)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::end_cc58e7ad",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 返回父流程",
+            "position": {
+              "x": 23952,
+              "y": 45.33333333333333
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f",
+            "type": "page-action",
+            "name": "建label子流程-测试专用 · 点击提交",
+            "position": {
+              "x": 23572,
+              "y": 45.33333333333333
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:提交 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5)",
+                  "waitForLoading": true,
+                  "waitUntilEnabled": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_aeb5db5f",
+            "type": "condition",
+            "name": "建label子流程-测试专用 · 通过代码识别+判断是否存在多SKU单商品的特殊情况",
+            "position": {
+              "x": 14452,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": false,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "node-output",
+                    "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::agent_f463f5c3",
+                    "port": "hasWithPlus"
+                  },
+                  "path": "",
+                  "operator": "equals",
+                  "value": false
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_62019a1e",
+            "type": "list-row-action",
+            "name": "建label子流程-测试专用 · 列表行操作",
+            "position": {
+              "x": 15212,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "list-row-action",
+              "source": {
+                "kind": "node-output",
+                "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_baee0330",
+                "port": "withoutPlus"
+              },
+              "sourcePath": "",
+              "containerSelector": "[class*=\"ReturnForm__form--\"]",
+              "rowSelectorMode": "css",
+              "rowSelector": "tbody > tr.arco-table-tr.arco-table-row-expanded",
+              "actionRowOffset": 1,
+              "matchFields": [
+                {
+                  "selectorMode": "css",
+                  "rowSelector": "td.arco-table-td:nth-of-type(2) > div.arco-table-cell > span.arco-table-cell-wrap-value > span",
+                  "dataPath": "ibayBarcode",
+                  "matchMode": "contains",
+                  "readMode": "text",
+                  "attribute": "",
+                  "trim": true,
+                  "ignoreCase": true
+                }
+              ],
+              "matchedActions": [
+                {
+                  "type": "type",
+                  "selector": "div.arco-col.arco-col-12:nth-of-type(1) > div.arco-row.arco-row-align-start > div.arco-col.arco-col-19:nth-of-type(2) > div.arco-form-item-control-wrapper > div.arco-form-item-control > div.arco-form-item-control-children > div.arco-input-group-wrapper.arco-input-group-wrapper-default > span.arco-input-group > span.arco-input-inner-wrapper.arco-input-inner-wrapper-default:nth-of-type(2) > input.arco-input.arco-input-size-default",
+                  "value": "",
+                  "dataPath": "returnedCount",
+                  "inputMode": "replace",
+                  "advancedEnabled": true,
+                  "applyTo": "first",
+                  "remainingValue": "0"
+                },
+                {
+                  "type": "upload",
+                  "selector": "",
+                  "triggerSelector": "div.arco-upload-trigger > div > button.arco-btn.arco-btn-outline",
+                  "dataPath": "imageUrl",
+                  "advancedEnabled": false,
+                  "applyTo": "all"
+                }
+              ],
+              "unmatchedMode": "keep",
+              "deleteSelector": "",
+              "confirmSelector": "",
+              "waitAfterDeleteMs": 300,
+              "maxDeleteCount": 20,
+              "missingMatchAction": "stop",
+              "duplicateMatchAction": "all",
+              "emptySourceAction": "stop",
+              "outputName": "listOperationResult"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_4dc88a35",
+            "type": "list-row-action",
+            "name": "建label子流程-测试专用 · 特殊列表处理",
+            "position": {
+              "x": 15592,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "list-row-action",
+              "source": {
+                "kind": "node-output",
+                "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_baee0330",
+                "port": "withPlus"
+              },
+              "sourcePath": "",
+              "containerSelector": "[class*=\"ReturnForm__form--\"]",
+              "rowSelectorMode": "css",
+              "rowSelector": "tbody > tr.arco-table-tr.arco-table-row-expanded",
+              "actionRowOffset": 1,
+              "matchFields": [
+                {
+                  "selectorMode": "css",
+                  "rowSelector": "td.arco-table-td:nth-of-type(2) > div.arco-table-cell > span.arco-table-cell-wrap-value > span",
+                  "dataPath": "ibayBarcode",
+                  "matchMode": "contains",
+                  "readMode": "text",
+                  "attribute": "",
+                  "trim": true,
+                  "ignoreCase": true
+                }
+              ],
+              "matchedActions": [
+                {
+                  "type": "type",
+                  "selector": "div.arco-col.arco-col-12:nth-of-type(1) > div.arco-row.arco-row-align-start > div.arco-col.arco-col-19:nth-of-type(2) > div.arco-form-item-control-wrapper > div.arco-form-item-control > div.arco-form-item-control-children > div.arco-input-group-wrapper.arco-input-group-wrapper-default > span.arco-input-group > span.arco-input-inner-wrapper.arco-input-inner-wrapper-default:nth-of-type(2) > input.arco-input.arco-input-size-default",
+                  "value": "",
+                  "dataPath": "returnedCount",
+                  "inputMode": "replace",
+                  "advancedEnabled": false,
+                  "applyTo": "first"
+                },
+                {
+                  "type": "upload",
+                  "selector": "",
+                  "triggerSelector": "div.arco-upload-trigger > div > button.arco-btn.arco-btn-outline",
+                  "dataPath": "imageUrl",
+                  "advancedEnabled": false,
+                  "applyTo": "all"
+                }
+              ],
+              "unmatchedMode": "keep",
+              "deleteSelector": "",
+              "confirmSelector": "",
+              "waitAfterDeleteMs": 300,
+              "maxDeleteCount": 20,
+              "missingMatchAction": "stop",
+              "duplicateMatchAction": "all",
+              "emptySourceAction": "stop",
+              "outputName": "listOperationResult"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::agent_f463f5c3",
+            "type": "agent",
+            "name": "建label子流程-测试专用 · 让AI判断存在+的ebyCOde是否是多商品的特殊情况，然后输出",
+            "position": {
+              "x": 14072,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "agent",
+              "systemPrompt": "这个是退货商品列表:{{subflow_merge_label_refundItems}},请判断每一项的ibayBarcode是否由多个独立产品 SKU 组合而成。\n判断规则\n1. 只有当 SKU 中的 + 用来连接两个或多个可独立识别的产品 SKU时，才判定为多产品组合。\n2. 将 + 两侧内容分别与完整 SKU 编码规则进行比对。每一段都应具有独立、完整的 SKU 编码结构；不能仅因为字符串里出现 +，就判定为组合。\n3. 如果 + 属于单个 SKU 编码本身的一部分，或无法确认两侧是独立产品 SKU，则判定为普通 SKU。\n4. 例如 USCVA64060-C+USCVA64064 中，`USCVA64060-C` 和 USCVA64064 各自都是完整 SKU，因此属于多产品组合。\n5. 信息不足或无法明确拆分时，按普通 SKU 处理。\n6.整个字符串符合一个完整 SKU 编码，不能再拆分成多个独立、完整的 SKU。例如：- USCVA64060-C → 单产品 SKU\n- 即使单个 SKU 中包含 +，只要它不是用于连接多个完整 SKU 的分隔符，就仍属于单产品 SKU",
+              "task": "请根据上一步分类结果，生成以下三个输出变量：\n- hasWithPlus：布尔值。当多产品组合 SKU 数组 withPlus 至少包含一个产品时为 true，否则为 false。\n- withoutPlusIbayBarcode：非多产品组合 SKU 组成的ibayBarcode索引\n- withPlusibayBarcode：由多个独立产品 SKU 组成的ibayBarcode索引\n不要重新判断或改变上一步的分类结果，不要遗漏、修改或重排产品。只返回这三个变量组成的 JSON 对象，不要添加解释或 Markdown：",
+              "outputs": [
+                {
+                  "name": "hasWithPlus",
+                  "valueType": "boolean",
+                  "description": "是否存在多SKU商品的情况",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                },
+                {
+                  "name": "withoutPlusIbayBarcode",
+                  "valueType": "array",
+                  "description": "非多SKU单商品数组索引",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                },
+                {
+                  "name": "withPlusibayBarcode",
+                  "valueType": "array",
+                  "description": "多SKU单商品数组索引",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "llmId": "llm-1793153589600",
+              "dryAction": "note"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 4,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_baee0330",
+            "type": "code",
+            "name": "建label子流程-测试专用 · 从索引中提取出原项",
+            "position": {
+              "x": 14832,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "withoutPlusIbayBarcode",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "withoutPlusIbayBarcode"
+                  }
+                },
+                {
+                  "name": "withPlusibayBarcode",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "withPlusibayBarcode"
+                  }
+                },
+                {
+                  "name": "refundItems",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "subflow_merge_label_refundItems"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "withPlus",
+                  "valueType": "array",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                },
+                {
+                  "name": "withoutPlus",
+                  "valueType": "array",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const refundItems = input.refundItems;\nconst withPlusBarcodes = input.withPlusibayBarcode;\nconst withoutPlusBarcodes = input.withoutPlusIbayBarcode;\nconst withPlus = refundItems.filter(item =>\n  withPlusBarcodes.includes(item.ibayBarcode)\n);\nconst withoutPlus = refundItems.filter(item =>\n  withoutPlusBarcodes.includes(item.ibayBarcode)\n);\nreturn {\n  withPlus,\n  withoutPlus,\n};",
+              "outputName": "withPlus",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_41958ee8",
+            "type": "wait",
+            "name": "建label子流程-测试专用 · 等待条件",
+            "position": {
+              "x": 11412,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "wait",
+              "mode": "duration",
+              "ms": 5000,
+              "selector": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_c576d323",
+            "type": "wait",
+            "name": "建label子流程-测试专用 · 等待条件",
+            "position": {
+              "x": 15212,
+              "y": 540.3333333333334
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "wait",
+              "mode": "duration",
+              "ms": 3000,
+              "selector": ""
+            },
+            "execution": {
+              "timeoutMs": 30009,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_3e56a7f0",
+            "type": "code",
+            "name": "建label子流程-测试专用 · 判断用户是否是多退货商品 副本",
+            "position": {
+              "x": 12552,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "refundItems",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "subflow_merge_label_refundItems"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "hasMoreItems",
+                  "valueType": "any",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const refundItems=input.refundItems;\nconst hasMoreItems=refundItems.length > 1;\nreturn { hasMoreItems };",
+              "outputName": "hasMoreItems",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_12d8a1c2",
+            "type": "condition",
+            "name": "建label子流程-测试专用 · 条件",
+            "position": {
+              "x": 12932,
+              "y": 387.00000000000006
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": false,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "node-output",
+                    "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_3e56a7f0",
+                    "port": "hasMoreItems"
+                  },
+                  "path": "",
+                  "operator": "equals",
+                  "value": false
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_7312f7ef",
+            "type": "list-row-action",
+            "name": "建label子流程-测试专用 · 列表行操作",
+            "position": {
+              "x": 13312,
+              "y": 370.33333333333337
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "list-row-action",
+              "source": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              },
+              "sourcePath": "",
+              "containerSelector": "html > body:nth-of-type(1) > div:nth-of-type(6) > div.arco-modal-wrapper:nth-of-type(2) > div.arco-modal.react-draggable:nth-of-type(1) > div:nth-of-type(2) > div.arco-modal-content:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1) > div.arco-table.arco-table-size-default.arco-table-border:nth-of-type(1) > div.arco-spin:nth-of-type(1) > div.arco-spin-children:nth-of-type(1) > div.arco-table-container:nth-of-type(1) > div.arco-table-content-scroll:nth-of-type(1) > div.arco-table-content-inner:nth-of-type(1) > div.arco-table-body:nth-of-type(2) > table:nth-of-type(1)",
+              "rowSelectorMode": "css",
+              "rowSelector": "tbody > tr.arco-table-tr",
+              "actionRowOffset": 0,
+              "matchFields": [
+                {
+                  "selectorMode": "css",
+                  "rowSelector": "td.arco-table-td.colTitle-listingSku:nth-of-type(3) > div.arco-table-cell > span.arco-table-cell-wrap-value",
+                  "dataPath": "ibayBarcode",
+                  "matchMode": "exact",
+                  "readMode": "text",
+                  "attribute": "",
+                  "trim": true,
+                  "ignoreCase": false
+                }
+              ],
+              "matchedActions": [
+                {
+                  "type": "click",
+                  "selector": "div.arco-checkbox-mask",
+                  "advancedEnabled": false,
+                  "applyTo": "all"
+                }
+              ],
+              "unmatchedMode": "keep",
+              "deleteSelector": "",
+              "confirmSelector": "",
+              "waitAfterDeleteMs": 300,
+              "maxDeleteCount": 20,
+              "missingMatchAction": "stop",
+              "duplicateMatchAction": "all",
+              "emptySourceAction": "stop",
+              "outputName": "listOperationResult"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::0",
+            "type": "set-variable",
+            "name": "注入 退货商品",
+            "position": {
+              "x": 19012,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_refundItems",
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "退货商品",
+                "type": "array"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::1",
+            "type": "set-variable",
+            "name": "注入 商品详情",
+            "position": {
+              "x": 19392,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_orderDetail"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_orderDetail",
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_orderDetail"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "商品详情",
+                "type": "object"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::2",
+            "type": "set-variable",
+            "name": "注入 用户地址",
+            "position": {
+              "x": 19772,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "literal",
+                "value": "{{subflow_merge_label_orderDetail.cosInfo.address}}"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_address",
+              "value": {
+                "kind": "literal",
+                "value": "{{subflow_merge_label_orderDetail.cosInfo.address}}"
+              },
+              "path": "",
+              "interpolate": true,
+              "requiredInput": {
+                "name": "用户地址",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::3",
+            "type": "set-variable",
+            "name": "注入 工单Id",
+            "position": {
+              "x": 20152,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_workId"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_workId",
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_workId"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "工单Id",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::start_5dfc93f4",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 开始",
+            "position": {
+              "x": 20532,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "onSuccess": false,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "热点"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::code_ce23a291",
+            "type": "code",
+            "name": "无理由退货RPA-建label-多商品 · 判断退货SKU是否同一个仓库的SKU",
+            "position": {
+              "x": 20912,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "refund_items",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "refund_items"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "sameProductType",
+                  "valueType": "boolean",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                },
+                {
+                  "name": "productType",
+                  "valueType": "string",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const products=input.refund_items;\nlet productType = null;\nlet sameProductType = products.length > 0;\n\nfor (const product of products) {\n  const sku = String(product.sku || '').trim().toUpperCase();\n  const currentType = sku.startsWith('USAIS')\n    ? 'aisin'\n    : sku.startsWith('USPA')\n      ? 'pa'\n      : 'inHouse';\n\n  if (productType === null) {\n    productType = currentType;\n  } else if (currentType !== productType) {\n    sameProductType = false;\n  }\n}\n\nreturn {\n  sameProductType,\n  productType: sameProductType ? productType : 'mixed'\n};",
+              "outputName": "sameProductType",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::condition_9263b1d9",
+            "type": "condition",
+            "name": "无理由退货RPA-建label-多商品 · 是否是同类型的SKU",
+            "position": {
+              "x": 21292,
+              "y": 258.6666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "condition",
+              "left": {
+                "kind": "literal",
+                "value": ""
+              },
+              "path": "",
+              "equals": "",
+              "mode": "value",
+              "selector": "",
+              "aiPrompt": "",
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::llm::default-llm",
+              "operator": "equals",
+              "logic": "and",
+              "waitForCondition": false,
+              "waitTimeoutMs": 10000,
+              "pollIntervalMs": 500,
+              "clauses": [
+                {
+                  "binding": {
+                    "kind": "node-output",
+                    "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::code_ce23a291",
+                    "port": "sameProductType"
+                  },
+                  "path": "",
+                  "operator": "equals",
+                  "value": true
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_66c31ada",
+            "type": "switch",
+            "name": "无理由退货RPA-建label-多商品 · 多路判断",
+            "position": {
+              "x": 22052,
+              "y": 607.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "switch",
+              "mode": "value",
+              "left": {
+                "kind": "node-output",
+                "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::code_ce23a291",
+                "port": "productType"
+              },
+              "path": "",
+              "cases": [
+                "aisin",
+                "pa"
+              ],
+              "caseTypes": [
+                "string",
+                "string"
+              ],
+              "caseIds": [
+                "case_ba22e802",
+                "case_19345b65"
+              ],
+              "casePrompts": [
+                ""
+              ],
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::llm::default-llm",
+              "aiSystemPrompt": "",
+              "aiContext": "",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97607dea",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 返回父流程",
+            "position": {
+              "x": 23192,
+              "y": 303
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_563e5c54",
+            "type": "switch",
+            "name": "无理由退货RPA-建label-多商品 · 多路判断",
+            "position": {
+              "x": 22432,
+              "y": 607.2857142857142
+            },
+            "inputBindings": {
+              "left": {
+                "kind": "variable",
+                "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_address"
+              }
+            },
+            "config": {
+              "type": "switch",
+              "mode": "ai",
+              "left": {
+                "kind": "variable",
+                "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_address"
+              },
+              "path": "state",
+              "cases": [
+                "美东仓",
+                "美西仓"
+              ],
+              "caseIds": [
+                "case_d53a5a0f",
+                "case_a14241be"
+              ],
+              "casePrompts": [
+                "下面的美国州:ME, NH, VT, MA, RI, CT, NY, PA, NJ, DE, MD, VA, WV, OH, MI, IN, WI",
+                "下面的美国州:WA, OR, CA, NV, ID, MT, WY, UT, CO, AZ, NM, AK, HI, ND, SD"
+              ],
+              "llmId": "llm-1793153589600",
+              "aiSystemPrompt": "",
+              "aiContext": "这是用户的收获地址:{{shippingFromAddress}},请根据地址选择下面最近的仓库",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_3990ab03",
+            "type": "switch",
+            "name": "无理由退货RPA-建label-多商品 · 多路判断",
+            "position": {
+              "x": 22432,
+              "y": 1117.2857142857142
+            },
+            "inputBindings": {
+              "left": {
+                "kind": "variable",
+                "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_address"
+              }
+            },
+            "config": {
+              "type": "switch",
+              "mode": "ai",
+              "left": {
+                "kind": "variable",
+                "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_address"
+              },
+              "path": "state",
+              "cases": [
+                "美东仓",
+                "美西仓"
+              ],
+              "caseIds": [
+                "case_d53a5a0f",
+                "case_a14241be"
+              ],
+              "casePrompts": [
+                "下面的美国州:ME, NH, VT, MA, RI, CT, NY, PA, NJ, DE, MD, VA, WV, OH, MI, IN, WI",
+                "下面的美国州:WA, OR, CA, NV, ID, MT, WY, UT, CO, AZ, NM, AK, HI, ND, SD"
+              ],
+              "llmId": "llm-1793153589600",
+              "aiSystemPrompt": "",
+              "aiContext": "这是用户的收获地址:{{shippingFromAddress}},请根据地址选择下面最近的仓库",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_a855807a",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 22812,
+              "y": 437.2857142857143
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:AIS-美东仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option.arco-select-option-hover:nth-of-type(4)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_e619bcbc",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 22812,
+              "y": 607.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:AIS-美西仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(6)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_3f832153",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 22812,
+              "y": 777.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:AIS-美南仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(7)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_aa918622",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 22812,
+              "y": 947.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:PPW-美南仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option.arco-select-option-selected.arco-select-option-hover:nth-of-type(5)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_10e3533b",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 21672,
+              "y": 607.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "#warehouseId_input"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_24681373",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 售后方案判断",
+            "position": {
+              "x": 22812,
+              "y": 1287.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:PPW-美西仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option.arco-select-option-hover:nth-of-type(3)"
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_46a1a5fc",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 页面操作",
+            "position": {
+              "x": 22812,
+              "y": 1117.2857142857142
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": [
+                {
+                  "type": "click",
+                  "selector": "text-exact:PPW-美东仓 · 父级:html > body:nth-of-type(1) > div.arco-drawer-wrapper:nth-of-type(5) > div.arco-drawer:nth-of-type(2) > div.arco-drawer-inner:nth-of-type(1) > div.arco-drawer-scroll:nth-of-type(1) > div.arco-drawer-content.arco-drawer-content-nofooter:nth-of-type(2) > div:nth-of-type(2) > span.arco-trigger.arco-trigger-position-bottom:nth-of-type(1) > div.arco-select-popup:nth-of-type(1) > div.arco-select-popup-inner:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > li.arco-select-option:nth-of-type(2)"
+                },
+                {
+                  "type": "click",
+                  "selector": ""
+                }
+              ]
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_d053fce9",
+            "type": "handoff",
+            "name": "无理由退货RPA-建label-多商品 · 通知",
+            "position": {
+              "x": 21672,
+              "y": 242
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "handoff",
+              "note": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_workId}}:退货商品存在不同品牌，请手动创建Label"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "enabled": true,
+              "onSuccess": true,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_workId}}:退货商品存在不同品牌，请手动创建Label"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_080b02f2",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 返回父流程",
+            "position": {
+              "x": 22052,
+              "y": 242
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_31fa8665",
+            "type": "handoff",
+            "name": "无理由退货RPA-建label-多商品 · 通知",
+            "position": {
+              "x": 22432,
+              "y": 303
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "handoff",
+              "note": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_workId}},全部商品都会PA商品，请手动建立Label"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "enabled": true,
+              "onSuccess": true,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_c2918d21_workId}},全部商品都会PA商品，请手动建立Label"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1",
+            "type": "page-action",
+            "name": "无理由退货RPA-建label-多商品 · 返回父流程",
+            "position": {
+              "x": 23192,
+              "y": 473
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::0",
+            "type": "set-variable",
+            "name": "注入 退货商品",
+            "position": {
+              "x": 18632,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_refundItems",
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_refundItems"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "退货商品",
+                "type": "array"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::1",
+            "type": "set-variable",
+            "name": "注入 工单Id",
+            "position": {
+              "x": 19012,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_workId"
+              }
+            },
+            "config": {
+              "type": "set-variable",
+              "name": "subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_workId",
+              "value": {
+                "kind": "variable",
+                "name": "subflow_merge_label_workId"
+              },
+              "path": "",
+              "interpolate": false,
+              "requiredInput": {
+                "name": "工单Id",
+                "type": "string"
+              }
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::start_5dfc93f4",
+            "type": "page-action",
+            "name": "建label-单商品-子流程 · 开始",
+            "position": {
+              "x": 19392,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "onSuccess": false,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "热点"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::code_ce23a291",
+            "type": "code",
+            "name": "建label-单商品-子流程 · 提取SKU的商品类型",
+            "position": {
+              "x": 19772,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "code",
+              "preset": "custom",
+              "input": {
+                "kind": "literal",
+                "value": ""
+              },
+              "inputs": [
+                {
+                  "name": "refund_items",
+                  "binding": {
+                    "kind": "variable",
+                    "name": "refund_items"
+                  }
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "productType",
+                  "valueType": "any",
+                  "outputMode": "produce",
+                  "updateVariable": ""
+                }
+              ],
+              "code": "const products=input.refund_items;\nlet productType = null;\nlet sameProductType = products.length > 0;\nconst product=products[0];\n\nconst sku = String(product.ibayBarcode || '').trim();\nconst currentType = sku.startsWith('USAIS')\n    ? 'aisin'\n    : sku.startsWith('USPA-')\n      ? 'pa'\n      : 'inHouse';\n\n\nreturn {\n  productType\n};",
+              "outputName": "productType",
+              "outputMode": "produce",
+              "updateVariable": ""
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::switch_66c31ada",
+            "type": "switch",
+            "name": "建label-单商品-子流程 · 多路判断",
+            "position": {
+              "x": 22432,
+              "y": 28.66666666666667
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "switch",
+              "mode": "value",
+              "left": {
+                "kind": "node-output",
+                "nodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::code_ce23a291",
+                "port": "productType"
+              },
+              "path": "",
+              "cases": [
+                "pa"
+              ],
+              "caseTypes": [
+                "string"
+              ],
+              "caseIds": [
+                "case_19345b65"
+              ],
+              "casePrompts": [],
+              "llmId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::llm::default-llm",
+              "aiSystemPrompt": "",
+              "aiContext": "",
+              "reasonOutputName": "reason"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_97607dea",
+            "type": "page-action",
+            "name": "建label-单商品-子流程 · 返回父流程",
+            "position": {
+              "x": 23192,
+              "y": 182
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_ec38b097",
+            "type": "handoff",
+            "name": "建label-单商品-子流程 · 通知",
+            "position": {
+              "x": 22812,
+              "y": 12
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "handoff",
+              "note": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_workId}}: 存在Pa商品，请手动建立label"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "enabled": true,
+              "onSuccess": true,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_workId}}: 存在Pa商品，请手动建立label"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_780c59af",
+            "type": "page-action",
+            "name": "建label-单商品-子流程 · 返回父流程",
+            "position": {
+              "x": 23192,
+              "y": 12
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "page-action",
+              "steps": []
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            }
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_14504fab",
+            "type": "handoff",
+            "name": "建label-单商品-子流程 · 通知",
+            "position": {
+              "x": 22812,
+              "y": 182
+            },
+            "inputBindings": {},
+            "config": {
+              "type": "handoff",
+              "note": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_workId}}，已完成label新建"
+            },
+            "execution": {
+              "timeoutMs": 30000,
+              "maxAttempts": 1,
+              "onError": "human-handoff"
+            },
+            "notifications": {
+              "enabled": true,
+              "onSuccess": true,
+              "onFailure": false,
+              "onApprovalPending": false,
+              "onApprovalApproved": false,
+              "onApprovalRejected": false,
+              "onApprovalTimeout": false,
+              "messageTemplate": "工单-{{subflow_merge_label__wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1__call_subflow_35e7b42e_workId}}，已完成label新建"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "edge_f5b6a7fb",
+            "sourceNodeId": "start_5dfc93f4",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0"
+          },
+          {
+            "id": "edge_f36d48bc",
+            "sourceNodeId": "condition_0bb3dcd7",
+            "sourcePort": "else",
+            "targetNodeId": "end_dd7c523b"
+          },
+          {
+            "id": "edge_d0825556",
+            "sourceNodeId": "condition_0bb3dcd7",
+            "sourcePort": "matched",
+            "targetNodeId": "call-subflow_10c0b468"
+          },
+          {
+            "id": "edge_e2bfee78",
+            "sourceNodeId": "page-action_46872c06",
+            "sourcePort": "default",
+            "targetNodeId": "wait_e4a8e533"
+          },
+          {
+            "id": "edge_a7d32d36",
+            "sourceNodeId": "wait_e4a8e533",
+            "sourcePort": "default",
+            "targetNodeId": "page-action_80412873"
+          },
+          {
+            "id": "edge_97f13456",
+            "sourceNodeId": "page-action_80412873",
+            "sourcePort": "default",
+            "targetNodeId": "page-action_605136f8"
+          },
+          {
+            "id": "edge_d4744d57",
+            "sourceNodeId": "api-request_206cd466",
+            "sourcePort": "default",
+            "targetNodeId": "api-request_c2c97f66"
+          },
+          {
+            "id": "edge_a882b6ee",
+            "sourceNodeId": "api-request_c2c97f66",
+            "sourcePort": "default",
+            "targetNodeId": "api-request_29be0074"
+          },
+          {
+            "id": "merge_order_query",
+            "sourceNodeId": "api-request_29be0074",
+            "sourcePort": "default",
+            "targetNodeId": "page-action_46872c06"
+          },
+          {
+            "id": "merge_enter",
+            "sourceNodeId": "page-action_605136f8",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::chain::0",
+            "sourceNodeId": "call-subflow_41a6a3b0",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::inject::0"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::chain::1",
+            "sourceNodeId": "call-subflow_41a6a3b0::inject::0",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::inject::1"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::chain::2",
+            "sourceNodeId": "call-subflow_41a6a3b0::inject::1",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::start_fd9aa322"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::edge_dac887b3",
+            "sourceNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::start_fd9aa322",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::page-action_c800434a"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::edge_914963cc",
+            "sourceNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::page-action_c800434a",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::api-listen_0bfd39e5"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::edge_d22a3a0b",
+            "sourceNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::api-listen_0bfd39e5",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::end_15d96ea1"
+          },
+          {
+            "id": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::end_15d96ea1::return::0",
+            "sourceNodeId": "call-subflow_41a6a3b0::wf_b8cc2094_6fef_4bc1_aaf3_a1e3920668ae_v1::end_15d96ea1",
+            "sourcePort": "default",
+            "targetNodeId": "condition_0bb3dcd7"
+          },
+          {
+            "id": "call-subflow_10c0b468::chain::0",
+            "sourceNodeId": "call-subflow_10c0b468",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::inject::0"
+          },
+          {
+            "id": "call-subflow_10c0b468::chain::1",
+            "sourceNodeId": "call-subflow_10c0b468::inject::0",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::inject::1"
+          },
+          {
+            "id": "call-subflow_10c0b468::chain::2",
+            "sourceNodeId": "call-subflow_10c0b468::inject::1",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::start_b8724363"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_a58c572e",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::page-action_3297ebaa",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::condition_c98eef8c"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_57c88b62",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::condition_c98eef8c",
+            "sourcePort": "else",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_1f3785c5"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_17d773b0",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_1f3785c5",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_c0f7baff"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_9bc99592",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::condition_c98eef8c",
+            "sourcePort": "matched",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_871436a1"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_92026f7b",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::set-variable_871436a1",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_100899ad"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::edge_94d2984f",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::start_b8724363",
+            "sourcePort": "default",
+            "targetNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::page-action_3297ebaa"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_100899ad::return::0",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_100899ad",
+            "sourcePort": "default",
+            "targetNodeId": "api-request_206cd466"
+          },
+          {
+            "id": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_c0f7baff::return::0",
+            "sourceNodeId": "call-subflow_10c0b468::wf_7b9b337a_692b_4445_b7e0_04bb04fe036a_v2::end_c0f7baff",
+            "sourcePort": "default",
+            "targetNodeId": "api-request_206cd466"
+          },
+          {
+            "id": "merge_label::chain::0",
+            "sourceNodeId": "merge_label",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::inject::0"
+          },
+          {
+            "id": "merge_label::chain::1",
+            "sourceNodeId": "merge_label::inject::0",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::inject::1"
+          },
+          {
+            "id": "merge_label::chain::2",
+            "sourceNodeId": "merge_label::inject::1",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::inject::2"
+          },
+          {
+            "id": "merge_label::chain::3",
+            "sourceNodeId": "merge_label::inject::2",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::inject::3"
+          },
+          {
+            "id": "merge_label::chain::4",
+            "sourceNodeId": "merge_label::inject::3",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::start_5dfc93f4"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_d81ddc30",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_676da5a8",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_3e56a7f0"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_6e07291c",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_a80a5ad9",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_0dfa67dd"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_f7bbacdf",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_a80a5ad9",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7d9e70fd"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_846688ec",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_4111ac4f",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_d7d2afb9",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7b7ae1e2",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_4e79a299",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_0dfa67dd",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_4111ac4f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_1e158d74",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7d9e70fd",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_7b7ae1e2"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_856686cf",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06247a66",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_676da5a8"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_d996fe7a",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_93963681",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_a80a5ad9"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_8348545e",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_14f4701a",
+            "sourcePort": "case-1",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_6a573322"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_90947c2e",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_14f4701a",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_81f2877b"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_ae7660d6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_6a573322",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9edffffb"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_05a65fca",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_81f2877b",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06535c0c"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_9be7c1e0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9d7f5b35",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_09bcea2f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_14f4701a"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_d0e38252",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9edffffb",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_4ca9e604"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_9375de66",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06535c0c",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_4ca9e604"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_443bd0a1",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::switch_14f4701a",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_b650be8d"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_a1a03fdc",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_b650be8d",
+            "sourcePort": "matched",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_93963681"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_bb7d36a9",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_b650be8d",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_857956a8"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_b40af60f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_4ca9e604",
+            "sourcePort": "matched",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_c25e789b",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_4ca9e604",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_34444821",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_857956a8",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_cf625b36"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_3dc98900",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_cf625b36",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_43c1c899",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::end_cc58e7ad"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_30a81be6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_aeb5db5f",
+            "sourcePort": "matched",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_cd5db5d7"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_95514b00",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_4dc88a35",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_c960ffec"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_871d49fe",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9b7fb607",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::agent_f463f5c3"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_4b9eb904",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::agent_f463f5c3",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_aeb5db5f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_896352e5",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_62019a1e",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_4dc88a35"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_827976c2",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_aeb5db5f",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_baee0330"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_b6ed40a6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_baee0330",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_62019a1e"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_f7a393a9",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::start_5dfc93f4",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_41958ee8"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_73028d19",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_41958ee8",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_06247a66"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_975d817f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_cd5db5d7",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_c576d323"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_d945f39f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::wait_c576d323",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9d7f5b35"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_507255f2",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::code_3e56a7f0",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_12d8a1c2"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_9072fc72",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_12d8a1c2",
+            "sourcePort": "matched",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9b7fb607"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_f08b6982",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::condition_12d8a1c2",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_7312f7ef"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::edge_e4cfe48c",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::list-row-action_7312f7ef",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_9b7fb607"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::end_cc58e7ad::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::end_cc58e7ad",
+            "sourcePort": "default",
+            "targetNodeId": "merge_end"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::chain::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::0"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::chain::1",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::0",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::chain::2",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::1",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::2"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::chain::3",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::2",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::3"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::chain::4",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::inject::3",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::start_5dfc93f4"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_fe220bf2",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_66c31ada",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_563e5c54"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_ce10cc72",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_66c31ada",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_3990ab03"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_8e3237fb",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_563e5c54",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_a855807a"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_fc08bacc",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_563e5c54",
+            "sourcePort": "case-1",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_e619bcbc"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_220fdd8d",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_563e5c54",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_3f832153"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_a17c03b6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_3990ab03",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_aa918622"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_9a0d1f77",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::condition_9263b1d9",
+            "sourcePort": "matched",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_10e3533b"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_7553ecb9",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_10e3533b",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_66c31ada"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_f4fb449f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_3990ab03",
+            "sourcePort": "case-1",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_24681373"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_89b493f6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_3990ab03",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_46a1a5fc"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_ff6cb085",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_a855807a",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_c2febe36",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_e619bcbc",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_4f2ee99f",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_3f832153",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_322cb537",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_46a1a5fc",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_c15309ce",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_24681373",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_b5c6f83b",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::page-action_aa918622",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_01bcfbd6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::start_5dfc93f4",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::code_ce23a291"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_d9abb0e9",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::code_ce23a291",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::condition_9263b1d9"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_e06a9695",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::condition_9263b1d9",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_d053fce9"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_19f32d51",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_d053fce9",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_080b02f2"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_2f2b1f75",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::switch_66c31ada",
+            "sourcePort": "case-1",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_31fa8665"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::edge_9ac92110",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::handoff_31fa8665",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97607dea"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97607dea::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97607dea",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_080b02f2::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_080b02f2",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::end_97146fc1",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::chain::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::0"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::chain::1",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::0",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::1"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::chain::2",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::inject::1",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::start_5dfc93f4"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_01bcfbd6",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::start_5dfc93f4",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::code_ce23a291"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_eb18d4df",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::switch_66c31ada",
+            "sourcePort": "case-0",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_ec38b097"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_89510f38",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_ec38b097",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_780c59af"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_f428e497",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::code_ce23a291",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::switch_66c31ada"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_878df2ac",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::switch_66c31ada",
+            "sourcePort": "else",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_14504fab"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::edge_d9ea2861",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::handoff_14504fab",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_97607dea"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_97607dea::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_97607dea",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f"
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_780c59af::return::0",
+            "sourceNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::end_780c59af",
+            "sourcePort": "default",
+            "targetNodeId": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::page-action_f251972f"
+          }
+        ],
+        "webhook": {
+          "url": "https://oapi.dingtalk.com/robot/send?access_token=1676f3a6d031c742e0e74e1bded7537dd784e867fcaca046b450c9a634ed3286",
+          "destinations": [
+            {
+              "id": "default",
+              "name": "工单测试群",
+              "url": "https://oapi.dingtalk.com/robot/send?access_token=1676f3a6d031c742e0e74e1bded7537dd784e867fcaca046b450c9a634ed3286"
+            }
+          ],
+          "onFinished": true,
+          "provider": "dingtalk",
+          "messageTemplate": "rpa通知:"
+        },
+        "context": {
+          "inputs": [
+            {
+              "name": "workId",
+              "type": "string",
+              "required": false,
+              "defaultValue": "280395",
+              "secret": false,
+              "description": "工单Id"
+            },
+            {
+              "name": "pmsUserName",
+              "type": "string",
+              "required": false,
+              "defaultValue": "13107639818",
+              "secret": false,
+              "description": "pms账号"
+            },
+            {
+              "name": "pmsPassword",
+              "type": "string",
+              "required": false,
+              "defaultValue": "YT20242924@f@",
+              "secret": false,
+              "description": "pms密码"
+            },
+            {
+              "name": "omsUserName",
+              "type": "string",
+              "required": false,
+              "defaultValue": "YT20242924",
+              "secret": false,
+              "description": "oms账号"
+            },
+            {
+              "name": "omsPassword",
+              "type": "string",
+              "required": false,
+              "defaultValue": "AA@5626771jj",
+              "secret": false,
+              "description": "oms密码"
+            }
+          ],
+          "variables": [
+            {
+              "name": "shopId",
+              "type": "number",
+              "required": false,
+              "defaultValue": 2022,
+              "secret": false,
+              "description": "店铺ID"
+            },
+            {
+              "name": "api",
+              "type": "string",
+              "required": false,
+              "defaultValue": " https://seller-api.a-premium.com",
+              "secret": false,
+              "description": ""
+            },
+            {
+              "name": "sale_account",
+              "type": "string",
+              "required": false,
+              "defaultValue": "ourplatform_A-premium",
+              "secret": false,
+              "description": ""
+            },
+            {
+              "name": "oms_domain",
+              "type": "string",
+              "required": false,
+              "defaultValue": "https://ytoms.cht-group.net",
+              "secret": false,
+              "description": "oms地址"
+            }
+          ]
+        },
+        "llm": {
+          "id": "default-llm",
+          "name": "默认 AI",
+          "enabled": true,
+          "provider": "openai-compatible",
+          "model": "/data/models/Qwen3-32B-AWQ",
+          "baseUrl": "http://172.30.30.153:8000",
+          "chatPath": "/v1/chat/completions",
+          "apiKey": "",
+          "temperature": 0.2,
+          "maxTokens": 2048
+        },
+        "llms": [
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::llm::default-llm",
+            "name": "默认 AI",
+            "enabled": true,
+            "model": "/data/models/Qwen3-32B-AWQ",
+            "baseUrl": "http://172.30.30.153:8000",
+            "chatPath": "/v1/chat/completions",
+            "apiKey": "",
+            "maxTokens": 2048
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_c2918d21::wf_8e00c19d_8a02_4845_91da_07ea330609c1_v4::llm::default-llm",
+            "name": "默认 AI",
+            "enabled": true,
+            "model": "/data/models/Qwen3-32B-AWQ",
+            "baseUrl": "http://172.30.30.153:8000",
+            "chatPath": "/v1/chat/completions",
+            "apiKey": "",
+            "maxTokens": 2048
+          },
+          {
+            "id": "merge_label::wf_3d98af6e_037f_4dd1_b0f4_c8193b7f4897_v1::call-subflow_35e7b42e::wf_9aa995d3_806b_42f0_85ce_d1ae87d9da7c_v9::llm::default-llm",
+            "name": "默认 AI",
+            "enabled": true,
+            "model": "/data/models/Qwen3-32B-AWQ",
+            "baseUrl": "http://172.30.30.153:8000",
+            "chatPath": "/v1/chat/completions",
+            "apiKey": "",
+            "maxTokens": 2048
+          }
+        ]
+      }
+    }
+  ]
+}

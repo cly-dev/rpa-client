@@ -465,6 +465,26 @@ function isDropdownPopupParentPath(parentPath: string): boolean {
   return /(?:arco-(?:tree-)?select-popup|arco-trigger-popup|ant-select-dropdown|el-select-dropdown|\[role=["']?(?:listbox|menu)["']?\])/i.test(parentPath)
 }
 
+/** Only relax a picked portal root, never a deliberate inner form/section scope. */
+function isIndexedArcoDrawerRoot(parentPath: string): boolean {
+  return /^html\s*>\s*body(?::nth-of-type\(1\))?\s*>\s*div\.arco-drawer-wrapper(?::nth-of-type\(\d+\))?$/.test(parentPath.trim())
+}
+
+async function resolveReadableDrawerTextLocator(page: Pick<Page, 'locator'>, readable: ReadableScopedTextSelector, timeoutMs: number): Promise<Locator> {
+  const drawers = page.locator('.arco-drawer-wrapper:visible')
+  const matches = drawers.getByText(readable.text, { exact: true }).visible()
+  // Do not trust an occurrence index captured in a different drawer instance.
+  const target = matches.first()
+  try {
+    await target.waitFor({ state: 'visible', timeout: Math.max(1, timeoutMs) })
+  } catch (error) {
+    throw new Error(`等待抽屉内可见文本「${readable.text}」超时：当前可见抽屉 ${await drawers.count()} 个。原拾取路径 ${readable.parentPath} 的序号可能已变化，也可能尚未打开目标抽屉`, { cause: error })
+  }
+  const count = await matches.count()
+  if (count !== 1) throw new Error(`当前可见抽屉内精确文本「${readable.text}」匹配到 ${count} 个元素，无法确定目标，请在具体表单或按钮范围内重新拾取`)
+  return target
+}
+
 async function resolveReadablePopupTextLocator(
   page: Pick<Page, 'locator'>,
   readable: ReadableScopedTextSelector,
@@ -484,6 +504,7 @@ async function resolveTargetLocator(page: Page, selector: string, timeoutMs: num
   const readable = parseReadableScopedTextSelector(selector)
   if (readable !== undefined) {
     if (isDropdownPopupParentPath(readable.parentPath)) return resolveReadablePopupTextLocator(page, readable, timeoutMs)
+    if (requireVisible && isIndexedArcoDrawerRoot(readable.parentPath)) return resolveReadableDrawerTextLocator(page, readable, timeoutMs)
     let parent: Locator
     try {
       parent = page.locator(readable.parentPath)
