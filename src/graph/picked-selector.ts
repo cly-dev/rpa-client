@@ -40,7 +40,14 @@ export function shouldInsertDropdownTrigger(previousClickSelectors: readonly str
 
 export function isPickedDropdownOption(selector: string): boolean {
   const parsed = parseFingerprint(selector)
-  return parsed?.tag === 'option' || parsed?.role === 'option' || parsed?.role === 'menuitem' || parsed?.role === 'treeitem'
+  if (parsed?.tag === 'option' || parsed?.role === 'option' || parsed?.role === 'menuitem' || parsed?.role === 'treeitem') return true
+  // Readable selectors produced by the picker carry the option's popup as
+  // their parent instead of an encoded role/tag fingerprint.
+  const separator = ' · 父级:'
+  const separatorAt = selector.lastIndexOf(separator)
+  if (!selector.startsWith('text-exact:') || separatorAt < 0) return false
+  const parentPath = selector.slice(separatorAt + separator.length)
+  return /(?:arco-(?:tree-)?select-popup|arco-trigger-popup|arco-select-popup|ant-select-dropdown|el-select-dropdown|\[role=["']?(?:listbox|menu)["']?\])/i.test(parentPath)
 }
 
 export function looksLikeDropdownTrigger(selector: string): boolean {

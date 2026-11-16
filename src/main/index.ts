@@ -13,6 +13,7 @@ import { runWorkflowCode } from '@runner/code-runtime.ts'
 import { BrowserOperationGate } from './browser-operation.ts'
 import { createLazyBrowserDriver } from './lazy-browser-driver.ts'
 import { failedAtPageAction } from './page-action-debug.ts'
+import type { RecordedPageEvent } from '@runner/recording.ts'
 import { mergePickerRunState, pendingPickerSteps } from './picker-progress.ts'
 import { checkBrowserReadiness } from '@runner/browser-readiness.ts'
 import { ClientScheduleClock, type ClientScheduleRule } from './schedule-clock.ts'
@@ -82,6 +83,9 @@ app.whenReady().then(() => {
   const browserGate = new BrowserOperationGate()
   let pickerProgress: { session: PlaywrightSession; workflowId: string; nodeId: string; stepIndex: number; fingerprint: string; pageUrl: string; state: RunState } | undefined
   let stopPageEnvironment: (() => void) | undefined
+  let recordingSession: PlaywrightSession | undefined
+  let recordingRelease: (() => void) | undefined
+  let recordingSenderId: number | undefined
   const clearPageEnvironmentListener = (): void => {
     stopPageEnvironment?.()
     stopPageEnvironment = undefined
@@ -353,6 +357,58 @@ app.whenReady().then(() => {
       return { ok: false, message: `无法连接 AI 服务：${error instanceof Error ? error.message : String(error)}` }
     }
   })
+  ipcMain.handle('browser:record-start', async (event, raw: unknown) => {
+    const payload = typeof raw === 'object' && raw !== null ? raw as { url?: unknown } : {}
+    const url = typeof payload.url === 'string' ? payload.url.trim() : ''
+    if (!/^https?:\/\//i.test(url)) throw new Error('请输入 http 或 https 开头的网页地址')
+    const release = browserGate.begin('页面录制')
+    try {
+      await closeCurrentSession()
+      const recorder = await openPlaywrightSession({ packaged: app.isPackaged })
+      session = recorder
+      recordingSession = recorder
+      recordingSenderId = event.sender.id
+      recordingRelease = release
+      const cleanupIfRendererLost = (): void => {
+        if (recordingSenderId !== event.sender.id) return
+        const lost = recordingSession
+        recordingSession = undefined
+        recordingSenderId = undefined
+        recordingRelease?.()
+        recordingRelease = undefined
+        if (session === lost) session = undefined
+        if (lost !== undefined) void lost.stopRecording().finally(() => lost.close().catch(() => undefined))
+      }
+      event.sender.once('destroyed', cleanupIfRendererLost)
+      event.sender.once('render-process-gone', cleanupIfRendererLost)
+      const initialUrl = await recorder.startRecording(url, (recorded: RecordedPageEvent) => {
+        if (!event.sender.isDestroyed()) event.sender.send('browser:record-event', recorded)
+      }, count => {
+        if (!event.sender.isDestroyed()) event.sender.send('browser:record-count', count)
+      }, () => {
+        if (!event.sender.isDestroyed()) event.sender.send('browser:record-finish-request')
+      })
+      return { initialUrl }
+    } catch (error) {
+      recordingSession = undefined
+      recordingSenderId = undefined
+      recordingRelease = undefined
+      release()
+      await closeCurrentSession()
+      throw error
+    }
+  })
+  ipcMain.handle('browser:record-stop', async (event) => {
+    if (recordingSession === undefined || recordingSenderId !== event.sender.id) throw new Error('当前没有属于此工作台窗口的录制会话')
+    const recorder = recordingSession
+    recordingSession = undefined
+    recordingSenderId = undefined
+    try { return await recorder.stopRecording() }
+    finally {
+      recordingRelease?.()
+      recordingRelease = undefined
+    }
+  })
   ipcMain.handle('browser:pick-element', async (_event, url?: unknown) => {
     const release = browserGate.begin('拾取元素')
     try {
@@ -592,6 +648,8 @@ app.whenReady().then(() => {
   })
   app.on('before-quit', () => {
     clearPageEnvironmentListener()
+    recordingRelease?.()
+    recordingRelease = undefined
     void session?.close()
   })
 

@@ -46,6 +46,23 @@ const studio = {
     ipcRenderer.on('browser:page-environment', listen)
     return () => { ipcRenderer.removeListener('browser:page-environment', listen) }
   },
+  startPageRecording: (url: string) => ipcRenderer.invoke('browser:record-start', { url }) as Promise<{ initialUrl: string }>,
+  stopPageRecording: () => ipcRenderer.invoke('browser:record-stop') as Promise<readonly import('../runner/recording.ts').RecordedPageEvent[]>,
+  onPageRecordingEvent: (callback: (event: import('../runner/recording.ts').RecordedPageEvent) => void) => {
+    const listen = (_event: unknown, value: import('../runner/recording.ts').RecordedPageEvent): void => { callback(value) }
+    ipcRenderer.on('browser:record-event', listen)
+    return () => { ipcRenderer.removeListener('browser:record-event', listen) }
+  },
+  onPageRecordingCount: (callback: (count: number) => void) => {
+    const listen = (_event: unknown, count: number): void => { callback(count) }
+    ipcRenderer.on('browser:record-count', listen)
+    return () => { ipcRenderer.removeListener('browser:record-count', listen) }
+  },
+  onPageRecordingFinishRequested: (callback: () => void) => {
+    const listen = (): void => { callback() }
+    ipcRenderer.on('browser:record-finish-request', listen)
+    return () => { ipcRenderer.removeListener('browser:record-finish-request', listen) }
+  },
   testLlm: (config: WorkflowGraph['llm']) => ipcRenderer.invoke('llm:test', config) as Promise<{ ok: boolean; message: string }>,
   testCode: (code: string, input: JsonValue, variables?: Readonly<Record<string, JsonValue>>) => ipcRenderer.invoke('workflow:test-code', { code, input, variables }) as Promise<{ ok: boolean; result?: JsonValue; message?: string }>,
   pickElement: (url?: string, mode: 'element' | 'list' | 'list-container' | 'list-row' | 'row-element' = 'element', pickOptions?: { scopeSelector?: string; rowSelectorMode?: 'css' | 'class-contains'; rowSelector?: string; rowOffset?: -1 | 0 | 1 }) => ipcRenderer.invoke('browser:pick-element', { url, mode, ...pickOptions }) as Promise<{ tagName: string; text: string; id: string; className: string; ariaLabel: string; role: string; placeholder: string; selector: string; url: string; title: string; optionValue?: string; triggerSelector?: string; optionSelector?: string; rowSelectorMode?: 'css' | 'class-contains'; rowSelectorValue?: string; relativeSelectorMode?: 'css' | 'class-contains'; relativeSelectorValue?: string }>,

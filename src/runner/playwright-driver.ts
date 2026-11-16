@@ -7,12 +7,15 @@ import type { BrowserDriver, ListRowOperationRequest, ListRowOperationResult, Vi
 import { ApiResponseError } from './api-response-error.ts'
 import { browserExecutablePath, checkBrowserReadiness } from './browser-readiness.ts'
 import { listRowValuesMatch } from './list-row-match.ts'
+import type { RecordedPageEvent } from './recording.ts'
 import type { AgentOutputField, JsonValue, WorkflowLlmConfig } from '@graph/types.ts'
 
 export interface PlaywrightSession {
   readonly driver: BrowserDriver
   isUsable(): boolean
   pickElement(url?: string, mode?: ElementPickMode, options?: ElementPickOptions): Promise<PickedElement>
+  startRecording(url: string, onEvent?: (event: RecordedPageEvent) => void, onCount?: (count: number) => void, onFinish?: () => void): Promise<string>
+  stopRecording(): Promise<readonly RecordedPageEvent[]>
   openDebugCopy(): Promise<PlaywrightSession>
   close(): Promise<void>
 }
@@ -452,25 +455,35 @@ async function resolveTreeOptionLocator(page: Page, fingerprint: ElementFingerpr
 }
 
 async function clickResolvedLocator(locator: Locator, timeoutMs: number): Promise<void> {
-  const role = await locator.getAttribute('role').catch(() => null)
-  const expanded = await locator.getAttribute('aria-expanded').catch(() => null)
-  if (shouldSkipExpandedTrigger(role, expanded)) return
-  const budget = Math.max(400, Math.min(5_000, timeoutMs))
-  await locator.scrollIntoViewIfNeeded({ timeout: Math.min(2_000, budget) }).catch(() => undefined)
-  try {
-    await locator.click({ force: true, timeout: budget })
-  } catch (error) {
-    try {
-      await locator.evaluate((element) => { (element as HTMLElement).click() })
-    } catch {
-      throw error
-    }
-  }
+  await locator.scrollIntoViewIfNeeded({ timeout: Math.min(2_000, timeoutMs) }).catch(() => undefined)
+  // Keep Playwright's hit-target/actionability checks. A forced or DOM-level
+  // click can report success while a loading mask receives the real pointer.
+  await locator.click({ timeout: timeoutMs })
+}
+
+function isDropdownPopupParentPath(parentPath: string): boolean {
+  return /(?:arco-(?:tree-)?select-popup|arco-trigger-popup|ant-select-dropdown|el-select-dropdown|\[role=["']?(?:listbox|menu)["']?\])/i.test(parentPath)
+}
+
+async function resolveReadablePopupTextLocator(
+  page: Pick<Page, 'locator'>,
+  readable: ReadableScopedTextSelector,
+  timeoutMs: number,
+): Promise<Locator> {
+  const popupRoots = page.locator('.arco-select-popup:visible, .arco-tree-select-popup:visible, .ant-select-dropdown:visible, .el-select-dropdown:visible, [role="listbox"]:visible, [role="menu"]:visible')
+  const matches = popupRoots.getByText(readable.text, { exact: true }).visible()
+  const target = readable.textIndex === undefined ? matches.first() : matches.nth(readable.textIndex)
+  await target.waitFor({ state: 'visible', timeout: Math.max(1, timeoutMs) })
+  const count = await matches.count()
+  if (readable.textIndex === undefined && count > 1) throw new Error(`当前可见下拉弹层中的精确文本「${readable.text}」匹配到 ${count} 个元素`)
+  if (readable.textIndex !== undefined && count <= readable.textIndex) throw new Error(`当前可见下拉弹层中的精确文本「${readable.text}」只有 ${count} 个，找不到第 ${readable.textIndex + 1} 个`)
+  return target
 }
 
 async function resolveTargetLocator(page: Page, selector: string, timeoutMs: number, requireVisible = true): Promise<Locator> {
   const readable = parseReadableScopedTextSelector(selector)
   if (readable !== undefined) {
+    if (isDropdownPopupParentPath(readable.parentPath)) return resolveReadablePopupTextLocator(page, readable, timeoutMs)
     let parent: Locator
     try {
       parent = page.locator(readable.parentPath)
@@ -560,6 +573,10 @@ export async function waitForPickedSelector(
   const timeout = Math.max(1, timeoutMs)
   const readable = parseReadableScopedTextSelector(selector)
   if (readable !== undefined) {
+    if (state === 'visible' && isDropdownPopupParentPath(readable.parentPath)) {
+      await resolveReadablePopupTextLocator(page, readable, timeout)
+      return
+    }
     const matches = page.locator(readable.parentPath).getByText(readable.text, { exact: true })
     await (readable.textIndex === undefined ? matches.first() : matches.nth(readable.textIndex)).waitFor({ state, timeout })
     return
@@ -1272,6 +1289,55 @@ function createDriver(page: Page): BrowserDriver {
         if (Date.now() >= deadline) throw new Error(`等待元素变为可点击状态超时（${timeoutMs}ms）：${displaySelector(selector)}`)
         await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())))
       }
+    },
+    async waitForLoading(selector: string, timeoutMs = 30_000): Promise<boolean> {
+      const appearanceWindowMs = Math.min(500, timeoutMs)
+      if (selector.trim() !== '') {
+        const loader = page.locator(selector).first()
+        try { await loader.waitFor({ state: 'visible', timeout: appearanceWindowMs }) }
+        catch (error) {
+          if (error instanceof Error && /Timeout/i.test(error.message)) return false
+          throw error
+        }
+        await loader.waitFor({ state: 'hidden', timeout: timeoutMs })
+        return true
+      }
+      const selectors = [
+        '.arco-spin-loading', '.arco-spin-mask',
+        '.el-loading-mask',
+        '.ant-spin-spinning',
+        '.MuiBackdrop-root',
+        '.loading-mask', '.loading-overlay', '[data-loading-overlay]',
+        '[class*="loading-mask"]', '[class*="LoadingMask"]', '[class*="loading-overlay"]', '[class*="LoadingOverlay"]',
+      ]
+      let detected: string[] = []
+      try {
+        const result = await page.waitForFunction((candidateSelectors) => {
+          const visible = (element: Element): boolean => {
+            const style = getComputedStyle(element)
+            const bounds = element.getBoundingClientRect()
+            return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && style.pointerEvents !== 'none' && bounds.width > 0 && bounds.height > 0
+          }
+          const matches = candidateSelectors.filter(candidate => Array.from(document.querySelectorAll(candidate)).some(visible))
+          return matches.length > 0 ? matches : false
+        }, selectors, { timeout: appearanceWindowMs, polling: 50 })
+        detected = await result.jsonValue<string[]>()
+      } catch (error) {
+        if (error instanceof Error && /Timeout/i.test(error.message)) return false
+        throw error
+      }
+      if (detected.length === 0) return false
+      try {
+        await page.waitForFunction((candidateSelectors) => !candidateSelectors.some(candidate => Array.from(document.querySelectorAll(candidate)).some(element => {
+          const style = getComputedStyle(element)
+          const bounds = element.getBoundingClientRect()
+          return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && style.pointerEvents !== 'none' && bounds.width > 0 && bounds.height > 0
+        })), detected, { timeout: timeoutMs, polling: 50 })
+      } catch (error) {
+        if (error instanceof Error && /Timeout/i.test(error.message)) throw new Error(`等待加载遮罩消失超时（${timeoutMs}ms）：${detected.join(', ')}`)
+        throw error
+      }
+      return true
     },
     async selectOption(selector: string, value: string, timeoutMs = 30_000): Promise<void> {
       await (await resolveTargetLocator(page, selector, timeoutMs)).selectOption(value, { timeout: timeoutMs })
@@ -2054,10 +2120,262 @@ async function pickElement(page: Page, url?: string, mode: ElementPickMode = 'el
 }
 
 function createPlaywrightSession(browser: Browser, context: BrowserContext, page: Page, executablePath: string): PlaywrightSession {
+  let recordingActive = false
+  let recordingEvents: RecordedPageEvent[] = []
+  let recordingPanelPageListener: (() => void) | undefined
   return {
     driver: createDriver(page),
     isUsable(): boolean { return browser.isConnected() && !page.isClosed() },
     pickElement: (url?: string, mode?: ElementPickMode, options?: ElementPickOptions) => pickElement(page, url, mode, options),
+    async startRecording(url: string, onEvent?: (event: RecordedPageEvent) => void, onCount?: (count: number) => void, onFinish?: () => void): Promise<string> {
+      if (recordingActive) throw new Error('当前浏览器已经在录制')
+      recordingEvents = []
+      recordingActive = true
+      const bindingName = `__rpaRecorderPush_${Date.now()}_${Math.random().toString(36).slice(2)}`
+      const controlName = `${bindingName}_control`
+      const activeName = `${bindingName}_active`
+      const syncPanel = (): void => {
+        void page.evaluate(events => (window as Window & { __rpaRecorderUpdate?: (items: readonly RecordedPageEvent[]) => void }).__rpaRecorderUpdate?.(events), recordingEvents).catch(() => undefined)
+      }
+      await context.exposeBinding(activeName, () => recordingActive)
+      await context.exposeBinding(bindingName, (_source, raw: unknown) => {
+        if (!recordingActive || typeof raw !== 'object' || raw === null) return
+        const value = raw as Partial<RecordedPageEvent>
+        if ((value.type !== 'click' && value.type !== 'input' && value.type !== 'select') || typeof value.selector !== 'string' || typeof value.url !== 'string') return
+        const event: RecordedPageEvent = {
+          type: value.type,
+          selector: value.selector,
+          ...(typeof value.value === 'string' ? { value: value.value } : {}),
+          ...(value.sensitive === true ? { sensitive: true } : {}),
+          ...(value.likelySubmit === true ? { likelySubmit: true } : {}),
+          confidence: value.confidence === 'high' ? 'high' : 'low',
+          ...(typeof value.label === 'string' ? { label: value.label.slice(0, 120) } : {}),
+          url: value.url,
+        }
+        const previous = recordingEvents.at(-1)
+        if ((event.type === 'input' || event.type === 'select') && previous?.type === event.type && previous.selector === event.selector) recordingEvents[recordingEvents.length - 1] = event
+        else recordingEvents.push(event)
+        onEvent?.(event)
+        onCount?.(recordingEvents.length)
+        syncPanel()
+      })
+      await context.exposeBinding(controlName, (_source, raw: unknown) => {
+        if (!recordingActive || typeof raw !== 'object' || raw === null) return
+        const command = raw as { action?: unknown; index?: unknown; direction?: unknown }
+        if (command.action === 'finish') { onFinish?.(); return }
+        const index = Number(command.index)
+        if (!Number.isInteger(index) || index < 0 || index >= recordingEvents.length) return
+        if (command.action === 'toggle') recordingEvents[index] = { ...recordingEvents[index]!, included: recordingEvents[index]!.included === false }
+        else if (command.action === 'delete') recordingEvents.splice(index, 1)
+        else if (command.action === 'move' && (command.direction === 'up' || command.direction === 'down')) {
+          const target = index + (command.direction === 'up' ? -1 : 1)
+          if (target < 0 || target >= recordingEvents.length) return
+          const [item] = recordingEvents.splice(index, 1)
+          if (item !== undefined) recordingEvents.splice(target, 0, item)
+        } else return
+        onCount?.(recordingEvents.length)
+        syncPanel()
+      })
+      await context.addInitScript(({ name, control, active }: { name: string; control: string; active: string }) => {
+        if ((window as Window & { __rpaRecorderInstalled?: boolean }).__rpaRecorderInstalled) return
+        ;(window as Window & { __rpaRecorderInstalled?: boolean }).__rpaRecorderInstalled = true
+        const report = (event: Record<string, unknown>): void => { void (window as unknown as Record<string, (value: Record<string, unknown>) => Promise<void>>)[name]?.(event) }
+        const controlEvent = (event: Record<string, unknown>): void => { void (window as unknown as Record<string, (value: Record<string, unknown>) => Promise<void>>)[control]?.(event) }
+        type PanelItem = { type: 'click' | 'input' | 'select'; selector: string; label?: string; sensitive?: boolean; included?: boolean; confidence: 'high' | 'low' }
+        let panelItems: readonly PanelItem[] = []
+        let panelHost: HTMLDivElement | undefined
+        let panelShadow: ShadowRoot | undefined
+        let collapsed = false
+        const renderPanel = (): void => {
+          if (!panelShadow) return
+          const list = panelShadow.querySelector<HTMLOListElement>('[data-list]')
+          const count = panelShadow.querySelector<HTMLElement>('[data-count]')
+          const active = panelShadow.querySelector<HTMLElement>('[data-active]')
+          if (!list || !count || !active) return
+          count.textContent = `${panelItems.length} 个动作`
+          const latest = panelItems.at(-1)
+          active.textContent = latest ? `刚刚记录：${latest.type === 'click' ? '点击' : latest.type === 'select' ? '选择' : latest.sensitive ? '敏感输入' : '输入'} · ${latest.label || latest.selector}` : '操作网页后，动作会显示在这里'
+          list.replaceChildren()
+          panelItems.forEach((item, index) => {
+            const row = document.createElement('li')
+            row.className = item.included === false ? 'excluded' : ''
+            const keep = document.createElement('input')
+            keep.type = 'checkbox'
+            keep.checked = item.included !== false
+            keep.setAttribute('aria-label', `保留第 ${index + 1} 个动作`)
+            keep.addEventListener('change', () => { controlEvent({ action: 'toggle', index }) })
+            const description = document.createElement('span')
+            description.className = 'description'
+            description.textContent = `${item.type === 'click' ? '点击' : item.type === 'select' ? '选择' : item.sensitive ? '敏感输入' : '输入'} · ${item.label || item.selector}`
+            const actions = document.createElement('span')
+            actions.className = 'actions'
+            for (const [direction, title] of [['up', '上移'], ['down', '下移'], ['delete', '删除']] as const) {
+              const button = document.createElement('button')
+              button.type = 'button'
+              button.textContent = direction === 'up' ? '↑' : direction === 'down' ? '↓' : '×'
+              button.title = title
+              button.setAttribute('aria-label', `${title}第 ${index + 1} 个动作`)
+              button.disabled = direction === 'up' ? index === 0 : direction === 'down' ? index === panelItems.length - 1 : false
+              button.addEventListener('click', () => { controlEvent({ action: direction === 'delete' ? 'delete' : 'move', index, direction }) })
+              actions.append(button)
+            }
+            row.append(keep, description, actions)
+            list.append(row)
+          })
+        }
+        const mountPanel = (): void => {
+          if (panelHost || !document.body) return
+          panelHost = document.createElement('div')
+          panelHost.setAttribute('data-rpa-recorder-ui', 'true')
+          panelHost.style.cssText = 'position:fixed;z-index:2147483647;top:12px;right:12px;width:min(370px,calc(100vw - 24px));font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#182230;'
+          panelShadow = panelHost.attachShadow({ mode: 'open' })
+          panelShadow.innerHTML = `<style>
+            *{box-sizing:border-box}section{background:#fff;border:1px solid #d0d5dd;border-radius:12px;box-shadow:0 12px 32px #10182833;overflow:hidden}
+            header{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;background:#f8fafc;border-bottom:1px solid #eaecf0}
+            .header-actions{display:flex;gap:6px}.header-actions [data-finish]{background:#12b76a;color:#fff;font-weight:600;padding:6px 9px}.header-actions [data-finish]:hover{background:#039855}
+            header strong{font-size:13px}header strong:before{content:'';display:inline-block;width:8px;height:8px;background:#12b76a;border-radius:50%;margin-right:8px}
+            [data-count]{margin-left:8px;color:#667085;font-size:11px}button{font:inherit;cursor:pointer;border:0;border-radius:6px;background:#f2f4f7;color:#344054;padding:4px 7px}button:disabled{opacity:.35;cursor:default}
+            [data-active]{padding:9px 13px;color:#344054;background:#f0fdf4;border-bottom:1px solid #dcfce7;font-size:12px;overflow-wrap:anywhere}
+            ol{list-style:none;margin:0;padding:5px 8px;max-height:42vh;overflow:auto}li{display:flex;align-items:center;gap:7px;padding:7px 4px;border-bottom:1px solid #f2f4f7}li:last-child{border:0}li.excluded .description{text-decoration:line-through;color:#98a2b3}
+            input{flex:0 0 auto;accent-color:#12b76a}.description{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.actions{display:flex;gap:3px}.actions button{min-width:25px;padding:3px 5px}.actions button:last-child{color:#b42318}
+            footer{padding:8px 13px;border-top:1px solid #eaecf0;color:#667085;font-size:11px}.collapsed [data-body]{display:none}
+          </style><section><header><div><strong>正在录制</strong><span data-count>0 个动作</span></div><div class="header-actions"><button type="button" data-finish>完成录制</button><button type="button" data-collapse>收起</button></div></header><div data-body><div data-active>操作网页后，动作会显示在这里</div><ol data-list></ol><footer>勾选保留要生成的动作，可用 ↑ ↓ 调整顺序或 × 删除。</footer></div></section>`
+          panelShadow.querySelector('[data-finish]')?.addEventListener('click', () => { controlEvent({ action: 'finish' }) })
+          panelShadow.querySelector('[data-collapse]')?.addEventListener('click', event => {
+            collapsed = !collapsed
+            panelShadow?.querySelector('section')?.classList.toggle('collapsed', collapsed)
+            ;(event.currentTarget as HTMLButtonElement).textContent = collapsed ? '展开' : '收起'
+          })
+          document.body.append(panelHost)
+          renderPanel()
+        }
+        ;(window as Window & { __rpaRecorderUpdate?: (items: readonly PanelItem[]) => void; __rpaRecorderStop?: () => void }).__rpaRecorderUpdate = items => { panelItems = items; renderPanel() }
+        ;(window as Window & { __rpaRecorderStop?: () => void }).__rpaRecorderStop = () => { panelHost?.remove(); panelHost = undefined }
+        const install = async (): Promise<void> => {
+          const isActive = await (window as unknown as Record<string, () => Promise<boolean>>)[active]?.().catch(() => false)
+          if (!isActive) return
+          if (document.body) mountPanel()
+          else document.addEventListener('DOMContentLoaded', mountPanel, { once: true })
+        }
+        const css = (element: Element): { selector: string; confidence: 'high' | 'low' } => {
+          const unique = (selector: string): boolean => { try { return document.querySelectorAll(selector).length === 1 } catch { return false } }
+          const stableId = (id: string): boolean => id.length >= 2 && id.length <= 100 && !/^\d+$/.test(id) && !/^:r[\w-]*:$/i.test(id) && !/^(?:rc_select|react-select|headlessui|radix)[-_]/i.test(id) && !/^(?:arco|mui|chakra)-.*-\d+$/i.test(id) && !/^[a-f0-9]{12,}$/i.test(id) && !/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(id)
+          const tag = element.tagName.toLowerCase()
+          if (element.id && stableId(element.id) && unique(`#${CSS.escape(element.id)}`)) return { selector: `#${CSS.escape(element.id)}`, confidence: 'high' }
+          for (const attribute of ['data-testid', 'data-test', 'data-qa', 'name', 'aria-label', 'placeholder', 'title']) {
+            const value = element.getAttribute(attribute)
+            if (!value) continue
+            const selector = `${tag}[${attribute}=${JSON.stringify(value)}]`
+            if (unique(selector)) return { selector, confidence: 'high' }
+          }
+          const parts: string[] = []
+          let current: Element | null = element
+          while (current && current !== document.documentElement) {
+            const currentTag = current.tagName.toLowerCase()
+            const siblings = current.parentElement ? Array.from(current.parentElement.children).filter(child => child.tagName === current!.tagName) : []
+            parts.unshift(siblings.length > 1 ? `${currentTag}:nth-of-type(${siblings.indexOf(current) + 1})` : currentTag)
+            const candidate = parts.join(' > ')
+            if (unique(candidate)) return { selector: candidate, confidence: 'low' }
+            current = current.parentElement
+          }
+          return { selector: parts.join(' > ') || tag, confidence: 'low' }
+        }
+        const targetElement = (target: EventTarget | null): Element | null => target instanceof Element ? target : target instanceof Node ? target.parentElement : null
+        const isRecorderUi = (event: Event): boolean => event.composedPath().some(target => target instanceof Element && target.hasAttribute('data-rpa-recorder-ui'))
+        const labelFor = (element: Element): string => {
+          const associated = Array.from((element as HTMLInputElement).labels ?? []).map(label => label.textContent ?? '').join(' ')
+          return (element.getAttribute('aria-label') || element.getAttribute('placeholder') || associated || element.textContent || element.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+        }
+        const sensitive = (element: Element): boolean => {
+          const input = element as HTMLInputElement
+          const labels = Array.from((element as HTMLInputElement).labels ?? []).map(label => label.textContent ?? '').join(' ')
+          const identity = `${input.type || ''} ${input.name || ''} ${input.id || ''} ${input.autocomplete || ''} ${input.getAttribute('aria-label') || ''} ${input.placeholder || ''} ${labels}`
+          return input.type === 'password' || /pass(?:word)?|token|secret|one-time-code|otp|verification|captcha|security.?code|credit.?card|cvv/i.test(identity)
+        }
+        const valueOf = (element: Element): string => element instanceof HTMLSelectElement ? element.value : (element as HTMLInputElement | HTMLTextAreaElement).value ?? ''
+        const likelySubmit = (element: Element): boolean => element.matches('button[type="submit"],input[type="submit"]')
+          || element instanceof HTMLButtonElement && element.form !== null && element.type === 'submit'
+          || /提交|保存|确认|搜索|查询|submit|save|search|confirm/i.test(labelFor(element))
+        const emitValue = (element: Element, type: 'input' | 'select'): void => {
+          const target = css(element)
+          const isSensitive = sensitive(element)
+          report({ type, selector: target.selector, confidence: target.confidence, label: labelFor(element), value: isSensitive ? '' : valueOf(element), sensitive: isSensitive, url: location.href })
+        }
+        const timers = new Map<Element, number>()
+        let lastClick: { element: Element; at: number } | undefined
+        const flushElement = (element: Element): void => {
+          const timer = timers.get(element)
+          if (timer !== undefined) clearTimeout(timer)
+          if (timers.delete(element)) emitValue(element, 'input')
+        }
+        ;(window as Window & { __rpaRecorderFlush?: () => void }).__rpaRecorderFlush = () => {
+          for (const [element, timer] of timers) {
+            clearTimeout(timer)
+            emitValue(element, 'input')
+          }
+          timers.clear()
+        }
+        document.addEventListener('input', event => {
+          if (isRecorderUi(event)) return
+          const element = targetElement(event.target)
+          if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) || element instanceof HTMLInputElement && ['checkbox', 'radio', 'button', 'submit', 'reset', 'file'].includes(element.type)) return
+          const previous = timers.get(element)
+          if (previous !== undefined) clearTimeout(previous)
+          timers.set(element, window.setTimeout(() => { timers.delete(element); emitValue(element, 'input') }, 700))
+        }, true)
+        document.addEventListener('change', event => {
+          if (isRecorderUi(event)) return
+          const element = targetElement(event.target)
+          if (element instanceof HTMLSelectElement) emitValue(element, 'select')
+          else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+            flushElement(element)
+          }
+        }, true)
+        document.addEventListener('submit', event => {
+          if (isRecorderUi(event)) return
+          const form = event.target instanceof HTMLFormElement ? event.target : undefined
+          if (!form) return
+          const active = document.activeElement
+          if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) flushElement(active)
+          const submitter = (event as SubmitEvent).submitter
+          const button = submitter instanceof Element ? submitter : form.querySelector('button[type="submit"],input[type="submit"],button:not([type])')
+          if (!button) return
+          if (lastClick?.element === button && Date.now() - lastClick.at < 500) return
+          const target = css(button)
+          report({ type: 'click', selector: target.selector, confidence: target.confidence, label: labelFor(button), likelySubmit: true, url: location.href })
+        }, true)
+        document.addEventListener('click', event => {
+          if (isRecorderUi(event)) return
+          const rawTarget = targetElement(event.target)
+          let element = rawTarget?.closest('button,a,[role="button"],[role="link"],input[type="button"],input[type="submit"],input[type="checkbox"],input[type="radio"],[data-action]')
+          if (!element && rawTarget) {
+            let current: Element | null = rawTarget
+            while (current && current !== document.body && getComputedStyle(current).cursor !== 'pointer') current = current.parentElement
+            element = current === document.body ? null : current
+          }
+          if (!element || element instanceof HTMLSelectElement) return
+          lastClick = { element, at: Date.now() }
+          const target = css(element)
+          report({ type: 'click', selector: target.selector, confidence: target.confidence, label: labelFor(element), likelySubmit: likelySubmit(element), url: location.href })
+        }, true)
+        void install()
+      }, { name: bindingName, control: controlName, active: activeName })
+      recordingPanelPageListener = () => { setTimeout(syncPanel, 150) }
+      page.on('domcontentloaded', recordingPanelPageListener)
+      if (url.trim() !== '') await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await page.waitForFunction(() => Array.from(document.querySelectorAll('[data-rpa-recorder-ui]')).some(host => host.shadowRoot?.querySelector('[data-finish]') !== null), null, { timeout: 5_000 }).catch(() => undefined)
+      syncPanel()
+      return page.url()
+    },
+    async stopRecording(): Promise<readonly RecordedPageEvent[]> {
+      await page.evaluate(() => (window as Window & { __rpaRecorderFlush?: () => void }).__rpaRecorderFlush?.()).catch(() => undefined)
+      await page.waitForTimeout(100).catch(() => undefined)
+      recordingActive = false
+      if (recordingPanelPageListener !== undefined) page.off('domcontentloaded', recordingPanelPageListener)
+      recordingPanelPageListener = undefined
+      await page.evaluate(() => (window as Window & { __rpaRecorderStop?: () => void }).__rpaRecorderStop?.()).catch(() => undefined)
+      return [...recordingEvents]
+    },
     async openDebugCopy(): Promise<PlaywrightSession> {
       const url = page.url()
       if (!/^https?:\/\//i.test(url)) throw new Error('失败时页面不是 HTTP(S) 地址，无法打开可交互的调试副本')

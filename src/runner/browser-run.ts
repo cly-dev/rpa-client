@@ -106,6 +106,7 @@ export interface BrowserDriver {
   recognizeImage?(images: readonly VisionImageInput[], instruction: string, cases: readonly { id: string; name: string; prompt: string }[], llm: WorkflowLlmConfig, comparisonPrompt?: string): Promise<VisionRecognitionDecision>
   operateListRows?(request: ListRowOperationRequest): Promise<ListRowOperationResult>
   waitFor(ms: number, selector: string, state?: 'visible' | 'hidden'): Promise<void>
+  waitForLoading?(selector: string, timeoutMs?: number): Promise<boolean>
   waitForUrl?(pattern: string, timeoutMs: number): Promise<void>
   elementState?(selector: string): Promise<{ exists: boolean; visible: boolean; text: string }>
   waitForPageSettled?(timeoutMs?: number): Promise<boolean>
@@ -796,6 +797,15 @@ async function liveStep(
   }
   if (node.config.type === 'page-action') {
     const config = node.config
+    const dropdownWaitTimeoutMs = Math.max(node.execution.timeoutMs, 15_000)
+    const dropdownWaitCount = config.steps.reduce((count, step, index) => {
+      const next = config.steps[index + 1]
+      return count + (step.type === 'click' && next?.type === 'click' && isPickedDropdownOption(selectorText(next.selector)) ? 1 : 0)
+    }, 0)
+    const pageActionTimeoutMs = Math.max(
+      node.execution.timeoutMs,
+      node.execution.timeoutMs * config.steps.length + dropdownWaitCount * (dropdownWaitTimeoutMs - node.execution.timeoutMs),
+    )
     return attempt(node, async (trace): Promise<StepResult> => {
       const result: Record<string, import('@graph/types.ts').JsonValue> = {}
       let lastOpenedUrl = ''
@@ -810,7 +820,15 @@ async function liveStep(
             && pickedSelectorsTargetSameElement(selectorText(previousStep.selector), selectorText(step.selector))
             && isPickedDropdownOption(selectorText(nextStep.selector))
           if (duplicatedDropdownTrigger) {
-            trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 跳过：下拉框已由前一步展开`)
+            const optionSelector = String(resolveExpression(selectorText(nextStep.selector), context))
+            trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 跳过重复触发器，自动等待下拉选项出现：${displaySelector(optionSelector)}`)
+            try {
+              await driver.waitFor(dropdownWaitTimeoutMs, optionSelector)
+            } catch (error) {
+              const detail = error instanceof Error ? error.message : String(error)
+              throw new Error(`点击下拉框后未等到选项「${displaySelector(optionSelector)}」出现（${dropdownWaitTimeoutMs}ms）；请检查触发器是否打开下拉框，或选项是否仍在异步加载：${detail}`, { cause: error })
+            }
+            trace(`下拉选项已出现：${displaySelector(optionSelector)}`)
             continue
           }
           if (step.type === 'open') {
@@ -831,6 +849,23 @@ async function liveStep(
                 await driver.waitUntilEnabled(target, node.execution.timeoutMs)
               }
               await driver.click(target, node.execution.timeoutMs)
+            }
+            if (nextStep?.type === 'click' && isPickedDropdownOption(selectorText(nextStep.selector))) {
+              const optionSelector = String(resolveExpression(selectorText(nextStep.selector), context))
+              trace(`点击后自动等待下拉选项出现：${displaySelector(optionSelector)}`)
+              try {
+                await driver.waitFor(dropdownWaitTimeoutMs, optionSelector)
+              } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error)
+                throw new Error(`点击下拉框后未等到选项「${displaySelector(optionSelector)}」出现（${dropdownWaitTimeoutMs}ms）；请检查触发器是否打开下拉框，或选项是否仍在异步加载：${detail}`, { cause: error })
+              }
+              trace(`下拉选项已出现：${displaySelector(optionSelector)}`)
+            }
+            if (step.waitForLoading === true) {
+              if (driver.waitForLoading === undefined) throw new Error('当前浏览器驱动不支持等待加载遮罩')
+              const loadingSelector = String(resolveExpression(selectorText(step.loadingSelector ?? ''), context)).trim()
+              const detected = await driver.waitForLoading(loadingSelector, node.execution.timeoutMs)
+              trace(detected ? `点击后检测到加载状态并已等待完成${loadingSelector ? `：${loadingSelector}` : ''}` : '点击后未检测到加载遮罩，继续执行')
             }
           }
           if (step.type === 'type') {
@@ -881,7 +916,7 @@ async function liveStep(
         }
       }
       return { message: `已完成 ${config.steps.length} 个页面操作`, outputs: Object.keys(result).length > 0 ? result : undefined }
-    }, driver, context, Math.max(node.execution.timeoutMs, node.execution.timeoutMs * config.steps.length))
+    }, driver, context, pageActionTimeoutMs)
   }
   return attempt(node, async (trace): Promise<StepResult> => {
     const config = node.config

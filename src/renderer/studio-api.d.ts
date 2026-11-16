@@ -1,6 +1,7 @@
 import type { ApprovalPrompt, WorkflowGraph } from '@graph/types.ts'
 import type { DryRunState } from '@runner/dry-run.ts'
 import type { ClientScheduleRule } from '../main/schedule-clock.ts'
+import type { RecordedPageEvent } from '@runner/recording.ts'
 
 interface StudioApi {
   setServiceToken(token?: string): Promise<{ ok: true }>
@@ -21,6 +22,11 @@ interface StudioApi {
   acknowledgeApprovalQueued(id: string, error?: string): Promise<{ ok: boolean }>
   canRunContinuation(): Promise<{ ready: boolean }>
   onPageEnvironment(callback: (environment: { url: string; title: string }) => void): () => void
+  startPageRecording(url: string): Promise<{ initialUrl: string }>
+  stopPageRecording(): Promise<readonly RecordedPageEvent[]>
+  onPageRecordingEvent(callback: (event: RecordedPageEvent) => void): () => void
+  onPageRecordingCount(callback: (count: number) => void): () => void
+  onPageRecordingFinishRequested(callback: () => void): () => void
   testLlm(config: WorkflowGraph['llm']): Promise<{ ok: boolean; message: string }>
   testCode(code: string, input: import('@graph/types.ts').JsonValue, variables?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>): Promise<{ ok: boolean; result?: import('@graph/types.ts').JsonValue; message?: string }>
   pickElement(url?: string, mode?: 'element' | 'list' | 'list-container' | 'list-row' | 'row-element', pickOptions?: { scopeSelector?: string; rowSelectorMode?: 'css' | 'class-contains'; rowSelector?: string; rowOffset?: -1 | 0 | 1 }): Promise<{ tagName: string; text: string; id: string; className: string; ariaLabel: string; role: string; placeholder: string; selector: string; url: string; title: string; optionValue?: string; triggerSelector?: string; optionSelector?: string; rowSelectorMode?: 'css' | 'class-contains'; rowSelectorValue?: string; relativeSelectorMode?: 'css' | 'class-contains'; relativeSelectorValue?: string }>

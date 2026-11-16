@@ -99,7 +99,7 @@ export interface OpenPageConfig {
 
 export type PageActionStep =
   | { readonly type: 'open'; readonly url: string; readonly waitAfterMs?: number }
-  | { readonly type: 'click'; readonly selector: string | ElementLocator; readonly beforeHover?: string | ElementLocator; readonly waitForVisible?: string | ElementLocator; readonly waitUntilEnabled?: boolean; readonly optionValue?: string; readonly waitAfterMs?: number }
+  | { readonly type: 'click'; readonly selector: string | ElementLocator; readonly beforeHover?: string | ElementLocator; readonly waitForVisible?: string | ElementLocator; readonly waitUntilEnabled?: boolean; readonly waitForLoading?: boolean; readonly loadingSelector?: string | ElementLocator; readonly optionValue?: string; readonly waitAfterMs?: number }
   | { readonly type: 'type'; readonly selector: string | ElementLocator; readonly value: ValueBinding; readonly inputMode?: 'replace' | 'append'; readonly ai?: GenerateTextConfig; readonly waitAfterMs?: number }
   | { readonly type: 'upload'; readonly selector: string | ElementLocator; readonly triggerSelector?: string | ElementLocator; readonly file: ValueBinding; readonly waitAfterMs?: number }
   | { readonly type: 'hover'; readonly selector: string | ElementLocator; readonly waitAfterMs?: number }

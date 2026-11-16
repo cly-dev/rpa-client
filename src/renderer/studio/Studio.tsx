@@ -59,6 +59,7 @@ import { isScheduledExecutionActive } from './scheduled-executions.ts'
 import type { AuthUser } from '../auth.ts'
 import { shouldInsertPickedDropdownSteps } from '@graph/picked-selector.ts'
 import { displayPickedSelector } from './selector-display.ts'
+import { insertRecordedSteps, recordedEventsToSteps } from '@runner/recording.ts'
 
 const nodeTypes = { studio: FlowNode }
 const edgeTypes = { insertable: InsertableEdge }
@@ -193,7 +194,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [running, setRunning] = useState(false)
   const [bulkUpdatingSubflow, setBulkUpdatingSubflow] = useState(false)
   const [runtimeInputDialog, setRuntimeInputDialog] = useState(false)
-  type PickerField = 'selector' | 'triggerSelector' | 'beforeHover' | 'waitForVisible' | 'rowSelector' | 'extractField' | 'listMatchedActionTrigger'
+  type PickerField = 'selector' | 'triggerSelector' | 'beforeHover' | 'waitForVisible' | 'loadingSelector' | 'rowSelector' | 'extractField' | 'listMatchedActionTrigger'
     | 'listContainerSelector' | 'listRowSelector' | 'listMatchField' | 'listMatchedAction' | 'listDeleteSelector' | 'listConfirmSelector'
   const [runtimeRunRequest, setRuntimeRunRequest] = useState<{ type: 'workflow' } | { type: 'picker'; nodeId: string; field: PickerField; stepIndex?: number }>()
   const [runtimeInputValues, setRuntimeInputValues] = useState<Record<string, string>>({})
@@ -213,6 +214,10 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [contextOpen, setContextOpen] = useState(false)
   const [webhookOpen, setWebhookOpen] = useState(false)
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false)
+  const [recordDialogOpen, setRecordDialogOpen] = useState(false)
+  const [recordUrl, setRecordUrl] = useState('')
+  const [pageRecording, setPageRecording] = useState(false)
+  const [recordingEventCount, setRecordingEventCount] = useState(0)
   const [edgeMenu, setEdgeMenu] = useState<{ edgeId: string; x: number; y: number }>()
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number }>()
   const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved')
@@ -226,6 +231,10 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const workflowJsonInputRef = useRef<HTMLInputElement | null>(null)
   const toolbarMenuRef = useRef<HTMLDivElement | null>(null)
   const toolbarMenuButtonRef = useRef<HTMLButtonElement | null>(null)
+  const stopRecordingEventsRef = useRef<(() => void) | undefined>(undefined)
+  const stopRecordingFinishRef = useRef<(() => void) | undefined>(undefined)
+  const stopPageRecordingRef = useRef<() => void>(() => undefined)
+  const recordingInitialUrlRef = useRef('')
   const nodeSizes = useRef(new Map<string, NodeSize>())
   const [nodeMeasurementRevision, setNodeMeasurementRevision] = useState(0)
   const runToken = useRef(0)
@@ -854,7 +863,70 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
     }
   }
 
+  const startPageRecording = async (): Promise<void> => {
+    if (window.studio?.startPageRecording === undefined || window.studio.onPageRecordingCount === undefined || window.studio.onPageRecordingFinishRequested === undefined) {
+      setNotice('当前窗口不支持页面录制，请重新打开工作室')
+      return
+    }
+    if (running || globalRunActivity !== undefined) {
+      setNotice('请先停止当前流程，再开始录制')
+      return
+    }
+    const url = recordUrl.trim()
+    if (!/^https?:\/\//i.test(url)) {
+      setNotice('请输入 http 或 https 开头的网页地址')
+      return
+    }
+    const stopEvents = window.studio.onPageRecordingCount(count => { setRecordingEventCount(count) })
+    const stopFinish = window.studio.onPageRecordingFinishRequested(() => { stopPageRecordingRef.current() })
+    stopRecordingEventsRef.current = stopEvents
+    stopRecordingFinishRef.current = stopFinish
+    setRecordingEventCount(0)
+    try {
+      const result = await window.studio.startPageRecording(url)
+      recordingInitialUrlRef.current = result.initialUrl
+      setPageRecording(true)
+      setRecordDialogOpen(false)
+      setNotice('录制已开始。可在浏览器右上角点击「完成录制」，也可回到工作室停止。')
+    } catch (error) {
+      stopEvents()
+      stopFinish()
+      stopRecordingEventsRef.current = undefined
+      stopRecordingFinishRef.current = undefined
+      setNotice(error instanceof Error ? error.message : '启动页面录制失败')
+    }
+  }
+
+  const stopPageRecording = async (): Promise<void> => {
+    if (!pageRecording || window.studio?.stopPageRecording === undefined) return
+    setPageRecording(false)
+    stopRecordingEventsRef.current?.()
+    stopRecordingFinishRef.current?.()
+    stopRecordingEventsRef.current = undefined
+    stopRecordingFinishRef.current = undefined
+    try {
+      const events = await window.studio.stopPageRecording()
+      const current = graphRef.current
+      const { steps, runtimeInputs } = recordedEventsToSteps(events, current.context?.inputs ?? [])
+      if (steps.length === 0) {
+        setNotice('录制已停止，没有捕获到可生成的点击或输入步骤')
+        return
+      }
+      const next = insertRecordedSteps(current, recordingInitialUrlRef.current, steps, runtimeInputs)
+      const inserted = next.nodes.find(node => !current.nodes.some(existing => existing.id === node.id) && node.type === 'page-action')
+      setGraph(next)
+      if (inserted !== undefined) setSelectedId(inserted.id)
+      const lowConfidence = events.filter(event => event.confidence === 'low').length
+      const notes = [lowConfidence > 0 ? `${lowConfidence} 个元素定位建议检查` : '', runtimeInputs.length > 0 ? `已添加 ${runtimeInputs.length} 个必填敏感运行时输入` : ''].filter(Boolean)
+      setNotice(`已生成 ${steps.length} 个页面步骤并插入画布${notes.length > 0 ? `；${notes.join('；')}` : ''}`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : '停止录制或生成步骤失败')
+    }
+  }
+  stopPageRecordingRef.current = () => { void stopPageRecording() }
+
   const leaveEditor = (): void => {
+    if (pageRecording) void stopPageRecording()
     runToken.current += 1
     editorDryRunAbort.current?.abort()
     editorDryRunAbort.current = undefined
@@ -995,6 +1067,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         setGraph(current => patchNode(current, nodeId, { config: { ...config, steps: config.steps.flatMap((step, index) => {
           if (index !== stepIndex || !('selector' in step)) return [step]
           if (step.type === 'upload' && field === 'triggerSelector') return [{ ...step, triggerSelector: value }]
+          if (step.type === 'click' && field === 'loadingSelector') return [{ ...step, loadingSelector: value }]
           if (step.type === 'click' && picked.triggerSelector !== undefined && picked.optionSelector !== undefined) {
             const previousClickSelectors = config.steps.slice(0, index).flatMap(previous => previous.type === 'click'
               ? [typeof previous.selector === 'string' ? previous.selector : previous.selector.value]
@@ -1090,6 +1163,9 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         </div>
         <div className="toolbar-actions">
           <span className="toolbar-account" title={`PMS 账号 ${currentUser.username}`}>{currentUser.name}</span>
+          {pageRecording
+            ? <button type="button" className="toolbar-recording-active" onClick={() => { void stopPageRecording() }}>■ 停止录制 · {recordingEventCount}</button>
+            : <button type="button" disabled={workflowBusy} title="在浏览器中操作网页并生成流程草稿" onClick={() => { const start = graph.nodes.find(node => node.id === graph.entryNodeId); setRecordUrl(start?.config.type === 'start' ? start.config.url : ''); setRecordDialogOpen(true) }}>录制操作</button>}
           <button type="button" className={contextOpen ? 'is-active' : ''} onClick={() => { setContextOpen(value => !value) }}>全局变量{((graph.context?.inputs.length ?? 0) + (graph.context?.variables.length ?? 0)) > 0 ? ` · ${(graph.context?.inputs.length ?? 0) + (graph.context?.variables.length ?? 0)}` : ''}</button>
           <input ref={workflowJsonInputRef} className="workflow-json-file-input" type="file" accept="application/json,.json" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file !== undefined) void importWorkflowFile(file) }} />
           <button type="button" disabled={workflowBusy} title="模拟执行流程，不操作网页" onClick={() => { void startDryRun() }}>
@@ -1115,6 +1191,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         </div>
       </header>
       {notice === undefined ? null : <p className="notice" role="status">{notice}</p>}
+      {recordDialogOpen ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { setRecordDialogOpen(false) }}><section className="execution-dialog" role="dialog" aria-modal="true" aria-label="录制页面操作" onClick={event => { event.stopPropagation() }}><header><div><h2>录制页面操作</h2><p>在浏览器中完成操作后，录制内容会生成可编辑的流程草稿。</p></div><button type="button" aria-label="关闭" onClick={() => { setRecordDialogOpen(false) }}>×</button></header><div className="execution-dialog-body"><label className="execution-input-field"><span>起始网址<em>必填</em></span><input autoFocus type="url" value={recordUrl} onChange={event => { setRecordUrl(event.target.value) }} placeholder="https://example.com" onKeyDown={event => { if (event.key === 'Enter') void startPageRecording() }} /></label><p className="properties-hint">浏览器右上角会实时显示动作清单，可取消勾选、删除或调整顺序。密码等敏感字段不会保存内容；普通输入会作为固定文本写入草稿，请在生成后按需改成变量。</p></div><footer><button type="button" onClick={() => { setRecordDialogOpen(false) }}>取消</button><button type="button" className="workbench-primary" onClick={() => { void startPageRecording() }}>开始录制</button></footer></section></div> : null}
       <div className="workspace">
         {contextOpen ? <div className="context-overlay" role="presentation" onClick={() => { setContextOpen(false) }}><ContextPanel context={graph.context ?? { inputs: [], variables: [] }} onChange={context => { setGraph(current => ({ ...current, context })) }} onClose={() => { setContextOpen(false) }} /></div> : null}
         {webhookOpen ? <WebhookSettings value={graph.webhook} workflowName={graph.name} onChange={webhook => { setGraph(current => ({ ...current, webhook })) }} onClose={() => { setWebhookOpen(false) }} /> : null}
