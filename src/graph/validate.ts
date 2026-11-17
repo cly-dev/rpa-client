@@ -1,4 +1,6 @@
+import { nodeOutputDefinitions } from './workflow-variables.ts'
 import { NODE_CATALOG } from './catalog.ts'
+import { approvalOutputName, validApprovalOutputName } from './approval-outputs.ts'
 import type { NodeNotificationTrigger, ValidationIssue, ValueBinding, WorkflowGraph } from './types.ts'
 import { switchCaseType, switchCaseValue } from './switch-cases.ts'
 import { subflowInputTypeWarning } from './subflow-input-types.ts'
@@ -77,7 +79,7 @@ function bindingsOf(graph: WorkflowGraph, nodeId: string): ValueBinding[] {
   if (node.config.type === 'image-recognition') return [...fromInputs, node.config.image]
   if (node.config.type === 'list-row-action') return [...fromInputs, node.config.source]
   if (node.config.type === 'call-subflow') return [...fromInputs, ...(node.config.inputMappings ?? []).map(mapping => mapping.source)]
-  if (node.config.type === 'approval') return [...fromInputs, ...node.config.fields.map(field => field.value)]
+  if (node.config.type === 'approval') return [...fromInputs, ...node.config.fields.map(field => field.value), ...(node.config.content ? [node.config.content] : [])]
   return fromInputs
 }
 
@@ -89,18 +91,7 @@ function bindingOk(graph: WorkflowGraph, binding: ValueBinding): boolean {
 }
 
 function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
-  const fallback = NODE_CATALOG[node.type].dataOutputs.map(port => port.name)
-  if (node.config.type === 'extract') return [node.config.outputName || 'text']
-  if (node.config.type === 'agent') return (node.config.outputs ?? []).map(item => item.name).filter(Boolean)
-  if (node.config.type === 'image-recognition') return [node.config.outputName || 'imageResult']
-  if (node.config.type === 'switch' && node.config.mode === 'ai') return [node.config.reasonOutputName?.trim() || 'reason']
-  if (node.config.type === 'transform') return [node.config.outputName || 'result']
-  if (node.config.type === 'code') return node.config.outputs?.length ? node.config.outputs.map(item => item.name).filter(Boolean) : [node.config.outputName || 'result']
-  if (node.config.type === 'api-request') return [node.config.outputName || 'responseData', ...(node.config.rawOutputName?.trim() ? [node.config.rawOutputName] : []), ...(node.config.fields ?? []).map(field => field.name).filter(Boolean)]
-  if (node.config.type === 'api-listen') return [node.config.outputName || 'tableData', ...(node.config.rawOutputName?.trim() ? [node.config.rawOutputName] : []), ...(node.config.fields ?? []).map(field => field.name).filter(Boolean)]
-  if (node.config.type === 'page-action') return node.config.steps.filter(step => step.type === 'extract').map(step => step.outputName).filter(Boolean)
-  if (node.config.type === 'list-row-action') return [node.config.outputName || 'listOperationResult']
-  return fallback
+  return nodeOutputDefinitions(node).flatMap(item => [item.name, ...(item.aliases ?? [])])
 }
 
 /**
@@ -110,6 +101,7 @@ function dataOutputNames(node: WorkflowGraph['nodes'][number]): string[] {
  */
 export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowGraph[] = []): ValidationIssue[] {
   const issues: ValidationIssue[] = []
+  for (const node of graph.nodes) if (node.config.type === 'approval' && !validApprovalOutputName(approvalOutputName(node.config))) issues.push({ ...issue('declared-variable-empty', { nodeId: node.id }), message: '审核结果变量名无效：请使用英文字母、数字和下划线，且不能以数字开头或使用保留名称' })
   const destinations = webhookDestinations(graph.webhook)
   const destinationIds = new Set(destinations.map(item => item.id))
   const hasNotifications = graph.webhook?.onFinished === true || graph.nodes.some(node => node.type === 'handoff' || node.notifications?.enabled !== false && (node.notifications?.onSuccess || node.notifications?.onFailure || node.notifications?.onApprovalPending || node.notifications?.onApprovalApproved || node.notifications?.onApprovalRejected || node.notifications?.onApprovalTimeout))
@@ -295,6 +287,7 @@ export function firstIssue(graph: WorkflowGraph, subflows: readonly WorkflowGrap
 /** Publishing requires every possible exit to be connected and every node to be reachable. */
 export function validatePublishConnections(graph: WorkflowGraph): ValidationIssue[] {
   const issues: ValidationIssue[] = []
+  for (const node of graph.nodes) if (node.config.type === 'approval' && !validApprovalOutputName(approvalOutputName(node.config))) issues.push({ ...issue('declared-variable-empty', { nodeId: node.id }), message: '审核结果变量名无效：请使用英文字母、数字和下划线，且不能以数字开头或使用保留名称' })
   const nodeById = new Map(graph.nodes.map(node => [node.id, node]))
   const edgesBySource = new Map<string, WorkflowGraph['edges'][number][]>()
   for (const edge of graph.edges) {

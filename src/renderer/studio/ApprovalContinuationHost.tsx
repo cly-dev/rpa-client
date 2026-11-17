@@ -44,7 +44,7 @@ export function ApprovalContinuationHost(): ReactNode {
             runId, executionId: task.executionId, inputs: task.continuation.inputs,
             variables: task.continuation.variables, outputs: task.continuation.outputs,
             subflows, headless: true,
-            resumeApproval: { nodeId: task.nodeId, decision: task.decision, comment: task.comment, approverId: task.approverId, approverName: task.approverName, decidedAt: task.decidedAt },
+            resumeApproval: { reviewResult: task.reviewResult, nodeId: task.nodeId, decision: task.decision, comment: task.comment, approverId: task.approverId, approverName: task.approverName, decidedAt: task.decidedAt },
           })
           await uploader.close(result.logs)
           finalStatus = result.status === 'succeeded' ? 'succeeded' : 'failed'

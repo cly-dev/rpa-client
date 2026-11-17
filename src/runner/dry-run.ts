@@ -1,3 +1,5 @@
+import { approvalOutputName } from '../graph/approval-outputs.ts'
+import { reviewOutputs } from '../graph/approval-review.ts'
 import { NODE_CATALOG } from '@graph/catalog.ts'
 import type { ElementLocator, NodeOutputs, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import { asText, resolveBinding, walkJsonPath, walkPath } from './bindings.ts'
@@ -57,7 +59,8 @@ function dryStep(
     return { message: '图片识别仅在真实运行时调用视觉模型；试运行进入否则分支', branch: 'else', outputs: { [node.config.outputName || 'imageResult']: { branch: 'else', label: '否则', reason: '试运行未调用视觉模型' } } }
   }
   if (node.config.type === 'approval') {
-    return { message: '人工审批（试运行自动通过）', branch: 'approved', outputs: { approved: true, decision: 'approved', comment: '', approverName: '试运行', decidedAt: new Date().toISOString() } }
+    const content = node.config.content ? resolveBinding(outputs, node.config.content) : undefined
+    return { message: '人工审批（试运行自动通过）', branch: 'approved', outputs: { ...reviewOutputs(content === undefined ? undefined : { content, plainText: typeof content === 'string' ? content : JSON.stringify(content, null, 2), modified: false, comment: '' }, approvalOutputName(node.config)), approved: true, decision: 'approved', comment: '', approverName: '试运行', decidedAt: new Date().toISOString() } }
   }
   if (node.config.type === 'extract') {
     return { message: `${NODE_CATALOG[node.type].title} → ${node.config.outputName || 'text'}（未操作网页）`, outputs: { [node.config.outputName || 'text']: '（试运行）示例文本' } }

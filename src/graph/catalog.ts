@@ -152,7 +152,7 @@ export const NODE_CATALOG: Record<NodeType, NodeDefinition> = {
   approval: {
     type: 'approval', title: '人工审批', description: '暂停流程，等待当前执行人通过或拒绝', kind: 'decision', acceptsIncoming: true, palette: true,
     flowOutputs: [{ name: 'approved', label: '通过' }, { name: 'rejected', label: '拒绝' }, { name: 'timeout', label: '超时' }], dataInputs: [],
-    dataOutputs: [{ name: 'approved', label: '是否通过' }, { name: 'decision', label: '审批结果' }, { name: 'comment', label: '审批意见' }],
+    dataOutputs: [{ name: 'reviewResult', label: '审核结果（content / plainText / modified / comment）' }, { name: 'content', label: '审核后内容' }, { name: 'plainText', label: '审核后纯文本' }, { name: 'modified', label: '是否修改' }, { name: 'approved', label: '是否通过' }, { name: 'decision', label: '审批结果' }, { name: 'comment', label: '审批意见' }],
   },
   handoff: {
     type: 'handoff', title: '通知', description: '通过流程 Webhook 异步发送通知，流程继续执行', kind: 'action', acceptsIncoming: true, palette: true,
@@ -263,7 +263,7 @@ export function defaultConfig(type: NodeType): NodeConfig {
     case 'call-subflow':
       return { type: 'call-subflow', workflowId: '', workflowVersion: undefined, inputMappings: [] }
     case 'approval':
-      return { type: 'approval', title: '请确认是否继续执行', description: '请检查以下信息后进行审批。', fields: [], requireCommentOnReject: true, timeoutMinutes: 30, executionMode: 'deferred-in-loop' }
+      return { type: 'approval', outputName: 'reviewResult', content: { kind: 'literal', value: '' }, contentFormat: 'rich-text', editable: true, title: '请确认是否继续执行', description: '请检查以下信息后进行审批。', fields: [], requireCommentOnReject: true, timeoutMinutes: 30, executionMode: 'deferred-in-loop' }
     case 'handoff':
       return { type: 'handoff', note: '' }
     case 'set-variable':

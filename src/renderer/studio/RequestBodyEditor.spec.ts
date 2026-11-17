@@ -35,3 +35,18 @@ it('lists declared, nested, response, code, and loop variables for request bodie
   expect(names).not.toContain('laterResponse')
   expect(names).not.toContain('disconnectedResponse')
 })
+
+it.each([undefined, 'approvedReply'])('offers approval result fields to notifications and request bodies (%s)', outputName => {
+  const start = createNode('start', { x: 0, y: 0 })
+  const approval = createNode('approval', { x: 100, y: 0 })
+  const notify = createNode('handoff', { x: 200, y: 0 })
+  const later = createNode('approval', { x: 300, y: 0 })
+  const name = outputName ?? 'reviewResult'
+  const graph = { workflowId: 'approval-notice', name: '审批通知', version: 1, entryNodeId: start.id,
+    nodes: [start, { ...approval, config: { ...approval.config, type: 'approval' as const, title: '确认', description: '', fields: [], timeoutMinutes: 30, requireCommentOnReject: false, outputName } }, notify, { ...later, config: { ...later.config, type: 'approval' as const, title: '稍后确认', description: '', fields: [], timeoutMinutes: 30, requireCommentOnReject: false, outputName: 'laterResult' } }],
+    edges: [createEdge(start.id, 'default', approval.id), createEdge(approval.id, 'approved', notify.id), createEdge(notify.id, 'default', later.id)] }
+  const names = availableVariables(graph, notify.id)
+  expect(names).toEqual(expect.arrayContaining([name, `${name}.content`, `${name}.plainText`, `${name}.modified`, `${name}.comment`]))
+  expect(names).not.toContain('laterResult')
+  expect(availableVariables(graph, approval.id)).not.toContain(name)
+})

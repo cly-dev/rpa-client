@@ -27,3 +27,11 @@ describe('VariablesPanel clipboard export', () => {
     expect(copied.page.title).toBe('订单')
   })
 })
+
+it('includes a declared approval result before execution and serializes its runtime value', () => {
+  const approval = createNode('approval', { x: 0, y: 0 })
+  const graph: WorkflowGraph = { workflowId: 'review-vars', name: '审核变量', version: 1, entryNodeId: approval.id, edges: [], nodes: [{ ...approval, config: { ...approval.config, type: 'approval', title: '确认', description: '', fields: [], requireCommentOnReject: false, timeoutMinutes: 30, outputName: 'approvedReply' } }] }
+  expect(JSON.parse(serializeAllVariables(graph)).variables).toHaveProperty('approvedReply', null)
+  const result = { content: '<p>通过</p>', plainText: '通过', modified: true, comment: '' }
+  expect(JSON.parse(serializeAllVariables(graph, { [approval.id]: { approvedReply: result } })).variables.approvedReply).toEqual(result)
+})

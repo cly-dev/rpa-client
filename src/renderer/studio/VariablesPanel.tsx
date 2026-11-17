@@ -1,3 +1,4 @@
+import { nodeOutputDefinitions, nodeDeclaredVariables, nodeVariableNames } from '@graph/workflow-variables.ts'
 import { useState, type ReactNode } from 'react'
 import { NODE_CATALOG } from '@graph/catalog.ts'
 import type { JsonValue, NodeOutputs, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
@@ -5,7 +6,7 @@ import { copyTextToClipboard } from './clipboard.ts'
 
 export function serializeAllVariables(graph: WorkflowGraph, outputs?: Readonly<Record<string, NodeOutputs>>, runtimeInputs?: Readonly<Record<string, JsonValue>>, runtimeVariables?: Readonly<Record<string, JsonValue>>, page?: { readonly url: string; readonly title?: string }): string {
   const inputs = Object.fromEntries((graph.context?.inputs ?? []).map(input => [input.name, runtimeInputs?.[input.name] ?? input.defaultValue ?? null]))
-  const configuredVariables = Object.fromEntries((graph.context?.variables ?? []).map(variable => [variable.name, runtimeVariables?.[variable.name] ?? variable.defaultValue ?? null]))
+  const configuredVariables = Object.fromEntries([...(graph.context?.variables ?? []).map(variable => [variable.name, runtimeVariables?.[variable.name] ?? variable.defaultValue ?? null]), ...graph.nodes.flatMap(node => nodeDeclaredVariables(node).map(item => [item.name, runtimeVariables?.[item.name] ?? outputs?.[node.id]?.[nodeOutputDefinitions(node).find(port => port.variableName === item.name)?.name ?? ''] ?? null]))])
   const nodeOutputs = graph.nodes
     .filter(node => outputs?.[node.id] !== undefined)
     .map(node => ({ nodeId: node.id, nodeName: node.name, values: outputs?.[node.id] ?? {} }))
@@ -21,16 +22,7 @@ export function VariablesPanel({ graph, subflows = [], outputs, inputs: runtimeI
   const [collapsed, setCollapsed] = useState(true)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const globalVariables = graph.context?.variables ?? []
-  const declared = graph.nodes.flatMap(node => {
-    const config = node.config
-    if (config.type === 'set-variable') return config.name.trim() ? [{ name: config.name.trim(), type: config.valueType ?? '自动' }] : []
-    if (config.type === 'code') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType ?? 'any' }))
-    if (config.type === 'agent') return (config.outputs ?? []).filter(item => item.outputMode === 'declare' && item.updateVariable?.trim()).map(item => ({ name: item.updateVariable!.trim(), type: item.valueType }))
-    if (!('outputMode' in config) || config.outputMode !== 'declare' || !config.updateVariable?.trim()) return []
-    const name = config.updateVariable.trim()
-    const type = config.type === 'api-request' || config.type === 'api-listen' ? (config.responseType === 'json' ? 'object/array' : 'string') : config.type === 'code' ? 'object' : 'string'
-    return [{ name, type }]
-  })
+  const declared = graph.nodes.flatMap(nodeDeclaredVariables)
   const globals = [...globalVariables.map(item => ({ ...item, value: runtimeVariables?.[item.name] })), ...declared.filter(item => !globalVariables.some(global => global.name === item.name)).map(item => ({ ...item, value: runtimeVariables?.[item.name] }))]
   const inputs = graph.context?.inputs ?? []
   const grouped = groupNodeVariables(graph.nodes, outputs)
@@ -46,12 +38,7 @@ export function VariablesPanel({ graph, subflows = [], outputs, inputs: runtimeI
   ])
   const subflowNames = new Set(subflows.flatMap(subflow => [
     ...(subflow.context?.variables ?? []).map(item => item.name),
-    ...subflow.nodes.flatMap(node => [
-      ...nodeOutputs(node).map(item => item.path.split('.').at(-1) ?? ''),
-      ...('name' in node.config && node.config.type === 'set-variable' ? [node.config.name] : []),
-      ...('updateVariable' in node.config && node.config.updateVariable?.trim() ? [node.config.updateVariable.trim()] : []),
-      ...(node.config.type === 'for-each' ? [node.config.itemVar || 'item', node.config.indexVar || 'index', ...(node.config.declaredVariables ?? [])] : []),
-    ]),
+    ...subflow.nodes.flatMap(nodeVariableNames),
   ]).filter(Boolean))
   const subflowItems = [...subflowNames]
     .filter(name => !knownRuntimeNames.has(name))
@@ -74,36 +61,7 @@ function groupNodeVariables(nodes: readonly WorkflowNode[], outputs?: Readonly<R
 }
 
 function nodeOutputs(node: WorkflowNode, outputs?: Readonly<Record<string, NodeOutputs>>): { path: string; type: string; value?: unknown }[] {
-  const configured: { name: string; type: string }[] = []
-  if (node.config.type === 'extract') configured.push({ name: node.config.outputName, type: node.config.mode === 'list' ? 'array' : 'string' })
-  if (node.config.type === 'transform') configured.push({ name: node.config.outputName, type: 'string' })
-  if (node.config.type === 'code') {
-    if (node.config.outputs && node.config.outputs.length > 0) configured.push(...node.config.outputs.filter(output => output.name.trim() !== '').map(output => ({ name: output.name, type: output.valueType ?? 'any' })))
-    else configured.push({ name: node.config.outputName, type: 'object' })
-  }
-  if (node.config.type === 'agent') configured.push(...(node.config.outputs ?? []).filter(output => output.name.trim() !== '').map(output => ({ name: output.name, type: output.valueType })))
-  if (node.config.type === 'image-recognition') configured.push({ name: node.config.outputName || 'imageResult', type: '图片识别结果' })
-  if (node.config.type === 'list-row-action') configured.push({ name: node.config.outputName || 'listOperationResult', type: 'object' })
-  if (node.config.type === 'switch' && node.config.mode === 'ai') configured.push({ name: node.config.reasonOutputName?.trim() || 'reason', type: 'AI 判断依据' })
-  if (node.config.type === 'api-listen') {
-    configured.push({ name: node.config.outputName, type: node.config.responseType === 'json' ? 'object/array' : 'string' })
-    if ((node.config.rawOutputName ?? '').trim() !== '') configured.push({ name: node.config.rawOutputName ?? 'responseData', type: node.config.responseType === 'json' ? 'object/array' : 'string' })
-    for (const field of node.config.fields ?? []) if (field.name.trim() !== '') configured.push({ name: field.name, type: '字段值' })
-  }
-  if (node.config.type === 'api-request') {
-    configured.push({ name: node.config.outputName, type: node.config.responseType === 'json' ? 'object/array' : 'string' })
-    if ((node.config.rawOutputName ?? '').trim() !== '') configured.push({ name: node.config.rawOutputName ?? 'rawResponseData', type: node.config.responseType === 'json' ? 'object/array' : 'string' })
-    for (const field of node.config.fields ?? []) if (field.name.trim() !== '') configured.push({ name: field.name, type: '字段值' })
-  }
-  if (node.config.type === 'page-action') {
-    for (const step of node.config.steps) if (step.type === 'extract') configured.push({ name: step.outputName, type: 'string' })
-  }
-  if (node.config.type === 'for-each') {
-    configured.push({ name: node.config.itemVar || 'item', type: '当前项' }, { name: node.config.indexVar || 'index', type: '当前索引' })
-    for (const name of node.config.declaredVariables ?? []) {
-      if (name.trim() !== '' && !configured.some(item => item.name === name)) configured.push({ name, type: '当前项' })
-    }
-  }
+  const configured = nodeOutputDefinitions(node)
   return configured.map(item => ({ path: `nodes.${node.name}.${item.name}`, type: item.type, value: outputs?.[node.id]?.[item.name] }))
 }
 

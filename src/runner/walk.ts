@@ -1,3 +1,5 @@
+import { approvalOutputName } from '../graph/approval-outputs.ts'
+import { approvalReviewResult, approvalReviewFromPrompt, reviewOutputs } from '../graph/approval-review.ts'
 import type { ApprovalDecision, ApprovalPrompt, JsonValue, NodeOutputs, NodeRunStatus, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import { NODE_CATALOG } from '@graph/catalog.ts'
 
@@ -211,7 +213,7 @@ export async function walkGraph(
         result = {
           message: decision.decision === 'approved' ? `审批已通过：${decision.approverName}` : decision.decision === 'rejected' ? `审批已拒绝：${decision.approverName}${decision.comment ? `（${decision.comment}）` : ''}` : '审批已超时',
           branch: decision.decision,
-          outputs: { approved, decision: decision.decision, comment: decision.comment, approverId: decision.approverId ?? '', approverName: decision.approverName, decidedAt: decision.decidedAt },
+          outputs: { ...reviewOutputs(approvalReviewResult(approvalReviewFromPrompt(result.approval), decision.decision, decision.reviewResult, decision.comment), approvalOutputName(node.config.type === 'approval' ? node.config : {})), approved, decision: decision.decision, comment: decision.comment, approverId: decision.approverId ?? '', approverName: decision.approverName, decidedAt: decision.decidedAt },
         }
         nodes[node.id] = 'running'
         emit('running', node.id)

@@ -1,4 +1,6 @@
 import { NODE_CATALOG, newId } from '@graph/catalog.ts'
+import { approvalOutputName } from '../graph/approval-outputs.ts'
+import { reviewOutputs, approvalReviewFromPrompt } from '../graph/approval-review.ts'
 import type { AgentOutputField, ElementLocator, JsonValue, ListRowMatchedAction, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
 import { walkGraph, type RunHandlers, type RunState, type StepResult } from './walk.ts'
@@ -125,7 +127,7 @@ export interface BrowserRunOptions {
   readonly allowExistingPage?: boolean
   readonly subflows?: readonly WorkflowGraph[]
   readonly stopAfterNodeId?: string
-  readonly resumeApproval?: { readonly nodeId: string; readonly decision: 'approved' | 'rejected' | 'timeout'; readonly comment: string; readonly approverId?: string; readonly approverName: string; readonly decidedAt: string }
+  readonly resumeApproval?: { readonly reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult; readonly nodeId: string; readonly decision: 'approved' | 'rejected' | 'timeout'; readonly comment: string; readonly approverId?: string; readonly approverName: string; readonly decidedAt: string }
 }
 
 const SENSITIVE_LOG_KEY = /password|passwd|pwd|secret|token|authorization|cookie|api[-_]?key|access[-_]?key|session|sign(?:ature)?|auth[_-]?key|x-amz-(?:credential|signature)|密码|令牌|密钥|口令|凭证/i
@@ -482,6 +484,9 @@ async function liveStep(
   }
   if (node.config.type === 'approval') {
     const timeoutMinutes = Math.max(1, node.config.timeoutMinutes)
+    const fields = node.config.fields.map(field => ({ label: field.label, value: field.path?.trim() ? walkJsonPath(resolveBindingInContext(field.value, context), field.path) : resolveBindingInContext(field.value, context) }))
+    const description = String(resolveExpression(node.config.description, context))
+    const review = node.config.content === undefined ? { ...approvalReviewFromPrompt({ fields, description }), editable: node.config.editable !== false } : { content: resolveBindingInContext(node.config.content, context), format: node.config.contentFormat ?? 'text', editable: node.config.editable !== false }
     return {
       message: `等待当前执行人审批：${String(resolveExpression(node.config.title, context))}`,
       approval: {
@@ -491,8 +496,9 @@ async function liveStep(
         nodeId: node.id,
         nodeName: node.name,
         title: String(resolveExpression(node.config.title, context)),
-        description: String(resolveExpression(node.config.description, context)),
-        fields: node.config.fields.map(field => ({ label: field.label, value: field.path?.trim() ? walkJsonPath(resolveBindingInContext(field.value, context), field.path) : resolveBindingInContext(field.value, context) })),
+        description,
+        fields,
+        review,
         requireCommentOnReject: node.config.requireCommentOnReject,
         timeoutAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
         notifications: node.notifications,
@@ -1076,8 +1082,10 @@ export async function runBrowser(
   const runnableGraph = expandSubflows(graph, options.subflows ?? [])
   const resumeEdge = options.resumeApproval === undefined ? undefined : runnableGraph.edges.find(edge => edge.sourceNodeId === options.resumeApproval!.nodeId && edge.sourcePort === options.resumeApproval!.decision)
   if (options.resumeApproval && !resumeEdge) throw new Error(`审批节点的「${options.resumeApproval.decision}」出口没有后续连线`)
+  const resumedConfig = runnableGraph.nodes.find(node => node.id === options.resumeApproval?.nodeId)?.config
+  const resumedOutputName = approvalOutputName(resumedConfig?.type === 'approval' ? resumedConfig : {})
   const approvalOutputs = options.resumeApproval === undefined ? {} : {
-    [options.resumeApproval.nodeId]: { approved: options.resumeApproval.decision === 'approved', decision: options.resumeApproval.decision, comment: options.resumeApproval.comment, approverId: options.resumeApproval.approverId ?? '', approverName: options.resumeApproval.approverName, decidedAt: options.resumeApproval.decidedAt },
+    [options.resumeApproval.nodeId]: { ...reviewOutputs(options.resumeApproval.reviewResult, resumedOutputName), approved: options.resumeApproval.decision === 'approved', decision: options.resumeApproval.decision, comment: options.resumeApproval.comment, approverId: options.resumeApproval.approverId ?? '', approverName: options.resumeApproval.approverName, decidedAt: options.resumeApproval.decidedAt },
   }
   const initialOutputs = { ...options.outputs, ...approvalOutputs }
   const entry = graph.nodes.find(node => node.id === graph.entryNodeId)
@@ -1096,6 +1104,7 @@ export async function runBrowser(
     llm: runnableGraph.llm,
     llms: Object.fromEntries((runnableGraph.llms ?? (runnableGraph.llm === undefined ? [] : [runnableGraph.llm])).map(item => [item.id, item])),
   }
+  if (options.resumeApproval?.reviewResult) context.variables[resumedOutputName] = { ...options.resumeApproval.reviewResult }
   const hasLoop = runnableGraph.nodes.some(node => node.type === 'for-each')
   let latestLoopCounts = {
     successCount: Number(context.variables.successCount ?? 0),
@@ -1154,6 +1163,10 @@ export async function runBrowser(
   const state = await walkGraph(runnableGraph, {
     ...handlers,
     onUpdate: next => {
+      for (const [id, values] of Object.entries(next.outputs)) {
+        const config = runnableGraph.nodes.find(node => node.id === id)?.config
+        if (values !== context.outputs[id] && config?.type === 'approval' && values[approvalOutputName(config)] !== undefined) context.variables[approvalOutputName(config)] = values[approvalOutputName(config)]!
+      }
       Object.assign(context.outputs, next.outputs)
       const logs = next.logs.map((log, index) => log.notificationEvent
         ? { ...log, notificationValues: latestState?.logs[index]?.notificationValues ?? notificationValuesFor(log.nodeId, log.notificationEvent) }

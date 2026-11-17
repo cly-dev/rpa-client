@@ -12,6 +12,9 @@ import { executionEventTone, failedRunReason, readableRunError } from "./executi
 import { safeEventMessage } from './execution-log.ts';
 import { BrowserModePicker } from './BrowserModePicker.tsx';
 import { LiveExecutionPanel } from './LiveExecutionPanel.tsx';
+import { approvalReviewFromPrompt } from '../../graph/approval-review.ts'
+import { ApprovalContentEditor } from './ApprovalContentEditor.tsx'
+import type { ApprovalReviewResult } from '../../graph/approval-review.ts'
 import { ApprovalRichText } from './ApprovalRichText.tsx';
 import { Pagination } from './Pagination.tsx';
 import { ClearableNumberInput } from './ClearableNumberInput.tsx';
@@ -260,6 +263,8 @@ export function ExecutionCenter({
   const [approvalHistoryError, setApprovalHistoryError] = useState('');
   const [approvalHistoryRefresh, setApprovalHistoryRefresh] = useState(0);
   const [activeApproval, setActiveApproval] = useState<ApprovalRecord>();
+  const activeApprovalReview = useMemo(() => activeApproval ? approvalReviewFromPrompt(activeApproval) : undefined, [activeApproval])
+  const [approvalReview, setApprovalReview] = useState<{ id: string; value?: ApprovalReviewResult }>();
   const [approvalComment, setApprovalComment] = useState("");
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const pageSize = 15;
@@ -444,16 +449,30 @@ export function ExecutionCenter({
       setNotice("拒绝审批时必须填写审批意见");
       return;
     }
+    const localReview = approvalReview?.id === activeApproval.id ? approvalReview.value : undefined;
+    if (decision === 'approved' && activeApprovalReview && !localReview) { setNotice('请检查审核内容是否有效'); return; }
     setApprovalSubmitting(true);
     try {
       const device = await window.studio.getDeviceInfo();
-      const saved = await decideApproval(RPA_SERVICE_URL, activeApproval.id, {
-        decision,
-        comment: approvalComment.trim(),
-        approverId: device.deviceId,
-        approverName: device.deviceName,
-      });
-      if (!activeApproval.continuationStatus) await window.studio.respondApproval(activeApproval.id, decision, approvalComment.trim());
+      const comment = approvalComment.trim();
+      let saved;
+      try {
+        saved = await decideApproval(RPA_SERVICE_URL, activeApproval.id, {
+          decision,
+          comment,
+          reviewResult: localReview,
+          approverId: device.deviceId,
+          approverName: device.deviceName,
+        });
+      } catch (error) {
+        // A previous attempt may have updated the server while local resume failed.
+        // Retry should still unblock the waiting runner with the edited review content.
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/already decided|已经处理|已经决定/i.test(message)) throw error;
+        saved = { ...activeApproval, reviewResult: localReview ?? activeApproval.reviewResult, status: decision, comment };
+      }
+      const reviewForResume = saved.reviewResult ?? localReview;
+      if (!activeApproval.continuationStatus) await window.studio.respondApproval(activeApproval.id, decision, comment, reviewForResume);
       else window.dispatchEvent(new Event('rpa:approval-continuation-ready'));
       setApprovals((current) => current.filter((item) => item.id !== saved.id));
       setApprovalTotal((current) => Math.max(0, current - 1));
@@ -1388,6 +1407,7 @@ export function ExecutionCenter({
                   ))}
                 </dl>
               ) : null}
+              {activeApprovalReview ? <ApprovalContentEditor key={activeApproval.id} review={activeApprovalReview} result={activeApproval.status === 'pending' ? undefined : activeApproval.reviewResult} disabled={approvalSubmitting || activeApproval.status !== 'pending'} onChange={value => setApprovalReview({ id: activeApproval.id, value })} /> : null}
               {activeApproval.status === 'pending' ? <label className="execution-input-field">
                 <span>审批意见{activeApproval.requireCommentOnReject ? <em>拒绝时必填</em> : null}</span>
                 <textarea rows={4} value={approvalComment} onChange={event => setApprovalComment(event.target.value)} placeholder="填写审批意见（可选）" />
@@ -1424,7 +1444,7 @@ export function ExecutionCenter({
                   void submitApproval("approved");
                 }}
               >
-                {approvalSubmitting ? "正在提交…" : activeApproval.continuationStatus ? "通过并续跑本轮" : "通过并继续"}
+                {approvalSubmitting ? "正在提交…" : activeApprovalReview ? "保存并通过" : activeApproval.continuationStatus ? "通过并续跑本轮" : "通过并继续"}
               </button>
               </> : <>{activeApproval.continuationExecutionId ? <button type="button" onClick={() => { const id = activeApproval.continuationExecutionId!; setActiveApproval(undefined); void openDetail({ id }); }}>查看分支日志</button> : null}<button type="button" onClick={() => setActiveApproval(undefined)}>关闭</button></>}
             </footer>

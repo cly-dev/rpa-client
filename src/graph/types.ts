@@ -322,6 +322,10 @@ export interface ApprovalField {
 
 export interface ApprovalConfig {
   readonly type: 'approval'
+  readonly outputName?: string
+  readonly content?: ValueBinding
+  readonly contentFormat?: 'text' | 'rich-text' | 'json'
+  readonly editable?: boolean
   readonly title: string
   readonly description: string
   readonly fields: readonly ApprovalField[]
@@ -341,6 +345,8 @@ export interface ApprovalContinuation {
 }
 
 export interface ApprovalPrompt {
+  readonly review?: import('./approval-review.ts').ApprovalReview
+
   readonly id: string
   readonly executionId: string
   readonly workflowId: string
@@ -357,6 +363,8 @@ export interface ApprovalPrompt {
 }
 
 export interface ApprovalDecision {
+  readonly reviewResult?: import('./approval-review.ts').ApprovalReviewResult
+
   readonly decision: 'approved' | 'rejected' | 'timeout'
   readonly comment: string
   readonly approverId?: string

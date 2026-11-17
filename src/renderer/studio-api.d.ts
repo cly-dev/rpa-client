@@ -8,7 +8,7 @@ interface StudioApi {
   onAuthExpired(callback: (token: string) => void): () => void
   getDeviceInfo(): Promise<{ deviceId: string; deviceName: string; clientVersion: string }>
   checkBrowserReadiness(): Promise<{ available: boolean; message: string }>
-  runWorkflow(graph: WorkflowGraph, options?: { runId?: string; executionId?: string; inputs?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>; variables?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>; outputs?: Readonly<Record<string, Readonly<Record<string, import('@graph/types.ts').JsonValue>>>>; headless?: boolean; subflows?: readonly WorkflowGraph[]; reuseCurrentPage?: boolean; stopAfterNodeId?: string; openDebugBrowserOnPageActionFailure?: boolean; resumeApproval?: { nodeId: string; decision: 'approved' | 'rejected' | 'timeout'; comment: string; approverId?: string; approverName: string; decidedAt: string } }): Promise<DryRunState>
+  runWorkflow(graph: WorkflowGraph, options?: { runId?: string; executionId?: string; inputs?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>; variables?: Readonly<Record<string, import('@graph/types.ts').JsonValue>>; outputs?: Readonly<Record<string, Readonly<Record<string, import('@graph/types.ts').JsonValue>>>>; headless?: boolean; subflows?: readonly WorkflowGraph[]; reuseCurrentPage?: boolean; stopAfterNodeId?: string; openDebugBrowserOnPageActionFailure?: boolean; resumeApproval?: { reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult; nodeId: string; decision: 'approved' | 'rejected' | 'timeout'; comment: string; approverId?: string; approverName: string; decidedAt: string } }): Promise<DryRunState>
   syncSchedules(rules: readonly ClientScheduleRule[]): Promise<{ count: number }>
   clearSchedules(): Promise<{ ok: true }>
   acknowledgeScheduleDue(id: string, scheduledAt: string): Promise<{ ok: true }>
@@ -18,7 +18,7 @@ interface StudioApi {
   cancelWorkflow(runId: string, reason?: 'user' | 'editor-exit' | 'schedule-paused'): Promise<{ cancelled: boolean }>
   onRunUpdate(callback: (value: { readonly runId?: string; readonly state: DryRunState }) => void): () => void
   onApprovalRequest(callback: (prompt: ApprovalPrompt) => void): () => void
-  respondApproval(id: string, decision: 'approved' | 'rejected', comment?: string): Promise<{ ok: true }>
+  respondApproval(id: string, decision: 'approved' | 'rejected', comment?: string, reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult): Promise<{ ok: true }>
   acknowledgeApprovalQueued(id: string, error?: string): Promise<{ ok: boolean }>
   canRunContinuation(): Promise<{ ready: boolean }>
   onPageEnvironment(callback: (environment: { url: string; title: string }) => void): () => void

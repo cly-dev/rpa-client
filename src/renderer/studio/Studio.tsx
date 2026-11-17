@@ -54,6 +54,9 @@ import { downloadJson, importWorkflowJson, safeJsonFilename } from './json-trans
 import { planBulkSubflowVersionUpdate } from './subflow-version.ts'
 import { WebhookSettings } from './WebhookSettings.tsx'
 import { WorkflowRunningBubble } from './WorkflowRunningBubble.tsx'
+import { approvalReviewFromPrompt } from '../../graph/approval-review.ts'
+import { ApprovalContentEditor } from './ApprovalContentEditor.tsx'
+import type { ApprovalReviewResult } from '../../graph/approval-review.ts'
 import { ApprovalRichText } from './ApprovalRichText.tsx'
 import { isScheduledExecutionActive } from './scheduled-executions.ts'
 import type { AuthUser } from '../auth.ts'
@@ -204,6 +207,8 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [nodeRunRows, setNodeRunRows] = useState<InjectionRow[]>([])
   const [nodeRunError, setNodeRunError] = useState<string>()
   const [editorApproval, setEditorApproval] = useState<ApprovalPrompt>()
+  const editorApprovalReview = useMemo(() => editorApproval ? approvalReviewFromPrompt(editorApproval) : undefined, [editorApproval])
+  const [editorReview, setEditorReview] = useState<{ id: string; value?: ApprovalReviewResult }>()
   const [editorApprovalComment, setEditorApprovalComment] = useState('')
   const [editorApprovalSubmitting, setEditorApprovalSubmitting] = useState(false)
   const [runPanelExpandRequest, setRunPanelExpandRequest] = useState(0)
@@ -1107,9 +1112,10 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       setNotice('拒绝审批时必须填写审批意见')
       return
     }
+    if (decision === 'approved' && editorApprovalReview && (!editorReview || editorReview.id !== approval.id || !editorReview.value)) { setNotice('请检查审核内容是否有效'); return }
     setEditorApprovalSubmitting(true)
     try {
-      await studio.respondApproval(approval.id, decision, comment)
+      await studio.respondApproval(approval.id, decision, comment, editorReview?.id === approval.id ? editorReview.value : undefined)
       setEditorApproval(undefined)
       setEditorApprovalComment('')
       setNotice(decision === 'approved' ? '审批已通过，流程继续执行' : '审批已拒绝，流程进入拒绝分支')
@@ -1244,11 +1250,12 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
           <div className="execution-dialog-body">
             <ApprovalRichText className="approval-description" value={editorApproval.description || '请确认是否允许流程继续执行。'} />
             {editorApproval.fields.length > 0 ? <dl className="approval-detail-list">{editorApproval.fields.map((field, index) => <div key={`${field.label}-${index}`}><dt>{field.label || `字段 ${index + 1}`}</dt><dd>{typeof field.value === 'string' ? <ApprovalRichText value={field.value} /> : typeof field.value === 'object' && field.value !== null ? JSON.stringify(field.value, null, 2) : String(field.value ?? '')}</dd></div>)}</dl> : null}
+            {editorApprovalReview ? <ApprovalContentEditor key={editorApproval.id} review={editorApprovalReview} disabled={editorApprovalSubmitting} onChange={value => setEditorReview({ id: editorApproval.id, value })} /> : null}
             <label className="execution-input-field"><span>审批意见{editorApproval.requireCommentOnReject ? <em>拒绝时必填</em> : null}</span><textarea rows={4} value={editorApprovalComment} onChange={event => { setEditorApprovalComment(event.target.value) }} placeholder="填写审批意见（可选）" /></label>
             {editorApproval.timeoutAt ? <p className="properties-hint">审批截止时间：{new Date(editorApproval.timeoutAt).toLocaleString()}</p> : null}
             <p className="properties-hint">选择通过或拒绝后，流程会从对应出口继续执行。</p>
           </div>
-          <footer><button type="button" className="approval-reject" disabled={editorApprovalSubmitting} onClick={() => { void submitEditorApproval('rejected') }}>{editorApprovalSubmitting ? '正在提交…' : '拒绝并继续'}</button><button type="button" className="workbench-primary" disabled={editorApprovalSubmitting} onClick={() => { void submitEditorApproval('approved') }}>{editorApprovalSubmitting ? '正在提交…' : '通过并继续'}</button></footer>
+          <footer><button type="button" className="approval-reject" disabled={editorApprovalSubmitting} onClick={() => { void submitEditorApproval('rejected') }}>{editorApprovalSubmitting ? '正在提交…' : '拒绝并继续'}</button><button type="button" className="workbench-primary" disabled={editorApprovalSubmitting} onClick={() => { void submitEditorApproval('approved') }}>{editorApprovalSubmitting ? '正在提交…' : editorApprovalReview ? '保存并通过' : '通过并继续'}</button></footer>
         </section>
       </div> : null}
       {nodeRunDialog ? <div className="execution-dialog-backdrop" role="presentation" onClick={() => { setNodeRunDialog(undefined); setNodeRunError(undefined) }}>

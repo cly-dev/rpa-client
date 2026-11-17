@@ -141,6 +141,7 @@ export interface ExecutionRecord {
 }
 
 export interface ApprovalRecord extends ApprovalPrompt {
+  readonly reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult
   readonly workspaceId: string
   readonly workflowName?: string
   readonly status: 'pending' | 'approved' | 'rejected' | 'timeout' | 'cancelled'
@@ -472,11 +473,12 @@ export function createApproval(baseUrl: string, prompt: ApprovalPrompt, device: 
   return request(baseUrl, 'approvals', '', { method: 'POST', body: JSON.stringify({ ...prompt, ...device }) })
 }
 
-export function decideApproval(baseUrl: string, id: string, value: { decision: 'approved' | 'rejected'; comment: string; approverId: string; approverName: string }): Promise<ApprovalRecord> {
+export function decideApproval(baseUrl: string, id: string, value: { decision: 'approved' | 'rejected'; comment: string; approverId: string; approverName: string; reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult }): Promise<ApprovalRecord> {
   return request(baseUrl, 'approvals', `/${encodeURIComponent(id)}/decision`, { method: 'POST', body: JSON.stringify(value) })
 }
 
 export interface ApprovalContinuationClaim {
+  readonly reviewResult?: import('../graph/approval-review.ts').ApprovalReviewResult
   readonly approvalId: string
   readonly nodeId: string
   readonly decision: 'approved' | 'rejected' | 'timeout'

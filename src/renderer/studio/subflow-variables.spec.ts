@@ -15,10 +15,11 @@ describe('availableSubflowVariableNames', () => {
     const child: WorkflowGraph = { workflowId: 'child', name: 'Child', version: 2, entryNodeId: childStart.id, nodes: [childStart, childSet, childCall], edges: [], context: { inputs: [], variables: [{ name: 'token', type: 'string' }] } }
     const nestedStart = createNode('start', { x: 0, y: 0 })
     const nestedRequest = { ...createNode('api-request', { x: 100, y: 0 }), config: { type: 'api-request' as const, url: '', method: 'GET', body: '', responseType: 'json' as const, jsonPath: '', outputName: 'payment', fields: [{ name: 'paymentTime', path: 'data.time' }], timeoutMs: 15000 } }
-    const nested: WorkflowGraph = { workflowId: 'nested', name: 'Nested', version: 1, entryNodeId: nestedStart.id, nodes: [nestedStart, nestedRequest], edges: [] }
+    const review = { ...createNode('approval', { x: 200, y: 0 }), config: { type: 'approval' as const, outputName: 'checkedReply', title: '确认', description: '', fields: [], timeoutMinutes: 30, requireCommentOnReject: false } }
+    const nested: WorkflowGraph = { workflowId: 'nested', name: 'Nested', version: 1, entryNodeId: nestedStart.id, nodes: [nestedStart, nestedRequest, review], edges: [] }
 
     expect(availableSubflowVariableNames(parent, [child, nested], call.id)).toEqual([])
-    expect(availableSubflowVariableNames(parent, [child, nested], after.id)).toEqual(expect.arrayContaining(['token', 'orderId', 'payment', 'paymentTime']))
+    expect(availableSubflowVariableNames(parent, [child, nested], after.id)).toEqual(expect.arrayContaining(['token', 'orderId', 'payment', 'paymentTime', 'checkedReply', 'checkedReply.content', 'checkedReply.plainText']))
     expect(availableSubflowVariableNames({ ...parent, edges: parent.edges.slice(0, 1) }, [child, nested], after.id)).toEqual([])
   })
 })

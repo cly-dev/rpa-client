@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { parseWorkflow } from '@graph/parse.ts'
 import { RPA_SERVICE_URL, ServiceAuthExpiredError, loadServiceLlmConfigs, withServiceLlms } from '@graph/service-llms.ts'
+import { approvalReviewResult, approvalReviewFromPrompt, readReviewResult } from '../graph/approval-review.ts'
 import type { ApprovalDecision, ApprovalPrompt, JsonValue, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import { runBrowser, type BrowserRunOptions } from '@runner/browser-run.ts'
 import { usablePageUrl, workflowNeedsExistingPage } from '@runner/page-requirement.ts'
@@ -142,7 +143,7 @@ app.whenReady().then(() => {
     return { ok: true }
   })
   const activeRuns = new Map<string, { readonly controller: AbortController; readonly senderId: number }>()
-  const pendingApprovals = new Map<string, { readonly resolve: (decision: ApprovalDecision) => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
+  const pendingApprovals = new Map<string, { readonly prompt: ApprovalPrompt; readonly resolve: (decision: ApprovalDecision) => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
   const pendingApprovalQueues = new Map<string, { readonly resolve: () => void; readonly reject: (error: Error) => void; readonly timer: ReturnType<typeof setTimeout>; readonly senderId: number; readonly runId?: string }>()
   ipcMain.handle('workflow:approval-queued', (event, raw: unknown) => {
     const value = typeof raw === 'object' && raw !== null ? raw as { id?: unknown; error?: unknown } : {}
@@ -157,13 +158,17 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('workflow:continuation-ready', () => ({ ready: activeRuns.size === 0 && !browserGate.isBusy() }))
   ipcMain.handle('workflow:approval-respond', (_event, raw: unknown) => {
-    const value = typeof raw === 'object' && raw !== null ? raw as { id?: unknown; decision?: unknown; comment?: unknown } : {}
+    const value = typeof raw === 'object' && raw !== null ? raw as { id?: unknown; decision?: unknown; comment?: unknown; reviewResult?: unknown } : {}
     if (typeof value.id !== 'string' || (value.decision !== 'approved' && value.decision !== 'rejected')) throw new Error('审批结果无效')
     const pending = pendingApprovals.get(value.id)
     if (pending === undefined) throw new Error('审批已处理、已超时或执行已结束')
+    const review = approvalReviewFromPrompt(pending.prompt)
+    // Match server behavior: missing reviewResult falls back to the original review content
+    // instead of leaving the local runner blocked after the service already accepted the decision.
+    const reviewResult = approvalReviewResult(review, value.decision, value.reviewResult, typeof value.comment === 'string' ? value.comment : '')
     clearTimeout(pending.timer)
     pendingApprovals.delete(value.id)
-    pending.resolve({ decision: value.decision, comment: typeof value.comment === 'string' ? value.comment : '', approverId: deviceId, approverName: deviceName, decidedAt: new Date().toISOString() })
+    pending.resolve({ reviewResult, decision: value.decision, comment: typeof value.comment === 'string' ? value.comment : '', approverId: deviceId, approverName: deviceName, decidedAt: new Date().toISOString() })
     return { ok: true }
   })
   ipcMain.handle('device:info', () => ({ deviceId, deviceName, clientVersion: app.getVersion() }))
@@ -239,9 +244,9 @@ app.whenReady().then(() => {
     const { configs: serviceLlms, token: serviceToken } = await loadMainServiceLlms(event)
     const graph = withServiceLlms(admit(payload.graph), serviceLlms, serviceToken)
     const executionId = typeof payload.executionId === 'string' ? payload.executionId : undefined
-    const resumeValue = typeof payload.resumeApproval === 'object' && payload.resumeApproval !== null ? payload.resumeApproval as { nodeId?: unknown; decision?: unknown; comment?: unknown; approverId?: unknown; approverName?: unknown; decidedAt?: unknown } : undefined
+    const resumeValue = typeof payload.resumeApproval === 'object' && payload.resumeApproval !== null ? payload.resumeApproval as { reviewResult?: unknown; nodeId?: unknown; decision?: unknown; comment?: unknown; approverId?: unknown; approverName?: unknown; decidedAt?: unknown } : undefined
     const resumeApproval: BrowserRunOptions['resumeApproval'] = resumeValue && typeof resumeValue.nodeId === 'string' && (resumeValue.decision === 'approved' || resumeValue.decision === 'rejected' || resumeValue.decision === 'timeout') && typeof resumeValue.decidedAt === 'string'
-      ? { nodeId: resumeValue.nodeId, decision: resumeValue.decision as 'approved' | 'rejected' | 'timeout', comment: typeof resumeValue.comment === 'string' ? resumeValue.comment : '', approverId: typeof resumeValue.approverId === 'string' ? resumeValue.approverId : undefined, approverName: typeof resumeValue.approverName === 'string' ? resumeValue.approverName : '当前执行人', decidedAt: resumeValue.decidedAt }
+      ? { reviewResult: readReviewResult(resumeValue.reviewResult), nodeId: resumeValue.nodeId, decision: resumeValue.decision as 'approved' | 'rejected' | 'timeout', comment: typeof resumeValue.comment === 'string' ? resumeValue.comment : '', approverId: typeof resumeValue.approverId === 'string' ? resumeValue.approverId : undefined, approverName: typeof resumeValue.approverName === 'string' ? resumeValue.approverName : '当前执行人', decidedAt: resumeValue.decidedAt }
       : undefined
     const inputs = typeof payload.inputs === 'object' && payload.inputs !== null && !Array.isArray(payload.inputs)
       ? payload.inputs as Readonly<Record<string, JsonValue>>
@@ -301,7 +306,7 @@ app.whenReady().then(() => {
             pendingApprovals.delete(prompt.id)
             resolve({ decision: 'timeout', comment: '', approverId: deviceId, approverName: deviceName, decidedAt: new Date().toISOString() })
           }, timeoutMs)
-          pendingApprovals.set(prompt.id, { resolve, reject, timer, senderId: sender.id, runId })
+          pendingApprovals.set(prompt.id, { prompt, resolve, reject, timer, senderId: sender.id, runId })
           sender.send('workflow:approval-request', prompt)
         }),
         queueApproval: (prompt: ApprovalPrompt) => new Promise<void>((resolve, reject) => {

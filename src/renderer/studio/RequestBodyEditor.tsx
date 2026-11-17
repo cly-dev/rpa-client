@@ -1,44 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import type { JsonValue, WorkflowGraph } from '@graph/types.ts'
+import type { WorkflowGraph } from '@graph/types.ts'
 import { formatJsonRequestBodyTemplate } from '@graph/json-request-template.ts'
-import { upstreamNodes } from './upstream-nodes.ts'
-
-function nestedNames(root: string, value: JsonValue | undefined, depth = 0): string[] {
-  if (value === null || value === undefined || depth >= 3 || typeof value !== 'object') return []
-  const entries = Array.isArray(value) ? value.slice(0, 1).map((item, index) => [`[${index}]`, item] as const) : Object.entries(value).filter(([key]) => !/[.[\]]/.test(key))
-  return entries.flatMap(([key, item]) => {
-    const path = key.startsWith('[') ? `${root}${key}` : `${root}.${key}`
-    return [path, ...nestedNames(path, item, depth + 1)]
-  })
-}
-
-export function availableVariables(graph: WorkflowGraph, nodeId: string, subflowVariableNames: readonly string[] = []): string[] {
-  const names: string[] = []
-  for (const input of graph.context?.inputs ?? []) names.push(`inputs.${input.name}`, ...nestedNames(`inputs.${input.name}`, input.defaultValue))
-  for (const variable of graph.context?.variables ?? []) names.push(variable.name, ...nestedNames(variable.name, variable.defaultValue))
-  for (const node of upstreamNodes(graph, nodeId)) {
-    const config = node.config
-    if (config.type === 'set-variable') names.push(config.name)
-    if (config.type === 'switch' && config.mode === 'ai') names.push(config.reasonOutputName?.trim() || 'reason')
-    if (config.type === 'for-each') names.push('currentItem', 'currentIndex', config.itemVar, config.indexVar, ...(config.declaredVariables ?? []))
-    if (config.type === 'page-action') {
-      for (const step of config.steps) if (step.type === 'extract') names.push(step.outputName, step.updateVariable ?? '')
-    }
-    if (config.type === 'code') {
-      names.push(config.outputName)
-      for (const output of config.outputs ?? []) names.push(output.name, output.updateVariable ?? '')
-    } else if (config.type === 'agent') {
-      for (const output of config.outputs ?? []) names.push(output.name, output.updateVariable ?? '')
-    } else if ('outputName' in config) names.push(config.outputName, 'updateVariable' in config ? config.updateVariable ?? '' : '')
-    if (config.type === 'api-request' || config.type === 'api-listen') {
-      names.push(config.rawOutputName ?? '', ...(config.fields ?? []).map(field => field.name))
-    }
-  }
-  names.push('failureCount', 'successCount')
-  names.push(...subflowVariableNames)
-  return names.filter((name, index) => name.trim() !== '' && names.indexOf(name) === index)
-}
+import { availableVariableNames as availableVariables } from '@graph/workflow-variables.ts'
+export { availableVariableNames as availableVariables } from '@graph/workflow-variables.ts'
 
 export function RequestBodyEditor({ graph, nodeId, subflowVariableNames = [], value, method, onChange }: { graph: WorkflowGraph; nodeId: string; subflowVariableNames?: readonly string[]; value: string; method: string; onChange: (value: string) => void }): ReactNode {
   const [expanded, setExpanded] = useState(false)

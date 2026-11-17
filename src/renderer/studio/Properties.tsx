@@ -1,5 +1,7 @@
+import { nodeOutputDefinitions as nodeDataOutputs, availableVariableNames } from '@graph/workflow-variables.ts'
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { NODE_CATALOG, newId, type DataPort } from '@graph/catalog.ts'
+import { approvalOutputName, validApprovalOutputName } from '@graph/approval-outputs.ts'
+import { NODE_CATALOG, newId } from '@graph/catalog.ts'
 import { validateGraph, validatePublishConnections } from '@graph/validate.ts'
 import { subflowInputTypeWarning } from '@graph/subflow-input-types.ts'
 import type { CallSubflowInputMapping, LoopConditionClause, NodeConfig, NodeNotificationConfig, NodeNotificationTrigger, OutputVariableMode as OutputVariableModeType, PageActionStep, SwitchConfig, ValueBinding, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
@@ -602,28 +604,7 @@ function OutputVariableMode({ graph, mode, target, onChange }: { graph: Workflow
 }
 
 function outputVariableNames(graph: WorkflowGraph, nodeId: string, subflowNames: readonly string[] = []): string[] {
-  const before = upstreamNodes(graph, nodeId)
-  const names = [
-    ...(graph.context?.variables ?? []).map(item => item.name),
-    ...before.flatMap(node => node.config.type === 'set-variable' ? [node.config.name] : []),
-    ...before.flatMap(node => nodeDataOutputs(node).map(output => output.name)),
-    ...before.flatMap(node => node.config.type === 'code' ? (node.config.outputs ?? []).map(output => output.name) : []),
-    ...declaredOutputVariableNames(before),
-    ...subflowNames,
-  ]
-  return names.filter((name, index) => name.trim() !== '' && names.indexOf(name) === index)
-}
-
-function declaredOutputVariableNames(nodes: readonly WorkflowNode[]): string[] {
-  return nodes.flatMap(node => {
-    const config = node.config
-    if (config.type === 'page-action') return config.steps.flatMap(step => step.type === 'extract' && step.outputMode === 'declare' && step.updateVariable?.trim() ? [step.updateVariable] : [])
-    if (config.type === 'agent') return (config.outputs ?? []).flatMap(output => output.outputMode === 'declare' && output.updateVariable?.trim() ? [output.updateVariable] : [])
-    if (config.type === 'api-request' || config.type === 'api-listen' || config.type === 'extract' || config.type === 'transform' || config.type === 'code' || config.type === 'image-recognition') {
-      return config.outputMode === 'declare' && config.updateVariable?.trim() ? [config.updateVariable] : []
-    }
-    return []
-  })
+  return availableVariableNames(graph, nodeId, subflowNames, { includeInputs: false })
 }
 
 function ApiPairSection({ title, items, add, edit, remove }: { title: string; items: readonly { name: string; value: string }[]; add: () => void; edit: (index: number, value: { name: string; value: string }) => void; remove: (index: number) => void }): ReactNode {
@@ -697,27 +678,12 @@ function bindingTemplateText(binding: ValueBinding): string {
   return typeof binding.value === 'string' ? binding.value : JSON.stringify(binding.value, null, 2)
 }
 
-function pageActionVariableNames(graph: WorkflowGraph, nodeId: string, subflowNames: readonly string[] = []): string[] {
-  const before = upstreamNodes(graph, nodeId)
-  const names = [
-    ...(graph.context?.variables ?? []).map(item => item.name),
-    ...before.flatMap(node => node.config.type === 'set-variable' ? [node.config.name] : []),
-    ...before.flatMap(node => nodeDataOutputs(node).map(output => output.name)),
-    ...before.flatMap(node => node.config.type === 'code' ? (node.config.outputs ?? []).map(output => output.name) : []),
-    ...declaredOutputVariableNames(before),
-    ...before.flatMap(node => node.config.type === 'for-each' ? ['currentItem', 'currentIndex', node.config.itemVar, node.config.indexVar, ...(node.config.declaredVariables ?? [])] : []),
-    'failureCount', 'successCount',
-    ...subflowNames,
-  ]
-  return names.filter((name, index) => name.trim() !== '' && names.indexOf(name) === index)
-}
-
 function VariableReferencePicker({ graph }: { graph: WorkflowGraph }): ReactNode {
   const nodeId = useContext(CurrentNodeIdContext)
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
-  const names = [...(graph.context?.inputs ?? []).map(item => `inputs.${item.name}`), ...pageActionVariableNames(graph, nodeId, useContext(SubflowVariableContext))]
+  const names = [...availableVariableNames(graph, nodeId, useContext(SubflowVariableContext))]
     .filter((name, index, all) => name.trim() !== '' && all.indexOf(name) === index)
   const selectedAvailable = selected.filter(name => names.includes(name))
   const filtered = names.filter(name => name.toLowerCase().includes(search.trim().toLowerCase()))
@@ -731,7 +697,7 @@ function VariableReferencePicker({ graph }: { graph: WorkflowGraph }): ReactNode
 
 function ApprovalEditor({ graph, node, config, onChange }: { graph: WorkflowGraph; node: WorkflowNode; config: Extract<NodeConfig, { type: 'approval' }>; onChange: (config: NodeConfig) => void }): ReactNode {
   const [selectedVariable, setSelectedVariable] = useState('')
-  const variableNames = [...(graph.context?.inputs ?? []).map(item => `inputs.${item.name}`), ...pageActionVariableNames(graph, node.id, useContext(SubflowVariableContext))]
+  const variableNames = [...availableVariableNames(graph, node.id, useContext(SubflowVariableContext))]
     .filter((name, index, all) => name.trim() !== '' && all.indexOf(name) === index)
   const insertVariable = (): void => {
     if (selectedVariable === '') return
@@ -739,6 +705,12 @@ function ApprovalEditor({ graph, node, config, onChange }: { graph: WorkflowGrap
     onChange({ ...config, description: `${config.description}${separator}{{${selectedVariable}}}` })
   }
   return <div className="approval-config">
+    <label>审核结果变量名<input value={config.outputName ?? 'reviewResult'} onChange={event => onChange({ ...config, outputName: event.target.value })} placeholder="reviewResult" /></label>
+    {!validApprovalOutputName(approvalOutputName(config)) ? <p className="execution-error">变量名只能包含英文字母、数字和下划线，不能以数字开头或使用保留名称。</p> : null}
+    <BindingField graph={graph} nodeId={node.id} label="待审核内容" binding={config.content ?? { kind: 'literal', value: '' }} onChange={content => onChange({ ...config, content })} />
+    <label>编辑格式<select value={config.contentFormat ?? 'text'} onChange={event => onChange({ ...config, contentFormat: event.target.value as 'text' | 'rich-text' | 'json' })}><option value="rich-text">富文本</option><option value="text">纯文本</option><option value="json">结构化 JSON</option></select></label>
+    <label><input type="checkbox" checked={config.editable !== false} onChange={event => onChange({ ...config, editable: event.target.checked })} />允许审核人编辑内容</label>
+    <p className="properties-hint">产出变量 <code>{approvalOutputName(config)}</code>，包含 content、plainText、modified 和 comment。下游可选择本节点的“审核后内容”，不会覆盖上游原值。</p>
     <label>审批标题<input value={config.title} onChange={event => { onChange({ ...config, title: event.target.value }) }} placeholder="例如：确认提交订单" /></label>
     <label>审批说明<textarea rows={4} value={config.description} onChange={event => { onChange({ ...config, description: event.target.value }) }} placeholder="例如：订单 {{orderId}} 已超过 {{overdueDays}} 天，请确认是否继续" /></label>
     <p className="properties-hint">展示时支持安全的 HTML 富文本，如 <code>{'<strong>重点</strong>'}</code>、段落、列表和表格；普通文字仍按原样显示。</p>
@@ -1043,9 +1015,8 @@ function BindingField({
   })
   const runtimeVariableNames = ['failureCount', 'successCount', ...before.filter(item => item.config.type === 'for-each').flatMap(item => [`failureCount_${item.id}`, `successCount_${item.id}`])]
   const nodeOutputNames = new Set(options.map(option => option.port))
-  const variableNames = [...(graph.context?.variables ?? []).map(item => item.name), ...before.flatMap(item => item.config.type === 'set-variable' ? [item.config.name] : []), ...declaredOutputVariableNames(before), ...declaredVariableNames, ...runtimeVariableNames, ...subflowVariableNames]
-    .filter(name => name.trim() !== '' && !nodeOutputNames.has(name))
-    .filter((name, index, all) => all.indexOf(name) === index)
+  const variableNames = availableVariableNames(graph, nodeId, [...subflowVariableNames, ...declaredVariableNames], { includeInputs: false })
+    .filter(name => !nodeOutputNames.has(name))
   const variableOptions = variableNames.map(name => {
     const global = (graph.context?.variables ?? []).some(item => item.name === name)
     const loop = declaredVariableNames.includes(name)
@@ -1156,39 +1127,4 @@ function BindingField({
       {selectedSource !== undefined ? <div className="binding-source-summary"><span>{selectedSource.label}</span><code>{selectedSource.field}</code>{'description' in selectedSource && selectedSource.description !== undefined ? <em>{selectedSource.description}</em> : null}</div> : null}
     </>
   )
-}
-
-/**
- * 数据绑定应使用节点上实际配置的产出变量名（例如 tableData），而不是
- * 节点目录里的通用端口名（例如 text/json）。这样下拉框和变量面板显示一致。
- */
-function nodeDataOutputs(node: WorkflowNode): readonly DataPort[] {
-  const fallback = NODE_CATALOG[node.type].dataOutputs
-  if (node.config.type === 'extract') {
-    return [{ name: node.config.outputName || fallback[0]?.name || 'result', label: node.config.mode === 'list' ? '列表数据' : '抽取结果' }]
-  }
-  if (node.config.type === 'agent') return (node.config.outputs ?? []).filter(output => output.name.trim()).map(output => ({ name: output.name, label: output.description || 'AI 结果' }))
-  if (node.config.type === 'image-recognition') return [{ name: node.config.outputName || 'imageResult', label: '图片识别结果' }]
-  if (node.config.type === 'list-row-action') return [{ name: node.config.outputName || 'listOperationResult', label: '列表操作结果' }]
-  if (node.config.type === 'switch' && node.config.mode === 'ai') return [{ name: node.config.reasonOutputName?.trim() || 'reason', label: 'AI 判断依据' }]
-  if (node.config.type === 'code') {
-    const declaredOutputs = (node.config.outputs ?? []).filter(output => output.name.trim() !== '')
-    if (declaredOutputs.length > 0) return declaredOutputs.map(output => ({ name: output.name, label: output.valueType ?? '代码结果' }))
-    return [{ name: node.config.outputName || 'result', label: '代码结果' }]
-  }
-  if (node.config.type === 'transform') {
-    return [{ name: node.config.outputName || 'result', label: '处理结果' }]
-  }
-  if (node.config.type === 'api-listen') {
-    return [{ name: node.config.outputName || 'tableData', label: '接口数据' }, ...(node.config.rawOutputName?.trim() ? [{ name: node.config.rawOutputName, label: '原始响应' }] : []), ...(node.config.fields ?? []).filter(field => field.name.trim() !== '').map(field => ({ name: field.name, label: field.path || '字段变量' }))]
-  }
-  if (node.config.type === 'api-request') return [{ name: node.config.outputName || 'responseData', label: '接口数据' }, ...(node.config.rawOutputName?.trim() ? [{ name: node.config.rawOutputName, label: '原始响应' }] : []), ...(node.config.fields ?? []).filter(field => field.name.trim() !== '').map(field => ({ name: field.name, label: field.path || '字段变量' }))]
-  if (node.config.type === 'page-action') {
-    const extracts = node.config.steps.filter(step => step.type === 'extract').map(step => ({ name: step.outputName || 'text', label: '抽取结果' }))
-    return extracts
-  }
-  if (node.config.type === 'for-each') {
-    return [{ name: 'item', label: '当前项' }, { name: 'index', label: '当前索引' }]
-  }
-  return fallback
 }
