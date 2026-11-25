@@ -1,5 +1,7 @@
 import { NODE_CATALOG, newId } from '@graph/catalog.ts'
 import { approvalOutputName } from '../graph/approval-outputs.ts'
+import { FileDownloadError } from './file-download.ts'
+import { safeErrorMessage } from './error-message.ts'
 import { reviewOutputs, approvalReviewFromPrompt } from '../graph/approval-review.ts'
 import type { AgentOutputField, ElementLocator, JsonValue, ListRowMatchedAction, LoopConditionClause, NodeOutputs, WorkflowGraph, WorkflowNode, WorkflowLlmConfig } from '@graph/types.ts'
 import { asText, walkJsonPath, walkPath } from './bindings.ts'
@@ -307,13 +309,14 @@ async function attempt(
       return { ...result, logs: [...attemptLogs, ...progress, ...(result.logs ?? [])] }
     } catch (error) {
       active = false
-      last = error instanceof Error ? error.message : String(error)
+      last = safeErrorMessage(error)
       if (node.config.type === 'page-action') last = `页面操作步骤执行失败（${node.config.steps.map((step, stepIndex) => `${stepIndex + 1}.${step.type}`).join(' → ')}）：${last}`
       attemptLogs.push(...progress, `第 ${index + 1}/${tries} 次尝试失败：${last}`)
       const count = Number(context.failures[node.id] ?? 0) + 1
       context.failures[node.id] = count
       context.variables.failureCount = count
       context.variables[`failureCount_${node.id}`] = count
+      if (error instanceof FileDownloadError) break
     }
   }
   const waiting = node.execution.onError === 'human-handoff'
@@ -808,10 +811,14 @@ async function liveStep(
       const next = config.steps[index + 1]
       return count + (step.type === 'click' && next?.type === 'click' && isPickedDropdownOption(selectorText(next.selector)) ? 1 : 0)
     }, 0)
-    const pageActionTimeoutMs = Math.max(
-      node.execution.timeoutMs,
-      node.execution.timeoutMs * config.steps.length + dropdownWaitCount * (dropdownWaitTimeoutMs - node.execution.timeoutMs),
-    )
+    // Each enabled wait is sequential. Include all stage budgets and explicit
+    // delays, leaving a small margin so the driver's specific error wins over
+    // the outer guard instead of being replaced by a generic node timeout.
+    const pageActionTimeoutMs = config.steps.reduce((total, step) => {
+      const stages = step.type === 'click' ? 1 + Number(Boolean(step.beforeHover)) + Number(Boolean(step.waitForVisible)) + Number(step.waitUntilEnabled === true) + Number(step.waitForLoading === true) : 1
+      const operationMs = step.type === 'wait' ? Math.max(node.execution.timeoutMs, step.ms) : stages * node.execution.timeoutMs
+      return total + operationMs + Math.max(0, step.waitAfterMs ?? 0)
+    }, 1_000) + dropdownWaitCount * dropdownWaitTimeoutMs
     return attempt(node, async (trace): Promise<StepResult> => {
       const result: Record<string, import('@graph/types.ts').JsonValue> = {}
       let lastOpenedUrl = ''
@@ -847,14 +854,18 @@ async function liveStep(
           if (step.type === 'click') {
             if (step.beforeHover) await driver.hover?.(String(resolveExpression(selectorText(step.beforeHover), context)), node.execution.timeoutMs)
             if (step.waitForVisible) await driver.waitFor(node.execution.timeoutMs, String(resolveExpression(selectorText(step.waitForVisible), context)))
-            const target = String(resolveExpression(selectorText(step.selector), context))
+            const target = requireText(String(resolveExpression(selectorText(step.selector), context)), '点击目标选择器')
             if (step.optionValue !== undefined && driver.selectOption !== undefined) await driver.selectOption(target, String(resolveExpression(step.optionValue, context)), node.execution.timeoutMs)
             else {
               if (step.waitUntilEnabled === true) {
                 if (driver.waitUntilEnabled === undefined) throw new Error('当前浏览器驱动不支持等待按钮可点击')
+                trace(`等待目标可点击：${displaySelector(target)}`)
                 await driver.waitUntilEnabled(target, node.execution.timeoutMs)
+                trace('目标已可点击')
               }
+              trace(`定位并点击目标：${displaySelector(target)}`)
               await driver.click(target, node.execution.timeoutMs)
+              trace('点击动作完成')
             }
             if (nextStep?.type === 'click' && isPickedDropdownOption(selectorText(nextStep.selector))) {
               const optionSelector = String(resolveExpression(selectorText(nextStep.selector), context))
@@ -870,6 +881,7 @@ async function liveStep(
             if (step.waitForLoading === true) {
               if (driver.waitForLoading === undefined) throw new Error('当前浏览器驱动不支持等待加载遮罩')
               const loadingSelector = String(resolveExpression(selectorText(step.loadingSelector ?? ''), context)).trim()
+              trace('正在检查点击后的加载状态')
               const detected = await driver.waitForLoading(loadingSelector, node.execution.timeoutMs)
               trace(detected ? `点击后检测到加载状态并已等待完成${loadingSelector ? `：${loadingSelector}` : ''}` : '点击后未检测到加载遮罩，继续执行')
             }
@@ -915,10 +927,12 @@ async function liveStep(
           if (driver.currentUrl !== undefined) context.page.url = driver.currentUrl()
           trace(`页面步骤 ${stepIndex + 1}/${config.steps.length} 完成：${step.type}`)
         } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error)
+          const reason = safeErrorMessage(error)
           const pageUrl = driver.currentUrl?.() ?? ''
           const navigation = lastOpenedUrl === '' ? '' : `；请求打开：${redactLogUrl(lastOpenedUrl)}；浏览器当前地址：${pageUrl ? redactLogUrl(pageUrl) : '(空)'} `
-          throw new Error(`第 ${stepIndex + 1} 步 ${step.type} 失败：${reason}${navigation}`)
+          const message = `第 ${stepIndex + 1} 步 ${step.type} 失败：${reason}${navigation}`
+          if (error instanceof FileDownloadError) throw new FileDownloadError(message)
+          throw new Error(message)
         }
       }
       return { message: `已完成 ${config.steps.length} 个页面操作`, outputs: Object.keys(result).length > 0 ? result : undefined }

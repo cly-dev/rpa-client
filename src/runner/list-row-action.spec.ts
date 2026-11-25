@@ -4,6 +4,7 @@ import { newId } from '@graph/catalog.ts'
 import type { WorkflowGraph } from '@graph/types.ts'
 import { runBrowser, type BrowserDriver, type ListRowOperationRequest } from './browser-run.ts'
 import { listRowValuesMatch } from './list-row-match.ts'
+import { FileDownloadError } from './file-download.ts'
 
 function baseDriver(observe: (request: ListRowOperationRequest) => void): BrowserDriver {
   return {
@@ -21,6 +22,22 @@ function baseDriver(observe: (request: ListRowOperationRequest) => void): Browse
 }
 
 describe('list-row-action', () => {
+  it('does not replay earlier row mutations after the download has exhausted its own recovery', async () => {
+    const start = createNode('start', { x: 0, y: 0 })
+    const action = createNode('list-row-action', { x: 120, y: 0 })
+    if (action.config.type !== 'list-row-action') throw new Error('Expected list operation')
+    const graph: WorkflowGraph = {
+      workflowId: newId('wf'), name: 'download recovery', version: 1, entryNodeId: start.id,
+      nodes: [start, { ...action, execution: { ...action.execution, maxAttempts: 3 }, config: { ...action.config, rowSelector: '.row', source: { kind: 'literal', value: [{ sku: 'A' }] } } }],
+      edges: [createEdge(start.id, 'default', action.id)],
+    }
+    let calls = 0
+    const driver = baseDriver(() => {})
+    driver.operateListRows = async () => { calls++; throw new FileDownloadError('图片下载失败，已完成下载恢复尝试') }
+    const state = await runBrowser(graph, driver, { onUpdate() {}, wait: async () => {} })
+    expect(calls).toBe(1)
+    expect(state.status).not.toBe('succeeded')
+  })
   it('supports exact and page-value-contains matching without treating an empty target as a wildcard', () => {
     expect(listRowValuesMatch(
       [{ matchMode: 'contains', trim: true, ignoreCase: true }],

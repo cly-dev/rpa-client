@@ -1,3 +1,5 @@
+import { availableVariableNames, nodeVariableNames } from '@graph/workflow-variables.ts'
+import { completeOverwriteOutput } from '@graph/output-saving.ts'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { CodeConfig, JsonValue, ValueBinding, WorkflowGraph } from '@graph/types.ts'
 import { CodeEditor } from './CodeEditor.tsx'
@@ -8,25 +10,11 @@ interface VariableOption { readonly key: string; readonly label: string; readonl
 export function variableOptions(graph: WorkflowGraph, nodeId: string, subflowVariableNames: readonly string[]): VariableOption[] {
   const options: VariableOption[] = []
   for (const item of graph.context?.inputs ?? []) options.push({ key: `input:${item.name}`, label: `流程输入 / ${item.name}`, binding: { kind: 'workflow-input', name: item.name } })
-  for (const item of graph.context?.variables ?? []) options.push({ key: `variable:${item.name}`, label: `全局变量 / ${item.name}`, binding: { kind: 'variable', name: item.name } })
-  for (const node of upstreamNodes(graph, nodeId)) {
-    const names: string[] = []
-    const config = node.config
-    if (config.type === 'for-each') names.push(config.itemVar || 'item', config.indexVar || 'index', ...(config.declaredVariables ?? []))
-    if (config.type === 'set-variable' && config.name.trim()) names.push(config.name)
-    if (config.type === 'switch' && config.mode === 'ai') names.push(config.reasonOutputName?.trim() || 'reason')
-    if (config.type === 'code') names.push(...(config.outputs ?? []).map(output => output.name))
-    else if (config.type === 'agent') names.push(...(config.outputs ?? []).map(output => output.name))
-    else if ((config.type === 'api-request' || config.type === 'api-listen') && config.outputName.trim()) names.push(config.outputName, ...(config.fields ?? []).map(field => field.name))
-    else if ('outputName' in config && config.outputName.trim()) names.push(config.outputName)
-    for (const name of names.filter(Boolean)) options.push({ key: `variable:${name}`, label: `${node.name} / ${name}`, binding: { kind: 'variable', name } })
-  }
-  const known = new Set(options.map(option => option.key))
-  for (const name of subflowVariableNames) {
-    const key = `variable:${name}`
-    if (!name.trim() || known.has(key)) continue
-    options.push({ key, label: `子流程变量 / ${name}`, binding: { kind: 'variable', name } })
-    known.add(key)
+  const before = upstreamNodes(graph, nodeId)
+  for (const name of availableVariableNames(graph, nodeId, subflowVariableNames, { includeInputs: false })) {
+    const source = before.find(node => nodeVariableNames(node).includes(name))
+    const label = source?.name ?? ((graph.context?.variables ?? []).some(item => item.name === name) ? '全局变量' : subflowVariableNames.includes(name) ? '子流程变量' : '流程变量')
+    options.push({ key: `variable:${name}`, label: `${label} / ${name}`, binding: { kind: 'variable', name } })
   }
   return [...new Map(options.map(option => [option.key, option])).values()]
 }
@@ -62,9 +50,9 @@ export function CodeNodeEditor({ graph, nodeId, subflowVariableNames, config, on
   const options = useMemo(() => variableOptions(graph, nodeId, subflowVariableNames), [graph, nodeId, subflowVariableNames])
   const inputs = config.inputs ?? []
   const outputs = config.outputs ?? (config.outputName ? [{ ...DEFAULT_OUTPUT, name: config.outputName, outputMode: config.outputMode ?? 'produce', updateVariable: config.updateVariable }] : [DEFAULT_OUTPUT])
-  const updateInput = (index: number, patch: Partial<(typeof inputs)[number]>): void => onChange({ ...config, inputs: inputs.map((item, i) => i === index ? { ...item, ...patch } : item) })
+  const updateInput = (index: number, patch: Partial<(typeof inputs)[number]>): void => onChange({ ...config, inputs: inputs.map((item, i) => i === index ? completeOverwriteOutput({ ...item, ...patch }, outputs.filter((_, j) => j !== index).map(other => other.name)) : item) })
   const updateOutput = (index: number, patch: Partial<(typeof outputs)[number]>): void => {
-    const nextOutputs = outputs.map((item, i) => i === index ? { ...item, ...patch } : item)
+    const nextOutputs = outputs.map((item, i) => i === index ? completeOverwriteOutput({ ...item, ...patch }, outputs.filter((_, j) => j !== index).map(other => other.name)) : item)
     onChange({ ...config, outputs: nextOutputs, outputName: nextOutputs[0]?.name ?? config.outputName })
   }
   const addInput = (): void => onChange({ ...config, inputs: [...inputs, { name: '', binding: { kind: 'literal', value: null } }] })
@@ -126,7 +114,7 @@ export function CodeNodeEditor({ graph, nodeId, subflowVariableNames, config, on
     <section className="code-dify-section">
       <div className="code-dify-heading"><div><strong>输出变量</strong><p>代码返回对象中的字段名，必须和这里声明的名称一致。</p></div><button type="button" onClick={addOutput}>＋添加输出</button></div>
       <div className="code-output-table-heading"><span>变量名</span><span>类型</span><span>变量保存方式</span><span /></div>
-      {outputs.map((item, index) => <div className="code-output-row code-dify-output" key={`code-output-${index}`}><input aria-label="输出变量名" value={item.name} placeholder="例如 result" onChange={event => { updateOutput(index, { name: event.target.value, outputMode: item.outputMode ?? 'produce' }) }} /><select aria-label="输出变量类型" value={item.valueType ?? 'any'} onChange={event => { updateOutput(index, { valueType: event.target.value as NonNullable<typeof item.valueType> }) }}><option value="any">自动</option><option value="string">文本</option><option value="number">数字</option><option value="boolean">布尔值</option><option value="object">对象</option><option value="array">数组</option></select><select aria-label="输出变量保存方式" value={item.outputMode ?? 'produce'} onChange={event => { const outputMode = event.target.value as NonNullable<typeof item.outputMode>; updateOutput(index, { outputMode, updateVariable: outputMode === 'update' ? item.updateVariable ?? '' : undefined }) }}><option value="produce">产出变量</option><option value="declare">声明并持续更新</option><option value="update">覆盖已有变量</option></select><button type="button" aria-label="删除输出变量" onClick={() => { onChange({ ...config, outputs: outputs.filter((_, i) => i !== index) }) }}>×</button>{item.outputMode === 'update' ? <select className="code-output-target" aria-label="选择覆盖变量" value={item.updateVariable ?? ''} onChange={event => { updateOutput(index, { updateVariable: event.target.value }) }}><option value="">选择要覆盖的变量…</option>{options.filter(option => option.binding.kind === 'variable').map(option => <option key={option.key} value={option.binding.kind === 'variable' ? option.binding.name : ''}>{option.label}</option>)}</select> : null}</div>)}
+      {outputs.map((item, index) => <div className="code-output-row code-dify-output" key={`code-output-${index}`}>{item.outputMode !== 'update' ? <input aria-label="输出变量名" value={item.name} placeholder="例如 result" onChange={event => { updateOutput(index, { name: event.target.value, outputMode: item.outputMode ?? 'produce' }) }} /> : null}<select aria-label="输出变量类型" value={item.valueType ?? 'any'} onChange={event => { updateOutput(index, { valueType: event.target.value as NonNullable<typeof item.valueType> }) }}><option value="any">自动</option><option value="string">文本</option><option value="number">数字</option><option value="boolean">布尔值</option><option value="object">对象</option><option value="array">数组</option></select><select aria-label="输出变量保存方式" value={item.outputMode ?? 'produce'} onChange={event => { const outputMode = event.target.value as NonNullable<typeof item.outputMode>; updateOutput(index, { outputMode, updateVariable: outputMode === 'update' ? item.updateVariable ?? '' : undefined }) }}><option value="produce">产出变量</option><option value="declare">声明并持续更新</option><option value="update">覆盖已有变量</option></select><button type="button" aria-label="删除输出变量" onClick={() => { onChange({ ...config, outputs: outputs.filter((_, i) => i !== index) }) }}>×</button>{item.outputMode === 'update' && item.name ? <small className="properties-hint">代码返回字段：<code>{item.name}</code></small> : null}{item.outputMode === 'update' ? <select className="code-output-target" aria-label="选择覆盖变量" value={item.updateVariable ?? ''} onChange={event => { updateOutput(index, { updateVariable: event.target.value }) }}><option value="">选择要覆盖的变量…</option>{options.filter(option => option.binding.kind === 'variable').map(option => <option key={option.key} value={option.binding.kind === 'variable' ? option.binding.name : ''}>{option.label}</option>)}</select> : null}</div>)}
     </section>
 
     <details className="code-dify-test"><summary>测试代码</summary><p>测试不会改动流程变量。输入对象字段名应与上方代码输入名称一致。</p><div className="code-test-heading"><strong>input 测试值</strong><button type="button" onClick={() => { setFixture(fixtureFor(inputNames)) }}>根据输入生成</button></div><textarea rows={5} value={fixture} onChange={event => { setFixture(event.target.value) }} spellCheck={false} /><div className="code-test-heading"><strong>variables 测试值</strong><span>仅填写代码中使用到的全局变量</span></div><textarea rows={4} value={variableFixture} onChange={event => { setVariableFixture(event.target.value) }} spellCheck={false} /><button type="button" disabled={testing} onClick={() => { void test() }}>{testing ? '运行中…' : '▶ 运行测试'}</button>{testResult ? <div className={`code-test-result ${testResult.ok ? 'is-success' : 'is-error'}`}><strong>{testResult.ok ? '运行结果' : '运行失败'}</strong><pre>{testResult.ok ? JSON.stringify(testResult.value, null, 2) : testResult.message}</pre></div> : null}</details>

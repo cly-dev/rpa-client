@@ -463,7 +463,7 @@ export interface WorkflowEdge {
   readonly sourceNodeId: string
   readonly sourcePort: string
   readonly targetNodeId: string
-  /** ELK-generated canvas route; omitted when the edge has not been formatted. */
+  /** Complete ELK canvas polyline (start, bends, end); omitted before formatting. */
   readonly layoutPoints?: readonly NodePosition[]
 }
 

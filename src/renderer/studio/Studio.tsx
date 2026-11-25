@@ -7,6 +7,7 @@ import {
   MiniMap,
   MarkerType,
   ReactFlow,
+  ViewportPortal,
   getBezierPath,
   type Connection,
   type Edge,
@@ -39,7 +40,8 @@ import { normalizeNotificationNodes } from '@graph/notification-node.ts'
 import { runDry, type DryRunState } from '@runner/dry-run.ts'
 import { workflowNeedsBrowser } from '@runner/page-requirement.ts'
 import { FlowNode } from './FlowNode.tsx'
-import { recordNodeMeasurements, toFlowNodes, type NodeSize } from './flow-nodes.ts'
+import { layoutMeasurements, recordNodeMeasurements, toFlowNodes, type NodeSize } from './flow-nodes.ts'
+import { loopRegions } from './loop-regions.ts'
 import { Palette, readPaletteType } from './Palette.tsx'
 import { Properties } from './Properties.tsx'
 import { RunPanel } from './RunPanel.tsx'
@@ -61,7 +63,6 @@ import { ApprovalRichText } from './ApprovalRichText.tsx'
 import { isScheduledExecutionActive } from './scheduled-executions.ts'
 import type { AuthUser } from '../auth.ts'
 import { shouldInsertPickedDropdownSteps } from '@graph/picked-selector.ts'
-import { displayPickedSelector } from './selector-display.ts'
 import { insertRecordedSteps, recordedEventsToSteps } from '@runner/recording.ts'
 
 const nodeTypes = { studio: FlowNode }
@@ -115,7 +116,7 @@ function subflowCallsSignature(graph: WorkflowGraph, workflowId: string): string
   return JSON.stringify(graph.nodes.filter(node => node.config.type === 'call-subflow' && node.config.workflowId === workflowId).map(node => [node.id, node.config]))
 }
 
-function toEdges(graph: WorkflowGraph, onInsert: (edgeId: string, type: NodeType) => void): Edge[] {
+function toEdges(graph: WorkflowGraph, onInsert: (edgeId: string, type: NodeType) => void, selectedId?: string, hoveredEdgeId?: string): Edge[] {
   return graph.edges.map(edge => ({
     id: edge.id,
     source: edge.sourceNodeId,
@@ -124,15 +125,16 @@ function toEdges(graph: WorkflowGraph, onInsert: (edgeId: string, type: NodeType
     type: 'insertable',
     // Edges are removed only through the explicit context-menu action below.
     deletable: false,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#8792a2', width: 16, height: 16 },
-    data: { onInsert },
+    className: `studio-flow-edge${selectedId === undefined ? '' : edge.sourceNodeId === selectedId || edge.targetNodeId === selectedId ? ' is-related' : ' is-muted'}`,
+    markerEnd: { type: MarkerType.ArrowClosed, color: edge.sourceNodeId === selectedId || edge.targetNodeId === selectedId ? '#6556cc' : '#b2bdcc', width: 14, height: 14 },
+    data: { onInsert, hovered: hoveredEdgeId === edge.id },
   }))
 }
 
 function InsertableEdge(props: EdgeProps): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const data = props.data as { onInsert?: (edgeId: string, type: NodeType) => void } | undefined
+  const data = props.data as { onInsert?: (edgeId: string, type: NodeType) => void; hovered?: boolean } | undefined
   const [path, labelX, labelY] = getBezierPath(props)
   const unavailableReason = (type: NodeType): string | undefined => {
     if (type === 'for-each') return '循环需要分别连接「循环体」和「完成」出口'
@@ -149,7 +151,7 @@ function InsertableEdge(props: EdgeProps): ReactNode {
   return <>
     <BaseEdge id={props.id} path={path} markerEnd={props.markerEnd} style={props.style} />
     <EdgeLabelRenderer>
-      <div className="edge-insert-anchor nodrag nopan" style={{ position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: 'all' }}>
+      <div className={`edge-insert-anchor nodrag nopan${menuOpen || data?.hovered || props.selected ? ' is-visible' : ''}`} style={{ position: 'absolute', transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: 'all' }}>
         <button
           type="button"
           className="edge-insert-trigger"
@@ -196,6 +198,8 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [pageEnvironment, setPageEnvironment] = useState<{ url: string; title: string }>()
   const [running, setRunning] = useState(false)
   const [bulkUpdatingSubflow, setBulkUpdatingSubflow] = useState(false)
+  const [arranging, setArranging] = useState(false)
+  const arrangingRef = useRef(false)
   const [runtimeInputDialog, setRuntimeInputDialog] = useState(false)
   type PickerField = 'selector' | 'triggerSelector' | 'beforeHover' | 'waitForVisible' | 'loadingSelector' | 'rowSelector' | 'extractField' | 'listMatchedActionTrigger'
     | 'listContainerSelector' | 'listRowSelector' | 'listMatchField' | 'listMatchedAction' | 'listDeleteSelector' | 'listConfirmSelector'
@@ -224,6 +228,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   const [pageRecording, setPageRecording] = useState(false)
   const [recordingEventCount, setRecordingEventCount] = useState(0)
   const [edgeMenu, setEdgeMenu] = useState<{ edgeId: string; x: number; y: number }>()
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string>()
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number }>()
   const [saveState, setSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved')
   const savedGraphSnapshot = useRef<string | null>(null)
@@ -344,14 +349,17 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       ],
     }
     setGraph(next)
-    void autoLayoutGraph(next, nodeSizes.current).then(setGraph).catch(error => {
+    void autoLayoutGraph(next, layoutMeasurements(next, nodeSizes.current, id => flowRef.current?.getInternalNode(id))).then(arranged => {
+      setGraph(current => current === next ? arranged : current)
+    }).catch(error => {
       setNotice(`节点已插入，但自动排布失败：${error instanceof Error ? error.message : String(error)}`)
     })
     setSelectedId(inserted.id)
     setNotice(`已在连线中插入「${NODE_CATALOG[type].title}」`)
   }, [graph])
-  const edges = useMemo(() => toEdges(graph, insertNodeOnEdge), [graph, insertNodeOnEdge])
+  const edges = useMemo(() => toEdges(graph, insertNodeOnEdge, selectedId, hoveredEdgeId), [graph, insertNodeOnEdge, selectedId, hoveredEdgeId])
   const selected = graph.nodes.find(node => node.id === selectedId)
+  const canvasLoopRegions = useMemo(() => loopRegions(graph, nodeSizes.current), [graph, nodeMeasurementRevision])
 
   const keepCanvasVisible = (_event: MouseEvent | TouchEvent | null, viewport: { x: number; y: number; zoom: number }): void => {
     const canvas = canvasRef.current
@@ -450,17 +458,44 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
   }, [])
 
   const formatCanvas = async (): Promise<void> => {
-    try {
-      const arranged = await autoLayoutGraph(graph, nodeSizes.current)
-      setGraph(arranged)
-    } catch (error) {
-      setNotice(`自动排布失败：${error instanceof Error ? error.message : String(error)}`)
+    if (arrangingRef.current) return
+    const snapshot = graphRef.current
+    if (snapshot.nodes.length < 2) {
+      setNotice('至少需要两个节点才能自动排布')
       return
     }
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => { void flowRef.current?.fitView({ duration: 260, padding: 0.16, maxZoom: 1.1 }) })
-    })
-    setNotice('已使用 ELK 自动整理节点布局')
+    arrangingRef.current = true
+    setArranging(true)
+    try {
+      const arranged = await autoLayoutGraph(snapshot, layoutMeasurements(snapshot, nodeSizes.current, id => flowRef.current?.getInternalNode(id)))
+      if (graphRef.current !== snapshot) {
+        setNotice('流程已发生修改，本次排布已取消，请重新自动排布')
+        return
+      }
+      setGraph(current => current === snapshot ? arranged : current)
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (graphRef.current !== arranged) return
+          const instance = flowRef.current
+          const canvas = canvasRef.current
+          const entry = arranged.nodes.find(node => node.id === arranged.entryNodeId)
+          if (!instance || !canvas || !entry) return
+          const zoom = Math.max(0.75, Math.min(1, instance.getZoom()))
+          const entryHeight = nodeSizes.current.get(entry.id)?.height ?? 96
+          void instance.setViewport({
+            x: 64 - entry.position.x * zoom,
+            y: canvas.clientHeight / 2 - (entry.position.y + entryHeight / 2) * zoom,
+            zoom,
+          }, { duration: 260 })
+        })
+      })
+      setNotice('已按执行顺序整理节点与分支')
+    } catch (error) {
+      setNotice(`自动排布失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      arrangingRef.current = false
+      setArranging(false)
+    }
   }
 
   const changeNode = (id: string, patch: {
@@ -1049,11 +1084,11 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
       if (picked.selector === '') { setNotice('已取消元素拾取'); return }
       const node = graph.nodes.find(item => item.id === nodeId)
       if (node === undefined) return
-      // Persist the same readable selector shown in the properties panel so
-      // users can copy it between nodes without depending on encoded internals.
-      const value = displayPickedSelector(picked.selector)
-      const triggerSelector = picked.triggerSelector === undefined ? undefined : displayPickedSelector(picked.triggerSelector)
-      const optionSelector = picked.optionSelector === undefined ? undefined : displayPickedSelector(picked.optionSelector)
+      // Keep the picker's executable fingerprint (keys, roles, context).
+      // Properties renders a readable preview without discarding this data.
+      const value = picked.selector
+      const triggerSelector = picked.triggerSelector
+      const optionSelector = picked.optionSelector
       const config = node.config
       if (config.type === 'extract' && field === 'rowSelector') setGraph(current => patchNode(current, nodeId, { config: { ...config, rowSelector: value } }))
       else if (config.type === 'extract' && field === 'extractField' && stepIndex !== undefined) setGraph(current => patchNode(current, nodeId, { config: { ...config, fields: (config.fields ?? []).map((item, index) => index === stepIndex ? { ...item, selector: value } : item) } }))
@@ -1185,7 +1220,7 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
             <button ref={toolbarMenuButtonRef} type="button" className="toolbar-more-trigger" aria-label="更多操作" aria-haspopup="true" aria-expanded={toolbarMenuOpen} aria-controls={toolbarMenuOpen ? 'toolbar-more-menu' : undefined} title="更多操作" onClick={() => { setToolbarMenuOpen(open => !open) }}>···</button>
             {toolbarMenuOpen ? <div className="toolbar-more-menu" id="toolbar-more-menu">
               <button type="button" onClick={() => { setToolbarMenuOpen(false); void save() }}>保存草稿</button>
-              <button type="button" onClick={() => { setToolbarMenuOpen(false); void formatCanvas() }}>自动排布</button>
+              <button type="button" disabled={arranging} onClick={() => { setToolbarMenuOpen(false); void formatCanvas() }}>{arranging ? '正在排布…' : '自动排布'}</button>
               <button type="button" onClick={() => { setToolbarMenuOpen(false); setWebhookOpen(true) }}>Webhook 通知设置</button>
               <hr />
               <button type="button" onClick={() => { setToolbarMenuOpen(false); workflowJsonInputRef.current?.click() }}>导入流程 JSON</button>
@@ -1204,6 +1239,10 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
         <Palette />
         <VariablesPanel graph={graph} subflows={editorSubflows} outputs={run?.outputs} inputs={run?.inputs} variables={run?.variables} page={pageEnvironment ?? run?.page} />
         <div className="canvas-shell" ref={canvasRef} onDragOver={event => { event.preventDefault() }} onDrop={onDrop}>
+          <div className="canvas-layout-tools" aria-label="画布布局">
+            <button type="button" disabled={arranging} onClick={() => { void formatCanvas() }}>{arranging ? '排列中…' : '自动排列'}</button>
+            <button type="button" onClick={() => { void flowRef.current?.fitView({ duration: 260, padding: 0.16, minZoom: 0.04, maxZoom: 1.1 }) }}>查看全图</button>
+          </div>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -1214,6 +1253,8 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
             onConnect={onConnect}
             connectOnClick
             onReconnect={onReconnect}
+            onEdgeMouseEnter={(_event, edge) => { setHoveredEdgeId(edge.id) }}
+            onEdgeMouseLeave={(_event, edge) => { setHoveredEdgeId(current => current === edge.id ? undefined : current) }}
             onEdgeContextMenu={(event, edge) => {
               event.preventDefault()
               setNodeMenu(undefined)
@@ -1230,10 +1271,14 @@ export function Studio({ currentUser, onLogout }: { currentUser: AuthUser; onLog
             panOnDrag
             panActivationKeyCode="Space"
             autoPanOnNodeDrag={false}
+            minZoom={0.04}
             fitView
             deleteKeyCode={null}
           >
             <Background gap={18} size={1} />
+            <ViewportPortal>
+              {canvasLoopRegions.map(region => <div key={region.id} className="canvas-loop-region" style={{ left: region.x, top: region.y, width: region.width, height: region.height }}><span title={region.name}>循环体 · {region.name}</span></div>)}
+            </ViewportPortal>
             <Controls />
             <MiniMap pannable zoomable width={64} height={44} />
           </ReactFlow>

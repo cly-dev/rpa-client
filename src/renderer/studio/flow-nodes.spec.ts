@@ -1,14 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { ReactFlowProvider, type NodeProps } from '@xyflow/react'
+import { ReactFlowProvider, type InternalNode, type NodeProps } from '@xyflow/react'
 import { createDefaultTemplate } from '@graph/template.ts'
 import { createNode, createEdge } from '@graph/mutate.ts'
 import { validateGraph } from '@graph/validate.ts'
-import { recordNodeMeasurements, toFlowNodes } from './flow-nodes.ts'
+import { layoutMeasurements, recordNodeMeasurements, toFlowNodes } from './flow-nodes.ts'
 import { FlowNode, type StudioFlowNode } from './FlowNode.tsx'
 
 describe('toFlowNodes', () => {
+  it('passes the actual handle endpoints to ELK, including their border offsets', () => {
+    const graph = createDefaultTemplate()
+    const internal = { internals: { handleBounds: {
+      source: [{ id: 'default', x: 195, y: 30, width: 10, height: 10 }],
+      target: [{ x: -5, y: 45, width: 10, height: 10 }],
+    } } } as InternalNode
+    const sizes = new Map(graph.nodes.map(node => [node.id, { width: 200, height: 100 }]))
+    const result = layoutMeasurements(graph, sizes, () => internal)
+    expect(result.get(graph.entryNodeId)).toEqual({
+      width: 200, height: 100,
+      sourceHandles: { default: { x: 205, y: 35 } },
+      targetHandle: { x: -5, y: 50 },
+    })
+  })
   it('updates controlled node measurements after the first canvas layout', () => {
     const graph = createDefaultTemplate()
     const measured = new Map()

@@ -63,3 +63,14 @@ it('renders custom approval fields inside the notification variable selector', (
   expect(html).toContain('aria-label="插入通知变量"')
   for (const field of ['approvedReply', 'approvedReply.content', 'approvedReply.plainText', 'approvedReply.modified', 'approvedReply.comment']) expect(html).toContain(`<option value="${field}">${field}</option>`)
 })
+
+it.each(['produce', 'update'] as const)('only asks for an Agent field name in produce mode (%s)', outputMode => {
+  const start = createNode('start', { x: 0, y: 0 })
+  const agent = createNode('agent', { x: 100, y: 0 })
+  const end = createNode('end', { x: 200, y: 0 })
+  const configured = { ...agent, config: { type: 'agent' as const, systemPrompt: '分析', task: '分析方案', dryAction: 'note' as const, outputs: [{ name: 'effectiveSolution', description: '方案', valueType: 'string' as const, outputMode, updateVariable: 'customerSolution' }] } }
+  const graph: WorkflowGraph = { workflowId: 'overwrite-ui', name: '覆盖变量', version: 1, entryNodeId: start.id, nodes: [start, configured, end], edges: [createEdge(start.id, 'default', agent.id), createEdge(agent.id, 'default', end.id)], context: { inputs: [], variables: [{ name: 'customerSolution', type: 'string' }] } }
+  const html = renderToStaticMarkup(createElement(Properties, { graph, node: configured, onChange() {}, onBatchSubflowVersion: async () => {}, batchSubflowBusy: false, onImport() {}, onRun() {}, onPick() {} }))
+  if (outputMode === 'update') { expect(html).not.toContain('Agent 输出字段 1 名称'); expect(html).toContain('要覆盖的变量'); expect(html).toContain('customerSolution') }
+  else expect(html).toContain('Agent 输出字段 1 名称')
+})

@@ -888,6 +888,10 @@ textarea { resize: vertical; }
 .palette-item[data-kind='decision'] { border-left: 3px solid var(--decision); }
 .palette-item[data-kind='terminal'] { border-left: 3px solid var(--entry); }
 .edge-insert-anchor { z-index: 8; }
+.studio-flow-edge .react-flow__edge-path { stroke: #b2bdcc; stroke-width: 1.4; transition: stroke .15s, opacity .15s; }
+.studio-flow-edge.is-related .react-flow__edge-path { stroke: #6556cc; stroke-width: 2; }
+.studio-flow-edge.is-muted { opacity: .3; }
+.studio-flow-edge:hover, .studio-flow-edge:focus-within { opacity: 1; }
 .edge-context-menu { position: fixed; z-index: 100; min-width: 126px; padding: 5px; border: 1px solid #e4e7ec; border-radius: 9px; background: #fff; box-shadow: 0 10px 28px rgba(16,24,40,.18); }
 .edge-context-menu button { width: 100%; border: 0; border-radius: 6px; padding: 7px 10px; background: transparent; color: #b42318; text-align: left; cursor: pointer; font-size: 11px; }
 .edge-context-menu button:hover { background: #fff1f0; }
@@ -897,7 +901,9 @@ textarea { resize: vertical; }
 .node-context-menu button:disabled { color: #98a2b3; cursor: not-allowed; }
 .edge-insert-trigger { position: relative; isolation: isolate; display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 1px solid #cfd5e2 !important; border-radius: 50%; background: #fff !important; color: #667085; box-shadow: 0 2px 7px rgba(16,24,40,.15); font-size: 17px; line-height: 1; opacity: .88; transition: opacity .15s, color .15s, border-color .15s, transform .15s, box-shadow .15s; }
 .edge-insert-trigger::before { position: absolute; z-index: -1; inset: -4px; border-radius: 50%; background: #fff; content: ''; }
-.edge-insert-anchor:hover .edge-insert-trigger, .edge-insert-trigger[aria-expanded='true'] { opacity: 1; color: var(--accent); border-color: #b8b5fb; box-shadow: 0 3px 10px rgba(79,70,229,.2); transform: scale(1.06); }
+.edge-insert-anchor .edge-insert-trigger { opacity: 0; }
+.edge-insert-anchor.is-visible .edge-insert-trigger, .edge-insert-anchor:hover .edge-insert-trigger, .edge-insert-anchor:focus-within .edge-insert-trigger, .edge-insert-trigger[aria-expanded='true'] { opacity: 1; color: var(--accent); border-color: #b8b5fb; box-shadow: 0 3px 10px rgba(79,70,229,.2); transform: scale(1.06); }
+@media (hover: none) { .edge-insert-anchor .edge-insert-trigger { opacity: .65; } }
 .edge-insert-menu { position: absolute; top: 32px; left: 50%; width: 228px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 7px; transform: translateX(-50%); border: 1px solid #e7e9f0; border-radius: 12px; background: rgba(255,255,255,.98); box-shadow: 0 12px 32px rgba(16,24,40,.18); color: var(--text); }
 .edge-insert-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 3px 4px 7px 7px; border-bottom: 1px solid #f0f1f5; }
 .edge-insert-menu-heading strong { font-size: 12px; font-weight: 650; }
@@ -918,7 +924,13 @@ textarea { resize: vertical; }
 .edge-insert-group > button strong { font-size: 11px; font-weight: 600; }
 .edge-insert-group > button small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
-.canvas-shell { min-width: 0; height: 100%; background: #f7f8fc; }
+.canvas-shell { position: relative; min-width: 0; height: 100%; background: #f7f8fc; }
+.canvas-layout-tools { position: absolute; top: 14px; right: 14px; z-index: 5; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgba(16,24,40,.05); }
+.canvas-layout-tools button { border: 0; border-radius: 5px; padding: 6px 10px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
+.canvas-layout-tools button:hover { background: var(--accent-soft); color: var(--accent); }
+.canvas-layout-tools button:disabled { opacity: .5; cursor: wait; }
+.canvas-loop-region { position: absolute; border: 1px dashed #ccd3e0; border-radius: 12px; pointer-events: none; }
+.canvas-loop-region > span { position: absolute; left: 12px; top: -10px; max-width: calc(100% - 24px); overflow: hidden; padding: 0 6px; background: #f7f8fc; color: #8390a3; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .react-flow { background: transparent; }
 
 .flow-node {
@@ -1597,3 +1609,5 @@ textarea { resize: vertical; }
 .approval-content-editor pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; }
 .approval-content-editor details { margin-top:12px; color:#8a93a3; font-size:11px; }
 @media(max-width:560px) { .review-rich-body { padding:18px; } .review-rich-toolbar { gap:3px; } .review-tool-divider { margin:0 1px; } .review-history-tools { margin-left:0; } .review-content-actions .review-restore { font-size:0; gap:0; } }
+
+.agent-output-definition.is-overwrite { grid-template-columns: minmax(0, 160px); }

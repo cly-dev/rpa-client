@@ -1,8 +1,25 @@
-import type { Node, NodeChange } from '@xyflow/react'
+import type { InternalNode, Node, NodeChange } from '@xyflow/react'
+import type { LayoutNodeSize } from '@graph/layout.ts'
 import type { NodeRunStatus, ValidationIssue, WorkflowGraph, WorkflowNode } from '@graph/types.ts'
 import type { FlowNodeData } from './FlowNode.tsx'
 
 export type NodeSize = { readonly width?: number; readonly height?: number }
+
+export function layoutMeasurements(
+  graph: WorkflowGraph,
+  measured: ReadonlyMap<string, NodeSize>,
+  getNode: (id: string) => InternalNode | undefined,
+): ReadonlyMap<string, LayoutNodeSize> {
+  return new Map(graph.nodes.map(node => {
+    const handles = getNode(node.id)?.internals.handleBounds
+    const target = handles?.target?.[0]
+    return [node.id, {
+      ...measured.get(node.id),
+      sourceHandles: Object.fromEntries((handles?.source ?? []).map(handle => [handle.id ?? 'default', { x: handle.x + handle.width, y: handle.y + handle.height / 2 }])),
+      targetHandle: target === undefined ? undefined : { x: target.x, y: target.y + target.height / 2 },
+    }]
+  }))
+}
 
 export function recordNodeMeasurements(changes: readonly NodeChange[], measured: Map<string, NodeSize>): boolean {
   let changed = false

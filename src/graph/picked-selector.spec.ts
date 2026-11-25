@@ -49,3 +49,9 @@ describe('picked dropdown selectors', () => {
     )).toBe(true)
   })
 })
+
+it('extracts only the last picked path segment while preserving its position', async () => {
+  const { pickedParentTail } = await import('./picked-selector.ts')
+  expect(pickedParentTail('html > body:nth-of-type(1) > div.arco-tree-select-popup > div.arco-tree-node.arco-tree-node-is-leaf:nth-of-type(13)')).toBe('div.arco-tree-node.arco-tree-node-is-leaf:nth-of-type(13)')
+  expect(pickedParentTail('html > div[data-label="a>b"]:has(span > b)')).toBe('div[data-label="a>b"]:has(span > b)')
+})

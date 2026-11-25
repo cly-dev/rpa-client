@@ -151,6 +151,12 @@ export function validateGraph(graph: WorkflowGraph, subflows: readonly WorkflowG
         issues.push(issue('agent-prompt-empty', { nodeId: node.id }))
       }
     }
+    const config = node.config
+    const saves = config.type === 'agent' || config.type === 'code' ? config.outputs?.length ? config.outputs : [config]
+      : config.type === 'page-action' ? config.steps.filter(step => step.type === 'extract') : [config]
+    if (saves.some(item => 'outputMode' in item && item.outputMode === 'update' && (!('updateVariable' in item) || !item.updateVariable?.trim()))) {
+      issues.push({ ...issue('declared-variable-empty', { nodeId: node.id }), message: '覆盖已有变量时，请选择要覆盖的变量' })
+    }
     if (node.config.type === 'condition' && node.config.mode === 'ai' && (node.config.aiPrompt ?? '').trim() === '') {
       issues.push(issue('condition-ai-prompt-empty', { nodeId: node.id }))
     }

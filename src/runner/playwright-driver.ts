@@ -1,3 +1,4 @@
+import { pickedParentTail } from '@graph/picked-selector.ts'
 import type { Browser, BrowserContext, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { ChatOpenAI } from '@langchain/openai'
@@ -5,6 +6,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { z } from 'zod'
 import type { BrowserDriver, ListRowOperationRequest, ListRowOperationResult, VisionImageInput, VisionRecognitionDecision } from './browser-run.ts'
 import { ApiResponseError } from './api-response-error.ts'
+import { downloadUploadFile } from './file-download.ts'
 import { browserExecutablePath, checkBrowserReadiness } from './browser-readiness.ts'
 import { listRowValuesMatch } from './list-row-match.ts'
 import type { RecordedPageEvent } from './recording.ts'
@@ -431,9 +433,10 @@ async function resolveTreeOptionLocator(page: Page, fingerprint: ElementFingerpr
   if (await openTree.count().catch(() => 0) === 0) return undefined
   const key = fingerprint.attributes['data-key'] || fingerprint.attributes['data-value']
   if (key !== undefined && key !== '') {
-    const byKey = openTree.locator(`[data-key="${CSS.escape(key)}"], [data-value="${CSS.escape(key)}"]`)
+    const byKey = openTree.locator(`[data-key=${JSON.stringify(key)}], [data-value=${JSON.stringify(key)}]`)
     await scrollTreeUntil(openTree, async () => await byKey.count().catch(() => 0) > 0)
-    if (await byKey.count().catch(() => 0) > 0) return clickableTreeNode(byKey.first())
+    const keyed = byKey.filter({ hasText: exactTextPattern(text) })
+    if (await keyed.count().catch(() => 0) === 1) return clickableTreeNode(keyed.first())
   }
   const nodeSegment = treeNodePathSegment(fingerprint)
   if (nodeSegment !== '') {
@@ -455,10 +458,11 @@ async function resolveTreeOptionLocator(page: Page, fingerprint: ElementFingerpr
 }
 
 async function clickResolvedLocator(locator: Locator, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + Math.max(1, timeoutMs)
   await locator.scrollIntoViewIfNeeded({ timeout: Math.min(2_000, timeoutMs) }).catch(() => undefined)
   // Keep Playwright's hit-target/actionability checks. A forced or DOM-level
   // click can report success while a loading mask receives the real pointer.
-  await locator.click({ timeout: timeoutMs })
+  await locator.click({ timeout: Math.max(1, deadline - Date.now()) })
 }
 
 function isDropdownPopupParentPath(parentPath: string): boolean {
@@ -485,19 +489,63 @@ async function resolveReadableDrawerTextLocator(page: Pick<Page, 'locator'>, rea
   return target
 }
 
-async function resolveReadablePopupTextLocator(
+/** Text can appear twice inside one selectable tree/option row. Count logical
+ * options, not the number of nested labels or popup ancestors. */
+async function distinctPopupOptions(matches: Locator): Promise<Locator[]> {
+  const indices = await matches.evaluateAll(elements => {
+    const owners = new Map<Element, number>()
+    elements.forEach((element, index) => {
+      const owner = element.closest('[role="option"], [role="treeitem"], [role="menuitem"], .arco-tree-node, .arco-select-option, .ant-select-item-option, .el-select-dropdown__item') ?? element
+      const existing = owners.get(owner)
+      // Prefer the innermost text label when ancestor and child both matched.
+      if (existing === undefined || elements[existing]!.contains(element)) owners.set(owner, index)
+    })
+    return [...owners.values()]
+  })
+  return indices.map(index => matches.nth(index))
+}
+
+export async function resolveReadablePopupTextLocator(
   page: Pick<Page, 'locator'>,
   readable: ReadableScopedTextSelector,
   timeoutMs: number,
 ): Promise<Locator> {
-  const popupRoots = page.locator('.arco-select-popup:visible, .arco-tree-select-popup:visible, .ant-select-dropdown:visible, .el-select-dropdown:visible, [role="listbox"]:visible, [role="menu"]:visible')
-  const matches = popupRoots.getByText(readable.text, { exact: true }).visible()
-  const target = readable.textIndex === undefined ? matches.first() : matches.nth(readable.textIndex)
-  await target.waitFor({ state: 'visible', timeout: Math.max(1, timeoutMs) })
-  const count = await matches.count()
-  if (readable.textIndex === undefined && count > 1) throw new Error(`当前可见下拉弹层中的精确文本「${readable.text}」匹配到 ${count} 个元素`)
-  if (readable.textIndex !== undefined && count <= readable.textIndex) throw new Error(`当前可见下拉弹层中的精确文本「${readable.text}」只有 ${count} 个，找不到第 ${readable.textIndex + 1} 个`)
-  return target
+  const deadline = Date.now() + Math.max(1, timeoutMs)
+  const remaining = (): number => Math.max(1, deadline - Date.now())
+  const roots = page.locator('.arco-select-popup:visible, .arco-tree-select-popup:visible, .ant-select-dropdown:visible, .el-select-dropdown:visible, [role="listbox"]:visible, [role="menu"]:visible')
+  const matches = roots.getByText(readable.text, { exact: true }).visible()
+  await matches.first().waitFor({ state: 'visible', timeout: remaining() })
+  let options = await distinctPopupOptions(matches)
+  if (options.length === 1) return options[0]!
+
+  // A unique visible text needs no positional path. Only ambiguous text is
+  // narrowed by the picked final segment, preserving its nth-of-type index.
+  const tail = pickedParentTail(readable.parentPath)
+  if (!tail) throw new Error(`「${readable.text}」匹配到 ${options.length} 个独立选项，但拾取路径缺少尾部选择器，请重新拾取`)
+  let narrowed: Locator
+  try {
+    narrowed = matches.and(page.locator(tail).getByText(readable.text, { exact: true }).visible())
+    await narrowed.first().waitFor({ state: 'visible', timeout: remaining() })
+  } catch (error) {
+    throw new Error(`精确文本「${readable.text}」匹配到 ${options.length} 个独立选项，但尾部选择器「${tail}」未匹配到相同文本的可见选项，请确认选项位置是否变化或重新拾取`, { cause: error })
+  }
+  options = await distinctPopupOptions(narrowed)
+  if (options.length === 1) return options[0]!
+  if (options.length > 1 && readable.parentPath !== tail) {
+    // Multiple open trees may each have an identically numbered leaf. Use the
+    // full picked scope only as a final discriminator, never pick arbitrarily.
+    const original = narrowed.and(page.locator(readable.parentPath).getByText(readable.text, { exact: true }).visible())
+    const scopedOptions = await distinctPopupOptions(original)
+    if (scopedOptions.length > 0) options = scopedOptions
+  }
+  if (options.length === 1) return options[0]!
+  if (readable.textIndex !== undefined) {
+    const target = options[readable.textIndex]
+    if (target === undefined) throw new Error(`尾部范围「${tail}」内「${readable.text}」只有 ${options.length} 个独立选项，找不到第 ${readable.textIndex + 1} 个`)
+    return target
+  }
+  if (options.length !== 1) throw new Error(`精确文本「${readable.text}」经尾部选择器「${tail}」定位后仍有 ${options.length} 个独立选项，请重新拾取具体选项，不能自动猜测点击目标`)
+  return options[0]!
 }
 
 async function resolveTargetLocator(page: Page, selector: string, timeoutMs: number, requireVisible = true): Promise<Locator> {
@@ -603,7 +651,9 @@ export async function waitForPickedSelector(
     return
   }
   if (isPickedFingerprintSelector(selector)) {
-    throw new Error('拾取指纹无法按可见文本等待。请重新拾取该元素')
+    const target = await resolveTargetLocator(page as Page, selector, timeout, state === 'visible')
+    await target.waitFor({ state, timeout })
+    return
   }
   if (selector.startsWith('text-exact:')) {
     const text = selector.slice('text-exact:'.length)
@@ -1064,6 +1114,7 @@ function createDriver(page: Page): BrowserDriver {
     } else await target.fill(text, { timeout: timeoutMs })
   }
   const operateListRows = async (request: ListRowOperationRequest): Promise<ListRowOperationResult> => {
+    const listDeadline = Date.now() + request.timeoutMs
     const trace = (message: string): void => { request.trace?.(message) }
     const preview = (value: string, limit = 120): string => {
       const normalized = value.replace(/\s+/g, ' ').trim()
@@ -1117,15 +1168,7 @@ function createDriver(page: Page): BrowserDriver {
       let source: URL
       try { source = new URL(url, page.url()) } catch { throw new Error('行内图片链接不是有效网址，也无法相对当前页面解析') }
       if (source.protocol !== 'http:' && source.protocol !== 'https:') throw new Error('行内图片链接只支持 HTTP 或 HTTPS')
-      const response = await page.context().request.get(source.toString(), { timeout: request.timeoutMs })
-      if (!response.ok()) throw new Error(`行内图片下载失败：HTTP ${response.status()}`)
-      const maxBytes = 25 * 1024 * 1024
-      const length = Number(response.headers()['content-length'] ?? 0)
-      if (length > maxBytes) throw new Error('行内图片超过 25 MB，已停止下载')
-      const buffer = await response.body()
-      if (buffer.byteLength === 0) throw new Error('行内图片下载内容为空')
-      if (buffer.byteLength > maxBytes) throw new Error('行内图片超过 25 MB，已停止上传')
-      const headers = response.headers()
+      const { buffer, headers } = await downloadUploadFile(page, source.toString(), Math.max(1, listDeadline - Date.now() - 500), trace)
       let mimeType = (headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim() || 'application/octet-stream'
       if (mimeType === 'application/octet-stream') {
         if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) mimeType = 'image/jpeg'
@@ -1289,11 +1332,12 @@ function createDriver(page: Page): BrowserDriver {
     },
     async click(selector: string, timeoutMs = 30_000): Promise<void> {
       const beforeUrl = page.url()
+      const deadline = Date.now() + Math.max(1, timeoutMs)
       if (shouldClickByExactVisibleText(selector)) {
         const text = selector.trim().slice('text-exact:'.length)
         await clickExactVisibleText(page, text, Math.min(timeoutMs, 8_000))
       } else {
-        await clickResolvedLocator(await resolveTargetLocator(page, selector, timeoutMs), timeoutMs)
+        await clickResolvedLocator(await resolveTargetLocator(page, selector, timeoutMs), Math.max(1, deadline - Date.now()))
       }
       // 不等待 loadState：站点若持续加载，Playwright 默认的 load 等待会卡满 30 秒。
       // 只给 URL 跳转或 SPA 路由一个短暂机会，其余情况直接继续。
@@ -1303,11 +1347,11 @@ function createDriver(page: Page): BrowserDriver {
       ])
     },
     async waitUntilEnabled(selector: string, timeoutMs = 30_000): Promise<void> {
+      const deadline = Date.now() + Math.max(1, timeoutMs)
       const locator = await resolveTargetLocator(page, selector, timeoutMs)
-      await locator.waitFor({ state: 'visible', timeout: timeoutMs })
-      const deadline = Date.now() + timeoutMs
+      await locator.waitFor({ state: 'visible', timeout: Math.max(1, deadline - Date.now()) })
       while (!(await locator.isEnabled())) {
-        if (Date.now() >= deadline) throw new Error(`等待元素变为可点击状态超时（${timeoutMs}ms）：${displaySelector(selector)}`)
+        if (Date.now() >= deadline) throw new Error(`等待元素变为可点击状态超时（${timeoutMs}ms）：${selector}`)
         await page.waitForTimeout(Math.min(100, Math.max(1, deadline - Date.now())))
       }
     },
@@ -1374,15 +1418,7 @@ function createDriver(page: Page): BrowserDriver {
       let source: URL
       try { source = new URL(url, page.url()) } catch { throw new Error('文件链接不是有效网址，也无法相对当前页面解析') }
       if (source.protocol !== 'http:' && source.protocol !== 'https:') throw new Error('文件链接只支持 HTTP 或 HTTPS')
-      const response = await page.context().request.get(source.toString(), { timeout: timeoutMs })
-      if (!response.ok()) throw new Error(`下载文件失败：HTTP ${response.status()}`)
-      const length = Number(response.headers()['content-length'] ?? 0)
-      const maxBytes = 25 * 1024 * 1024
-      if (length > maxBytes) throw new Error('文件超过 25 MB，已停止下载')
-      const buffer = await response.body()
-      if (buffer.byteLength === 0) throw new Error('下载到的文件为空')
-      if (buffer.byteLength > maxBytes) throw new Error('文件超过 25 MB，已停止上传')
-      const headers = response.headers()
+      const { buffer, headers } = await downloadUploadFile(page, source.toString(), Math.max(1, timeoutMs - 500))
       let mimeType = (headers['content-type'] ?? 'application/octet-stream').split(';')[0]?.trim() || 'application/octet-stream'
       if (mimeType === 'application/octet-stream') {
         if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) mimeType = 'image/jpeg'

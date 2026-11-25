@@ -66,3 +66,22 @@ export function shouldInsertPickedDropdownSteps(triggerSelector: string | undefi
     && isPickedDropdownOption(optionSelector)
     && shouldInsertDropdownTrigger(previousClickSelectors, triggerSelector)
 }
+
+/** Last child segment of a picked CSS path; '>' inside attributes/:has is data. */
+export function pickedParentTail(path: string): string {
+  let last = 0
+  let quote = ''
+  let depth = 0
+  let escaped = false
+  for (let i = 0; i < path.length; i += 1) {
+    const char = path[i]!
+    if (escaped) { escaped = false; continue }
+    if (char === '\\') { escaped = true; continue }
+    if (quote) { if (char === quote) quote = ''; continue }
+    if (char === '"' || char === "'") { quote = char; continue }
+    if (char === '[' || char === '(') depth += 1
+    else if (char === ']' || char === ')') depth -= 1
+    else if (char === '>' && depth === 0) last = i + 1
+  }
+  return path.slice(last).trim()
+}

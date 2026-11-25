@@ -126,10 +126,16 @@ describe('picked selector waits', () => {
     expect(locator).not.toHaveBeenCalled()
   })
 
-  it('does not wait for the encoded fingerprint blob as visible text', async () => {
-    const selector = `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({ version: 1, tag: 'div', css: '.arco-tree-node', text: '买错' }))}`
-    const page = { getByText: vi.fn(), locator: vi.fn() } as unknown as Pick<Page, 'getByText' | 'locator'>
-    await expect(waitForPickedSelector(page, selector, 'visible', 12_000)).rejects.toThrow('拾取指纹无法按可见文本等待')
+  it('resolves a fingerprint by its stable option key before waiting', async () => {
+    const selector = `text-exact:rpa-context:${encodeURIComponent(JSON.stringify({ version: 1, tag: 'span', css: '.arco-tree-node span', text: '买错', attributes: { 'data-key': 'reason-b' }, role: 'treeitem', textIndex: 1 }))}`
+    const waitFor = vi.fn(async () => undefined)
+    const title = { count: async () => 1, first: () => title, waitFor }
+    const row = { count: async () => 1, filter: () => row, first: () => row, locator: () => title }
+    const tree = { count: async () => 1, last: () => tree, locator: vi.fn(() => row) }
+    const page = { getByText: vi.fn(), locator: vi.fn(() => tree) } as unknown as Page
+    await waitForPickedSelector(page, selector, 'visible', 1200)
+    expect(tree.locator).toHaveBeenCalledWith('[data-key="reason-b"], [data-value="reason-b"]')
+    expect(waitFor).toHaveBeenCalledWith({ state: 'visible', timeout: 1200 })
     expect(page.getByText).not.toHaveBeenCalled()
   })
 
